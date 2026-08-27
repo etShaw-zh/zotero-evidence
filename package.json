@@ -1,24 +1,24 @@
 {
-  "name": "zotero-plugin-template",
+  "name": "zotero-evidence",
   "type": "module",
-  "version": "3.1.0",
-  "description": "Zotero Plugin Template",
+  "version": "0.1.0",
+  "description": "AI-powered Zotero plugin that streamlines systematic reviews, from screening to evidence synthesis.",
   "config": {
-    "addonName": "Zotero Plugin Template",
-    "addonID": "addontemplate@euclpts.com",
-    "addonRef": "addontemplate",
-    "addonInstance": "AddonTemplate",
-    "prefsPrefix": "extensions.zotero.addontemplate"
+    "addonName": "Zotero Evidence",
+    "addonID": "zoteroEvidence@xiaojianjun.cn",
+    "addonRef": "zoteroEvidence",
+    "addonInstance": "zoteroEvidence",
+    "prefsPrefix": "extensions.zotero.zoteroEvidence"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/windingwind/zotero-plugin-template.git"
+    "url": "git+https://github.com/etShaw-zh/zotero-evidence.git"
   },
-  "author": "windingwind",
+  "author": "Jianjun Xiao <et_shaw@126.com>",
   "bugs": {
-    "url": "https://github.com/windingwind/zotero-plugin-template/issues"
+    "url": "https://github.com/etShaw-zh/zotero-evidence/issues"
   },
-  "homepage": "https://github.com/windingwind/zotero-plugin-template#readme",
+  "homepage": "https://github.com/etShaw-zh/zotero-evidence#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "zotero-plugin serve",
