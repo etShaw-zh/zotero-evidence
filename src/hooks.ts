@@ -1,12 +1,10 @@
-import {
-  BasicExampleFactory,
-  HelperExampleFactory,
-  KeyExampleFactory,
-  PromptExampleFactory,
-  UIExampleFactory,
-} from "./modules/examples";
-import { getString, initLocale } from "./utils/locale";
-import { registerPrefsScripts } from "./modules/preferenceScript";
+import { databaseService } from "./modules/db/database";
+import { refreshProjectPaneContextCache } from "./modules/project/projectContext";
+import { registerCodingPane } from "./modules/ui/codingPane";
+import { EvidenceCommands } from "./modules/ui/commands";
+import { registerFtQueuePane } from "./modules/ui/ftQueuePane";
+import { registerScreenQueuePane } from "./modules/ui/screenQueuePane";
+import { initLocale } from "./utils/locale";
 import { createZToolkit } from "./utils/ztoolkit";
 
 async function onStartup() {
@@ -18,21 +16,18 @@ async function onStartup() {
 
   initLocale();
 
-  BasicExampleFactory.registerPrefs();
+  await databaseService.init();
+  await refreshProjectPaneContextCache();
+  // Exposed on the shared Zotero[addonInstance] object (reachable across
+  // sandbox boundaries, unlike a plain module import) so other contexts --
+  // e.g. the test runner's separately-bundled sandbox -- can trigger a
+  // refresh of *this* plugin instance's cache rather than their own copy.
+  (addon.api as any).refreshProjectPaneContextCache =
+    refreshProjectPaneContextCache;
 
-  BasicExampleFactory.registerNotifier();
-
-  KeyExampleFactory.registerShortcuts();
-
-  await UIExampleFactory.registerExtraColumn();
-
-  await UIExampleFactory.registerExtraColumnWithCustomCell();
-
-  UIExampleFactory.registerItemPaneCustomInfoRow();
-
-  UIExampleFactory.registerItemPaneSection();
-
-  UIExampleFactory.registerReaderItemPaneSection();
+  registerScreenQueuePane();
+  registerFtQueuePane();
+  registerCodingPane();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
@@ -47,50 +42,25 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   // Create ztoolkit for every window
   addon.data.ztoolkit = createZToolkit();
 
+  // registerSection's header/sidenav l10nID resolve through the window's own
+  // DOM Fluent system, separate from the getString() Localization instance
+  // created in initLocale() -- both need the same ftl file loaded.
   win.MozXULElement.insertFTLIfNeeded(
-    `${addon.data.config.addonRef}-mainWindow.ftl`,
+    `${addon.data.config.addonRef}-addon.ftl`,
   );
 
-  const popupWin = new ztoolkit.ProgressWindow(addon.data.config.addonName, {
-    closeOnClick: true,
-    closeTime: -1,
-  })
-    .createLine({
-      text: getString("startup-begin"),
-      type: "default",
-      progress: 0,
-    })
-    .show();
-
-  await Zotero.Promise.delay(1000);
-  popupWin.changeLine({
-    progress: 30,
-    text: `[30%] ${getString("startup-begin")}`,
+  const doc = win.document;
+  const styles = ztoolkit.UI.createElement(doc, "link", {
+    properties: {
+      type: "text/css",
+      rel: "stylesheet",
+      href: `chrome://${addon.data.config.addonRef}/content/zoteroPane.css`,
+    },
   });
+  doc.documentElement?.appendChild(styles);
 
-  UIExampleFactory.registerStyleSheet(win);
-
-  UIExampleFactory.registerRightClickMenuItem();
-
-  UIExampleFactory.registerRightClickMenuPopup(win);
-
-  UIExampleFactory.registerWindowMenuWithSeparator();
-
-  PromptExampleFactory.registerNormalCommandExample();
-
-  PromptExampleFactory.registerAnonymousCommandExample(win);
-
-  PromptExampleFactory.registerConditionalCommandExample();
-
-  await Zotero.Promise.delay(1000);
-
-  popupWin.changeLine({
-    progress: 100,
-    text: `[100%] ${getString("startup-finish")}`,
-  });
-  popupWin.startCloseTimer(5000);
-
-  addon.hooks.onDialogEvents("dialogExample");
+  EvidenceCommands.registerMenus();
+  EvidenceCommands.registerItemMenus();
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
@@ -117,17 +87,7 @@ async function onNotify(
   ids: Array<string | number>,
   extraData: { [key: string]: any },
 ) {
-  // You can add your code to the corresponding notify type
   ztoolkit.log("notify", event, type, ids, extraData);
-  if (
-    event == "select" &&
-    type == "tab" &&
-    extraData[ids[0]].type == "reader"
-  ) {
-    BasicExampleFactory.exampleNotifierCallback();
-  } else {
-    return;
-  }
 }
 
 /**
@@ -138,9 +98,6 @@ async function onNotify(
  */
 async function onPrefsEvent(type: string, data: { [key: string]: any }) {
   switch (type) {
-    case "load":
-      registerPrefsScripts(data.window);
-      break;
     default:
       return;
   }
@@ -148,12 +105,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
 
 function onShortcuts(type: string) {
   switch (type) {
-    case "larger":
-      KeyExampleFactory.exampleShortcutLargerCallback();
-      break;
-    case "smaller":
-      KeyExampleFactory.exampleShortcutSmallerCallback();
-      break;
     default:
       break;
   }
@@ -161,20 +112,59 @@ function onShortcuts(type: string) {
 
 function onDialogEvents(type: string) {
   switch (type) {
-    case "dialogExample":
-      HelperExampleFactory.dialogExample();
+    case "evidenceNewProject":
+      EvidenceCommands.newProjectDialog();
       break;
-    case "clipboardExample":
-      HelperExampleFactory.clipboardExample();
+    case "evidenceImport":
+      EvidenceCommands.importDialog();
       break;
-    case "filePickerExample":
-      HelperExampleFactory.filePickerExample();
+    case "evidenceCriteria":
+      EvidenceCommands.criteriaDialog();
       break;
-    case "progressWindowExample":
-      HelperExampleFactory.progressWindowExample();
+    case "evidenceFtCriteria":
+      EvidenceCommands.criteriaDialog("ft");
       break;
-    case "vtableExample":
-      HelperExampleFactory.vtableExample();
+    case "evidenceAIProvider":
+      EvidenceCommands.aiProviderDialog();
+      break;
+    case "evidenceProgress":
+      EvidenceCommands.progressDialog();
+      break;
+    case "evidenceBatchRunAI":
+      EvidenceCommands.batchRunAI();
+      break;
+    case "evidenceBatchConfirmAI":
+      EvidenceCommands.batchConfirmAI();
+      break;
+    case "evidenceCodebookImport":
+      EvidenceCommands.codebookImportDialog();
+      break;
+    case "evidenceCodebookAddVariable":
+      EvidenceCommands.codebookAddVariableDialog();
+      break;
+    case "evidenceCodebookView":
+      EvidenceCommands.codebookViewDialog();
+      break;
+    case "evidenceCodebookLock":
+      EvidenceCommands.codebookLockDialog();
+      break;
+    case "evidenceCodebookEditNotes":
+      EvidenceCommands.codebookEditNotesDialog();
+      break;
+    case "evidencePilotStart":
+      EvidenceCommands.pilotStartDialog();
+      break;
+    case "evidencePilotComplete":
+      EvidenceCommands.pilotCompleteDialog();
+      break;
+    case "evidenceExportPrisma":
+      EvidenceCommands.exportPrismaDialog();
+      break;
+    case "evidenceExportScreeningLog":
+      EvidenceCommands.exportScreeningLogDialog();
+      break;
+    case "evidenceExportCoding":
+      EvidenceCommands.exportCodingDataDialog();
       break;
     default:
       break;

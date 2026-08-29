@@ -1,2 +1,3 @@
-pref("enable", true);
-pref("input", "This is input");
+pref("aiProviders", "[]");
+pref("activeProviderId", "");
+pref("aiConcurrency", "3");

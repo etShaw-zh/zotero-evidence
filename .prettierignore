@@ -5,3 +5,7 @@ node_modules
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+
+# Vendored third-party build output (MuPDF WASM factory, from
+# beaver-zotero, AGPL-3.0) -- not our source.
+addon/content/lib/mupdf-wasm.mjs

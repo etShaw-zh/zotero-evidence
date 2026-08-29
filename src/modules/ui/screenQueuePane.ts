@@ -1,0 +1,334 @@
+import { config } from "../../../package.json";
+import { getLocaleID, getString } from "../../utils/locale";
+import { refreshProjectPaneContextCache } from "../project/projectContext";
+import { ProjectPaneContext } from "../project/projectContext";
+import { getLatestCriteria } from "../screening/criteriaService";
+import {
+  confirmDecision,
+  getScreeningState,
+  runAIJudgment,
+  ScreeningState,
+  TADecision,
+} from "../screening/taScreeningService";
+import {
+  decisionLabel,
+  el,
+  escapeHtml,
+  renderCardHeader,
+  renderExcludeReasonPicker,
+  renderPaneError,
+  resolveContextSync,
+  setNativeSectionsHidden,
+} from "./paneHelpers";
+
+const PANE_ID = "zotero-evidence-screen-queue";
+
+async function renderJudgmentArea(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+) {
+  container.innerHTML = "";
+
+  const criteriaRow = await getLatestCriteria(ctx.project.id, "ta");
+  if (!criteriaRow) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("screen-queue-no-criteria") },
+        styles: { color: "var(--fill-secondary, #a33)" },
+      }),
+    );
+    return;
+  }
+
+  const state = await getScreeningState(ctx.project.id, item.key);
+  await renderJudgmentContent(
+    container,
+    doc,
+    ctx,
+    item,
+    state,
+    criteriaRow.criteria.exclusionCriteria,
+  );
+}
+
+async function renderJudgmentContent(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+  state: ScreeningState | null,
+  exclusionCriteria: string[],
+) {
+  container.innerHTML = "";
+
+  const runAI = async () => {
+    runBtn.setAttribute("disabled", "true");
+    runBtn.textContent = getString("screen-queue-loading");
+    try {
+      const result = await runAIJudgment(ctx.project.id, item);
+      const newState: ScreeningState = {
+        id: result.screeningRecordId,
+        aiDecision: result.decision,
+        aiReasoning: result.reasoning,
+        decision: null,
+        exclusionReason: null,
+      };
+      await renderJudgmentContent(
+        container,
+        doc,
+        ctx,
+        item,
+        newState,
+        exclusionCriteria,
+      );
+    } catch (e: any) {
+      ztoolkit.getGlobal("alert")(
+        `${getString("screen-queue-error-run-ai")}\n${e?.message ?? e}`,
+      );
+      runBtn.removeAttribute("disabled");
+      runBtn.textContent = getString("screen-queue-run-ai");
+    }
+  };
+
+  const runBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: { innerHTML: getString("screen-queue-run-ai") },
+    listeners: [{ type: "click", listener: () => void runAI() }],
+  }) as HTMLButtonElement;
+
+  if (!state) {
+    container.appendChild(runBtn);
+    return;
+  }
+
+  if (state.aiDecision) {
+    container.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-judgment"],
+        children: [
+          {
+            tag: "strong",
+            namespace: "html",
+            properties: {
+              innerHTML: `${getString("screen-queue-ai-suggestion")} ${decisionLabel(state.aiDecision)}`,
+            },
+          },
+          {
+            tag: "p",
+            namespace: "html",
+            properties: { innerHTML: escapeHtml(state.aiReasoning || "") },
+          },
+        ],
+      }),
+    );
+  }
+
+  const doConfirm = async (decision: TADecision, reason: string | null) => {
+    try {
+      await confirmDecision(
+        ctx.project.id,
+        item,
+        ctx.collections,
+        state.id,
+        decision,
+        "user",
+        reason,
+      );
+      new ztoolkit.ProgressWindow(config.addonName)
+        .createLine({
+          text: getString("screen-queue-confirmed"),
+          type: "success",
+          progress: 100,
+        })
+        .show();
+    } catch (e: any) {
+      ztoolkit.getGlobal("alert")(
+        `${getString("screen-queue-error-confirm")}\n${e?.message ?? e}`,
+      );
+    }
+  };
+
+  const excludeReasonRow = renderExcludeReasonPicker(
+    doc,
+    exclusionCriteria,
+    (reason) => doConfirm("exclude", reason),
+  );
+
+  const buttonRow = el(doc, "div", { classList: ["zotero-evidence-buttons"] });
+  const decisions: TADecision[] = ["include", "exclude", "unclear"];
+  for (const decision of decisions) {
+    const isCurrent =
+      state.decision === decision ||
+      (!state.decision && state.aiDecision === decision);
+    const btn = el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: decisionLabel(decision) },
+      classList: isCurrent ? ["selected"] : [],
+      listeners: [
+        {
+          type: "click",
+          listener: () => {
+            if (decision === "exclude") {
+              excludeReasonRow.classList.add("open");
+            } else {
+              void doConfirm(decision, null);
+            }
+          },
+        },
+      ],
+    });
+    buttonRow.appendChild(btn);
+  }
+  container.appendChild(buttonRow);
+  container.appendChild(excludeReasonRow);
+
+  if (state.decision) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: {
+          innerHTML: `${getString("screen-queue-decided")}: ${decisionLabel(state.decision)}`,
+        },
+      }),
+    );
+  }
+
+  runBtn.textContent = getString("screen-queue-rerun-ai");
+  container.appendChild(runBtn);
+}
+
+/**
+ * Read-only history view for the TA-Include/TA-Exclude/TA-Unclear
+ * collections (PNL-04): shows the screening_records trail instead of
+ * editable controls.
+ */
+async function renderHistoryArea(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+) {
+  container.innerHTML = "";
+  const state = await getScreeningState(ctx.project.id, item.key);
+
+  container.appendChild(
+    el(doc, "h3", {
+      properties: { innerHTML: getString("screen-queue-history-title") },
+    }),
+  );
+
+  if (!state) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("screen-queue-history-none") },
+      }),
+    );
+    return;
+  }
+
+  if (state.aiDecision) {
+    container.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-judgment"],
+        children: [
+          {
+            tag: "strong",
+            namespace: "html",
+            properties: {
+              innerHTML: `${getString("screen-queue-history-ai")} ${decisionLabel(state.aiDecision)}`,
+            },
+          },
+          {
+            tag: "p",
+            namespace: "html",
+            properties: { innerHTML: escapeHtml(state.aiReasoning || "") },
+          },
+        ],
+      }),
+    );
+  }
+
+  if (state.decision) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: {
+          innerHTML: `${getString("screen-queue-history-human")} ${decisionLabel(state.decision)}`,
+        },
+      }),
+    );
+  }
+}
+
+export function registerScreenQueuePane() {
+  Zotero.ItemPaneManager.registerSection({
+    paneID: PANE_ID,
+    pluginID: config.addonID,
+    header: {
+      l10nID: getLocaleID("screen-queue-head-text"),
+      icon: "chrome://zotero/skin/16/universal/book.svg",
+    },
+    sidenav: {
+      l10nID: getLocaleID("screen-queue-sidenav-tooltip"),
+      icon: "chrome://zotero/skin/20/universal/save.svg",
+    },
+    onItemChange: ({ item, doc, setEnabled, tabType }) => {
+      // Must decide synchronously: Zotero renders based on this call's
+      // result before any promise from here would resolve, so the lookup
+      // has to be a synchronous cache read, not a fresh async DB query.
+      const ctx = tabType === "library" ? resolveContextSync(item) : null;
+      const relevant =
+        !!ctx &&
+        (ctx.role === "screen_queue" ||
+          ctx.role === "ta_include" ||
+          ctx.role === "ta_exclude" ||
+          ctx.role === "ta_unclear");
+      setEnabled(relevant);
+      // Native-hide is a single shared class on the pane container that
+      // both this section and ftQueuePane's toggle. Base it on "is this
+      // item in ANY of our project collections" (ctx truthy) rather than
+      // this section's own relevance -- otherwise, since Zotero calls every
+      // registered section's onItemChange for the same event, whichever
+      // section's hook runs last would clobber the other's decision back
+      // off, and the two sections don't always agree on section-specific
+      // relevance for the same collection.
+      setNativeSectionsHidden(doc, !!ctx);
+      // Keep the cache warm for next time in case it's gone stale (e.g. a
+      // project was created/renamed since the last refresh).
+      void refreshProjectPaneContextCache();
+    },
+    onDestroy: ({ doc }) => {
+      setNativeSectionsHidden(doc, false);
+    },
+    // registerSection silently fails (returns false, no section is created
+    // at all) without a synchronous onRender -- onAsyncRender alone isn't
+    // enough, confirmed empirically. Keep this even though the real content
+    // is built in onAsyncRender below.
+    onRender: () => {},
+    onAsyncRender: async ({ body, doc, item }) => {
+      const ctx = resolveContextSync(item);
+      if (
+        !ctx ||
+        !(
+          ctx.role === "screen_queue" ||
+          ctx.role === "ta_include" ||
+          ctx.role === "ta_exclude" ||
+          ctx.role === "ta_unclear"
+        )
+      ) {
+        return;
+      }
+      const contentArea = renderCardHeader(body, doc, item);
+      try {
+        if (ctx.role === "screen_queue") {
+          await renderJudgmentArea(contentArea, doc, ctx, item);
+        } else {
+          await renderHistoryArea(contentArea, doc, ctx, item);
+        }
+      } catch (e) {
+        ztoolkit.log("Screen Queue pane render failed", item.key, e);
+        renderPaneError(doc, contentArea, e);
+      }
+    },
+  });
+}

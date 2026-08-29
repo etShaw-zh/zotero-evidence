@@ -14,3 +14,7 @@ tsconfig.tsbuildinfo
 .scaffold
 build
 logs
+
+# Local test fixtures with real bibliographic export data (paid DB exports,
+# not meant to be committed)
+test/*.bib

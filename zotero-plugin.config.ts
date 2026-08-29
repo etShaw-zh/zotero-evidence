@@ -36,6 +36,19 @@ export default defineConfig({
         target: "firefox115",
         outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
       },
+      {
+        // MuPDF extraction worker (see src/modules/pdf/worker/README for
+        // provenance) -- separate bundle loaded via `new Worker("chrome://
+        // .../mupdf-worker.js")`, not imported by the main script.
+        entryPoints: ["src/modules/pdf/worker/mupdfWorkerEntry.ts"],
+        bundle: true,
+        format: "esm",
+        target: "firefox115",
+        // Dynamic `import(factoryUrl)` for the wasm factory module must stay
+        // dynamic (not statically resolved/bundled) -- see wasmInit.ts.
+        external: ["chrome://*"],
+        outfile: `.scaffold/build/addon/content/scripts/mupdf-worker.js`,
+      },
     ],
   },
 

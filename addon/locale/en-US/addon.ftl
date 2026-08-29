@@ -1,11 +1,231 @@
-startup-begin = Addon is loading
-startup-finish = Addon is ready
-menuitem-label = Addon Template: Helper Examples
-menupopup-label = Addon Template: Menupopup
-menuitem-submenulabel = Addon Template
-menuitem-filemenulabel = Addon Template: File Menuitem
-prefs-title = Template
-prefs-table-title = Title
-prefs-table-detail = Detail
-tabpanel-lib-tab-label = Lib Tab
-tabpanel-reader-tab-label = Reader Tab
+menu-new-project = New Evidence Project…
+menu-import = Import Literature…
+dialog-new-project-title = New Evidence Project
+dialog-project-name-label = Project name
+dialog-import-title = Import Literature
+dialog-import-project-label = Project
+dialog-import-source-label = Source database
+dialog-import-file-label = File
+dialog-import-file-button = Choose File…
+dialog-import-file-none = No file selected
+dialog-confirm = Confirm
+dialog-cancel = Cancel
+progress-project-created = Project "{ $name }" created.
+progress-import-result = Imported { $total } record(s): { $added } new, { $duplicates } duplicate(s) merged.
+error-project-name-required = Please enter a project name.
+error-no-projects = No Evidence project exists yet. Create one first via File > New Evidence Project.
+error-no-file-selected = Please choose a file to import.
+error-import-failed = Import failed.
+
+menu-criteria = Configure Screening Criteria…
+menu-ft-criteria = Configure Full-Text Screening Criteria…
+menu-ai-provider = AI Provider Settings…
+
+dialog-criteria-title = TA-Screening Criteria
+dialog-ft-criteria-title = FT-Screening Criteria
+dialog-criteria-question-label = Research question
+dialog-criteria-inclusion-label = Inclusion criteria (one per line)
+dialog-criteria-exclusion-label = Exclusion criteria (one per line)
+progress-criteria-saved = Screening criteria saved.
+
+dialog-ai-provider-title = AI Provider Settings
+dialog-ai-provider-name-label = Name
+dialog-ai-provider-baseurl-label = API endpoint (chat/completions URL)
+dialog-ai-provider-model-label = Model
+dialog-ai-provider-apikey-label = API key
+progress-ai-provider-saved = AI provider settings saved.
+
+screen-queue-head-text =
+    .label = Evidence Screening
+screen-queue-sidenav-tooltip =
+    .tooltiptext = TA-Screening
+screen-queue-no-criteria = No TA screening criteria configured for this project yet. Use File > Configure Screening Criteria… first.
+screen-queue-run-ai = Run AI Judgment
+screen-queue-rerun-ai = Re-run AI Judgment
+screen-queue-loading = Working…
+screen-queue-error-run-ai = AI judgment failed.
+screen-queue-error-confirm = Failed to save the decision.
+screen-queue-ai-suggestion = AI suggests:
+screen-queue-decided = Decided
+screen-queue-confirmed = Decision saved.
+screen-queue-untitled = (Untitled)
+screen-queue-no-abstract = (No abstract available)
+screen-queue-expand = Expand
+screen-queue-collapse = Collapse
+screen-queue-decision-include = Include
+screen-queue-decision-exclude = Exclude
+screen-queue-decision-unclear = Unclear
+screen-queue-decision-unavailable = Unavailable
+
+screen-queue-history-title = Screening record
+screen-queue-history-none = No screening record found for this item.
+screen-queue-history-ai = AI:
+screen-queue-history-human = Human:
+
+menu-progress = Screening Progress…
+menu-batch-run-ai = Run AI Judgment (Selected Items)
+menu-batch-confirm-ai = Confirm AI Suggestions (Selected Items)
+
+dialog-progress-title = Screening Progress
+dialog-progress-col-project = Project
+dialog-progress-col-pending = Pending
+dialog-progress-col-include = Include
+dialog-progress-col-exclude = Exclude
+dialog-progress-col-unclear = Unclear
+dialog-close = Close
+
+error-not-screen-queue = Select items inside an Evidence project's Screen Queue collection first.
+progress-batch-running = Running AI judgment: { $done }/{ $total }
+progress-batch-done = AI judgment done: { $done }/{ $total } ({ $failed } failed)
+progress-batch-confirm-done = Confirmed { $confirmed } item(s), skipped { $skipped } (no pending AI suggestion).
+
+ft-queue-head-text =
+    .label = Evidence Full-Text Screening
+ft-queue-sidenav-tooltip =
+    .tooltiptext = FT-Screening
+ft-queue-no-criteria = No FT screening criteria configured for this project yet. Use File > Configure Full-Text Screening Criteria… first.
+ft-queue-pdf-found = PDF attachment detected.
+ft-queue-pdf-missing = No PDF attachment detected yet. Use Zotero's built-in "Find Available PDF" or attach one manually, then confirm below.
+ft-queue-confirm-ready = Confirm Full Text Ready
+ft-queue-mark-unavailable = Mark Full Text Unavailable
+ft-queue-run-ai = Run AI Judgment
+ft-queue-rerun-ai = Re-run AI Judgment
+ft-queue-loading = Working…
+ft-queue-error-run-ai = AI judgment failed.
+ft-queue-error-confirm = Failed to save the decision.
+ft-queue-error-ready = Failed to confirm full text ready.
+ft-queue-error-unavailable = Failed to mark full text unavailable.
+ft-queue-ai-suggestion = AI suggests:
+ft-queue-ai-unparseable = AI did not return a parseable decision; please decide manually. Raw response:
+ft-queue-decided = Decided
+ft-queue-confirmed = Decision saved.
+ft-queue-marked-unavailable = Marked as full-text unavailable.
+ft-queue-jump-to-annotation = Jump to Annotation
+ft-queue-evidence-linked = Evidence highlighted (orange)
+ft-queue-preview-location = Preview Location
+ft-queue-pending-confirmation = Not yet on PDF — confirm a decision to highlight
+ft-queue-choose-annotation = Choose a highlight…
+ft-queue-link-annotation = Mark as FT Evidence
+ft-queue-error-no-annotation-selected = Please choose a highlight to mark.
+ft-queue-error-link-annotation = Failed to mark the evidence highlight.
+
+menu-codebook-import = Import Codebook (CSV)…
+menu-codebook-add-variable = Add Codebook Variable…
+menu-codebook-view = View Codebook…
+
+dialog-codebook-import-title = Import Codebook (CSV)
+dialog-codebook-import-project-label = Project
+dialog-codebook-import-file-label = CSV file
+dialog-codebook-import-file-button = Choose File…
+dialog-codebook-import-file-none = No file selected
+progress-codebook-imported = Codebook imported: { $count } variable(s).
+error-codebook-empty-csv = No variables found in that CSV file.
+
+dialog-codebook-variable-title = Add Codebook Variable
+dialog-codebook-variable-name-label = Variable name
+dialog-codebook-variable-type-label = Type (categorical / numeric / text)
+dialog-codebook-variable-values-label = Allowed values (pipe-separated, categorical only)
+dialog-codebook-variable-multiple-label = Allows multiple values
+dialog-codebook-variable-required-label = Required
+dialog-codebook-variable-notes-label = Notes
+dialog-codebook-variable-hint-label = Extraction hint
+error-codebook-variable-name-required = Please enter a variable name.
+progress-codebook-variable-added = Variable added to the Codebook.
+
+dialog-codebook-view-title = Current Codebook
+codebook-view-empty = No Codebook configured for this project yet.
+codebook-view-required = required
+codebook-view-multiple = multiple
+
+coding-head-text =
+    .label = Evidence Coding
+coding-sidenav-tooltip =
+    .tooltiptext = Full-Text Coding
+coding-no-codebook = No Codebook configured for this project yet. Use File > Import Codebook (CSV)… first.
+annotation-no-text = no text
+coding-error-reject = Failed to reject the suggestion.
+coding-jump-to-annotation = Jump to Annotation
+coding-choose-annotation = Choose an annotation…
+coding-choose-annotation-optional = (optional) Choose an annotation…
+coding-link-annotation = Link
+coding-error-no-annotation-selected = Please choose an annotation to link.
+coding-error-link = Failed to link the annotation.
+coding-value-placeholder = Value
+coding-add-manual = Add
+coding-error-manual-incomplete = Please choose a variable and enter a value.
+coding-error-manual-add = Failed to add the record.
+coding-progress-suffix = required variable(s) confirmed
+coding-generate-suggestions = Generate AI Suggestions
+coding-loading = Working…
+coding-no-suggestions = AI did not return any usable suggestions for this Codebook.
+coding-error-generate = Failed to generate suggestions.
+coding-refresh = Refresh
+coding-no-records = No coding records yet.
+coding-manual-add-title = Add mapping manually
+coding-pending-title = { $count } pending suggestion(s)
+coding-accept-all = Accept All
+coding-reject-all = Reject All
+coding-reject-all-confirm = Reject and delete these { $count } pending suggestion(s)? This cannot be undone.
+coding-reject-one = Reject
+coding-accept-all-done = Accepted { $accepted } suggestion(s) ({ $failed } failed).
+coding-confirmed-title = Confirmed
+coding-needs-manual-link = Needs manual linking
+coding-page-label = Page { $page }
+coding-ai-quote-label = AI-extracted quote:
+coding-ai-quote-none = (AI did not return a supporting quote for this suggestion)
+
+pane-render-error = Couldn't load this item's panel:
+
+exclude-reason-label = Reason (optional):
+exclude-reason-none = (no specific reason)
+exclude-reason-confirm = Confirm Exclude
+exclude-reason-cancel = Cancel
+
+menu-export-prisma = Export PRISMA Data…
+menu-export-screening-log = Export Screening Decision Log…
+menu-export-coding = Export Coding Data…
+dialog-export-prisma-title = Export PRISMA Data
+dialog-export-screening-log-title = Export Screening Decision Log
+dialog-export-coding-title = Export Coding Data
+export-choose-destination = Choose Save Location…
+progress-export-done = Export complete.
+error-export-no-data = There is no data to export for this project yet.
+
+pilot-round-banner = Pilot round { $round } — reviewing AI suggestions for calibration.
+
+menu-pilot-start = Start Pilot Round…
+menu-pilot-complete = Complete Pilot Round & View Consistency…
+menu-codebook-lock = Lock/Unlock Codebook…
+menu-codebook-edit-notes = Edit Codebook Variable Notes…
+
+dialog-pilot-start-title = Start Pilot Round
+dialog-pilot-sample-size-label = Sample size
+error-pilot-sample-size-invalid = Please enter a positive sample size.
+progress-pilot-started = Pilot round { $round } started: { $count } item(s) sampled.
+
+dialog-pilot-complete-title = Pilot Round Consistency
+pilot-active-round-status = Pilot round { $round } is in progress: { $count } item(s) sampled.
+error-no-active-pilot-round = This project has no active pilot round.
+pilot-complete-col-variable = Variable
+pilot-complete-col-metric = Metric
+pilot-complete-col-kappa = Kappa
+pilot-complete-col-n = N
+pilot-complete-no-data = No comparisons were recorded for this round.
+pilot-kappa-na = N/A
+pilot-metric-cohen_kappa = Cohen's Kappa
+pilot-metric-weighted_cohen_kappa = Weighted Cohen's Kappa
+progress-pilot-completed = Pilot round completed.
+
+dialog-codebook-lock-title = Lock/Unlock Codebook
+codebook-lock-status-locked = The Codebook is currently LOCKED.
+codebook-lock-status-unlocked = The Codebook is currently unlocked.
+codebook-lock-status-none = This project has no Codebook yet.
+codebook-lock-action-lock = Lock
+codebook-lock-action-unlock = Unlock
+progress-codebook-lock-changed = Codebook lock status updated.
+
+dialog-codebook-edit-notes-title = Edit Codebook Variable Notes
+dialog-codebook-edit-notes-variable-label = Variable
+dialog-codebook-edit-notes-notes-label = Notes
+error-codebook-no-variables = This project's Codebook has no variables yet.
+progress-codebook-notes-saved = Variable notes saved.

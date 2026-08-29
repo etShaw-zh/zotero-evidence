@@ -1,11 +1,231 @@
-startup-begin = 插件加载中
-startup-finish = 插件已就绪
-menuitem-label = 插件模板: 帮助工具样例
-menupopup-label = 插件模板: 弹出菜单
-menuitem-submenulabel = 插件模板：子菜单
-menuitem-filemenulabel = 插件模板: 文件菜单
-prefs-title = 插件模板
-prefs-table-title = 标题
-prefs-table-detail = 详情
-tabpanel-lib-tab-label = 库标签
-tabpanel-reader-tab-label = 阅读器标签
+menu-new-project = 新建 Evidence 项目…
+menu-import = 导入文献…
+dialog-new-project-title = 新建 Evidence 项目
+dialog-project-name-label = 项目名称
+dialog-import-title = 导入文献
+dialog-import-project-label = 项目
+dialog-import-source-label = 来源数据库
+dialog-import-file-label = 文件
+dialog-import-file-button = 选择文件…
+dialog-import-file-none = 未选择文件
+dialog-confirm = 确认
+dialog-cancel = 取消
+progress-project-created = 项目"{ $name }"已创建。
+progress-import-result = 已导入 { $total } 条记录：{ $added } 条新增，{ $duplicates } 条重复已合并。
+error-project-name-required = 请输入项目名称。
+error-no-projects = 还没有 Evidence 项目，请先通过"文件 > 新建 Evidence 项目"创建。
+error-no-file-selected = 请选择要导入的文件。
+error-import-failed = 导入失败。
+
+menu-criteria = 配置筛选标准…
+menu-ft-criteria = 配置全文筛选标准…
+menu-ai-provider = AI Provider 设置…
+
+dialog-criteria-title = TA 筛选标准
+dialog-ft-criteria-title = 全文筛选标准
+dialog-criteria-question-label = 研究问题
+dialog-criteria-inclusion-label = 纳入标准（每行一条）
+dialog-criteria-exclusion-label = 排除标准（每行一条）
+progress-criteria-saved = 筛选标准已保存。
+
+dialog-ai-provider-title = AI Provider 设置
+dialog-ai-provider-name-label = 名称
+dialog-ai-provider-baseurl-label = API 端点（chat/completions 地址）
+dialog-ai-provider-model-label = 模型
+dialog-ai-provider-apikey-label = API Key
+progress-ai-provider-saved = AI Provider 设置已保存。
+
+screen-queue-head-text =
+    .label = Evidence 筛选
+screen-queue-sidenav-tooltip =
+    .tooltiptext = 标题摘要筛选
+screen-queue-no-criteria = 该项目还没有配置 TA 筛选标准，请先通过"文件 > 配置筛选标准…"设置。
+screen-queue-run-ai = 运行 AI 判断
+screen-queue-rerun-ai = 重新运行 AI 判断
+screen-queue-loading = 处理中…
+screen-queue-error-run-ai = AI 判断失败。
+screen-queue-error-confirm = 保存筛选结果失败。
+screen-queue-ai-suggestion = AI 建议：
+screen-queue-decided = 已决定
+screen-queue-confirmed = 筛选结果已保存。
+screen-queue-untitled = （无标题）
+screen-queue-no-abstract = （无摘要）
+screen-queue-expand = 展开
+screen-queue-collapse = 收起
+screen-queue-decision-include = 纳入
+screen-queue-decision-exclude = 排除
+screen-queue-decision-unclear = 不确定
+screen-queue-decision-unavailable = 不可用
+
+screen-queue-history-title = 筛选记录
+screen-queue-history-none = 未找到该条目的筛选记录。
+screen-queue-history-ai = AI：
+screen-queue-history-human = 人工：
+
+menu-progress = 筛选进度…
+menu-batch-run-ai = 批量运行 AI 判断（已选条目）
+menu-batch-confirm-ai = 批量确认 AI 建议（已选条目）
+
+dialog-progress-title = 筛选进度
+dialog-progress-col-project = 项目
+dialog-progress-col-pending = 待筛选
+dialog-progress-col-include = 纳入
+dialog-progress-col-exclude = 排除
+dialog-progress-col-unclear = 不确定
+dialog-close = 关闭
+
+error-not-screen-queue = 请先在某个 Evidence 项目的 Screen Queue 集合中选中条目。
+progress-batch-running = AI 判断进行中：{ $done }/{ $total }
+progress-batch-done = AI 判断完成：{ $done }/{ $total }（{ $failed } 条失败）
+progress-batch-confirm-done = 已确认 { $confirmed } 条，跳过 { $skipped } 条（无待确认的 AI 建议）。
+
+ft-queue-head-text =
+    .label = Evidence 全文筛选
+ft-queue-sidenav-tooltip =
+    .tooltiptext = 全文筛选
+ft-queue-no-criteria = 该项目还没有配置全文筛选标准，请先通过"文件 > 配置全文筛选标准…"设置。
+ft-queue-pdf-found = 已检测到 PDF 附件。
+ft-queue-pdf-missing = 尚未检测到 PDF 附件。请使用 Zotero 自带的"查找可用全文"功能或手动添加附件，然后在下方确认。
+ft-queue-confirm-ready = 确认全文可用
+ft-queue-mark-unavailable = 标记全文不可用
+ft-queue-run-ai = 运行 AI 判断
+ft-queue-rerun-ai = 重新运行 AI 判断
+ft-queue-loading = 处理中…
+ft-queue-error-run-ai = AI 判断失败。
+ft-queue-error-confirm = 保存筛选结果失败。
+ft-queue-error-ready = 确认全文可用失败。
+ft-queue-error-unavailable = 标记全文不可用失败。
+ft-queue-ai-suggestion = AI 建议：
+ft-queue-ai-unparseable = AI 未返回可解析的判断结果，请人工判断。原始回复：
+ft-queue-decided = 已决定
+ft-queue-confirmed = 筛选结果已保存。
+ft-queue-marked-unavailable = 已标记为全文不可用。
+ft-queue-jump-to-annotation = 跳转到标注
+ft-queue-evidence-linked = 已标注筛选依据（橙色）
+ft-queue-preview-location = 预览位置
+ft-queue-pending-confirmation = 尚未标注到 PDF——确认筛选结果后才会高亮
+ft-queue-choose-annotation = 选择高亮…
+ft-queue-link-annotation = 标记为筛选依据
+ft-queue-error-no-annotation-selected = 请先选择一个高亮标注。
+ft-queue-error-link-annotation = 标记筛选依据失败。
+
+menu-codebook-import = 导入 Codebook (CSV)…
+menu-codebook-add-variable = 添加 Codebook 变量…
+menu-codebook-view = 查看 Codebook…
+
+dialog-codebook-import-title = 导入 Codebook (CSV)
+dialog-codebook-import-project-label = 项目
+dialog-codebook-import-file-label = CSV 文件
+dialog-codebook-import-file-button = 选择文件…
+dialog-codebook-import-file-none = 未选择文件
+progress-codebook-imported = Codebook 已导入：{ $count } 个变量。
+error-codebook-empty-csv = 该 CSV 文件中没有找到任何变量。
+
+dialog-codebook-variable-title = 添加 Codebook 变量
+dialog-codebook-variable-name-label = 变量名
+dialog-codebook-variable-type-label = 类型（categorical / numeric / text）
+dialog-codebook-variable-values-label = 可选值（用竖线分隔，仅 categorical 需要）
+dialog-codebook-variable-multiple-label = 允许多个值
+dialog-codebook-variable-required-label = 必填
+dialog-codebook-variable-notes-label = 备注
+dialog-codebook-variable-hint-label = 提取提示
+error-codebook-variable-name-required = 请输入变量名。
+progress-codebook-variable-added = 变量已添加到 Codebook。
+
+dialog-codebook-view-title = 当前 Codebook
+codebook-view-empty = 该项目还没有配置 Codebook。
+codebook-view-required = 必填
+codebook-view-multiple = 多值
+
+coding-head-text =
+    .label = Evidence 编码
+coding-sidenav-tooltip =
+    .tooltiptext = 全文编码
+coding-no-codebook = 该项目还没有配置 Codebook，请先通过"文件 > 导入 Codebook (CSV)…"设置。
+annotation-no-text = 无文字
+coding-error-reject = 拒绝建议失败。
+coding-jump-to-annotation = 跳转到标注
+coding-choose-annotation = 选择标注…
+coding-choose-annotation-optional = （可选）选择标注…
+coding-link-annotation = 关联
+coding-error-no-annotation-selected = 请先选择要关联的标注。
+coding-error-link = 关联标注失败。
+coding-value-placeholder = 值
+coding-add-manual = 添加
+coding-error-manual-incomplete = 请选择变量并输入值。
+coding-error-manual-add = 添加记录失败。
+coding-progress-suffix = 项必填变量已确认
+coding-generate-suggestions = 生成 AI 建议
+coding-loading = 处理中…
+coding-no-suggestions = AI 未针对该 Codebook 返回任何可用建议。
+coding-error-generate = 生成建议失败。
+coding-refresh = 刷新
+coding-no-records = 暂无编码记录。
+coding-manual-add-title = 手动添加映射
+coding-pending-title = { $count } 项待确认建议
+coding-accept-all = 全部采纳
+coding-reject-all = 全部拒绝
+coding-reject-all-confirm = 确定要拒绝并删除这 { $count } 条待确认建议吗？此操作无法撤销。
+coding-reject-one = 拒绝
+coding-accept-all-done = 已采纳 { $accepted } 条建议（{ $failed } 条失败）。
+coding-confirmed-title = 已确认
+coding-needs-manual-link = 需手动关联
+coding-page-label = 第 { $page } 页
+coding-ai-quote-label = AI 摘抄原文：
+coding-ai-quote-none = （AI 未提供支持这个值的原文引用）
+
+pane-render-error = 该条目的面板加载失败：
+
+exclude-reason-label = 排除理由（可选）：
+exclude-reason-none = （无具体理由）
+exclude-reason-confirm = 确认排除
+exclude-reason-cancel = 取消
+
+menu-export-prisma = 导出 PRISMA 数据…
+menu-export-screening-log = 导出筛选决策日志…
+menu-export-coding = 导出编码数据…
+dialog-export-prisma-title = 导出 PRISMA 数据
+dialog-export-screening-log-title = 导出筛选决策日志
+dialog-export-coding-title = 导出编码数据
+export-choose-destination = 选择保存位置…
+progress-export-done = 导出完成。
+error-export-no-data = 该项目暂无可导出的数据。
+
+pilot-round-banner = 预编码轮次 { $round } — 正在校对 AI 建议以进行校准。
+
+menu-pilot-start = 开始预编码轮次…
+menu-pilot-complete = 完成预编码轮次并查看一致性…
+menu-codebook-lock = 锁定/解锁 Codebook…
+menu-codebook-edit-notes = 编辑 Codebook 变量备注…
+
+dialog-pilot-start-title = 开始预编码轮次
+dialog-pilot-sample-size-label = 抽样数量
+error-pilot-sample-size-invalid = 请输入大于 0 的抽样数量。
+progress-pilot-started = 预编码轮次 { $round } 已开始：共抽取 { $count } 篇文献。
+
+dialog-pilot-complete-title = 预编码轮次一致性
+pilot-active-round-status = 预编码轮次 { $round } 进行中：已抽取 { $count } 篇文献。
+error-no-active-pilot-round = 该项目当前没有正在进行的预编码轮次。
+pilot-complete-col-variable = 变量
+pilot-complete-col-metric = 指标
+pilot-complete-col-kappa = Kappa 值
+pilot-complete-col-n = 样本数
+pilot-complete-no-data = 该轮次尚未记录任何可比较的数据。
+pilot-kappa-na = 不适用
+pilot-metric-cohen_kappa = Cohen's Kappa
+pilot-metric-weighted_cohen_kappa = 加权 Cohen's Kappa
+progress-pilot-completed = 预编码轮次已完成。
+
+dialog-codebook-lock-title = 锁定/解锁 Codebook
+codebook-lock-status-locked = Codebook 当前已锁定。
+codebook-lock-status-unlocked = Codebook 当前未锁定。
+codebook-lock-status-none = 该项目还没有 Codebook。
+codebook-lock-action-lock = 锁定
+codebook-lock-action-unlock = 解锁
+progress-codebook-lock-changed = Codebook 锁定状态已更新。
+
+dialog-codebook-edit-notes-title = 编辑 Codebook 变量备注
+dialog-codebook-edit-notes-variable-label = 变量
+dialog-codebook-edit-notes-notes-label = 备注
+error-codebook-no-variables = 该项目的 Codebook 还没有任何变量。
+progress-codebook-notes-saved = 变量备注已保存。

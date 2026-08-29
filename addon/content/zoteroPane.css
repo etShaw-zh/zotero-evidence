@@ -1,3 +1,250 @@
-.makeItRed {
-  background-color: tomato;
+/* Hides native item-pane sections while the Screen Queue card is active
+   (see src/modules/ui/screenQueuePane.ts). Native sections all render with a
+   stable data-pane attribute matching Zotero.ItemPaneManager's BuiltInPaneID
+   list, confirmed by inspecting a live item pane. */
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="info"],
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="abstract"],
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="attachments"],
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="notes"],
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="note-info"],
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="attachment-info"],
+#zotero-view-item.zotero-evidence-hide-native
+  > [data-pane="attachment-annotations"],
+#zotero-view-item.zotero-evidence-hide-native
+  > [data-pane="libraries-collections"],
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="tags"],
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="related"] {
+  display: none !important;
+}
+
+.zotero-evidence-card {
+  padding: 8px 12px;
+}
+
+.zotero-evidence-card h2 {
+  font-size: 1.05em;
+  margin: 0 0 4px 0;
+}
+
+.zotero-evidence-card .authors {
+  color: #666;
+  margin-bottom: 8px;
+  font-size: 0.9em;
+}
+
+.zotero-evidence-abstract {
+  max-height: 4.5em;
+  overflow: hidden;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.zotero-evidence-abstract.expanded {
+  max-height: none;
+}
+
+.zotero-evidence-judgment {
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.zotero-evidence-judgment-area {
+  margin-top: 8px;
+}
+
+.zotero-evidence-buttons {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.zotero-evidence-buttons button.selected {
+  font-weight: bold;
+  outline: 2px solid #2ea8e5;
+}
+
+.zotero-evidence-attachment-status {
+  color: #666;
+  font-size: 0.9em;
+  margin: 4px 0 8px 0;
+}
+
+.zotero-evidence-exclude-reason {
+  display: none;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.zotero-evidence-exclude-reason.open {
+  display: flex;
+}
+
+.zotero-evidence-ft-annotation {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.zotero-evidence-unavailable-button {
+  display: block;
+  margin-top: 10px;
+  color: #a33;
+}
+
+.zotero-evidence-coding-progress {
+  font-weight: bold;
+  margin: 4px 0 8px 0;
+}
+
+.zotero-evidence-coding-list {
+  margin-top: 10px;
+}
+
+/* Pending-suggestions review card (COD-04), styled after beaver-zotero's
+   compact "N Highlights" group card -- see codingPane.ts. */
+.zotero-evidence-coding-card {
+  margin-bottom: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+}
+
+.zotero-evidence-coding-card-header {
+  padding: 8px 10px;
+  font-weight: bold;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.zotero-evidence-coding-card-footer {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.zotero-evidence-coding-suggestion-row,
+.zotero-evidence-confirmed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.zotero-evidence-coding-suggestion-row:hover,
+.zotero-evidence-confirmed-row:hover {
+  background: rgba(46, 134, 222, 0.08);
+}
+
+.zotero-evidence-coding-badge {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: bold;
+}
+
+.zotero-evidence-coding-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zotero-evidence-coding-row-status {
+  flex: 0 0 auto;
+  color: #888;
+  font-size: 0.85em;
+}
+
+.zotero-evidence-coding-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+}
+
+.zotero-evidence-coding-row-actions button {
+  line-height: 1;
+  padding: 2px 6px;
+}
+
+.zotero-evidence-coding-link-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px 10px 10px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.zotero-evidence-coding-link-picker-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  max-width: 100%;
+}
+
+/* The sidebar is narrow and a select's native intrinsic width follows its
+   longest option (the annotation preview text can run to 50+ chars) --
+   without an explicit shrinkable width it pushes the Link button (and
+   everything after it) off the right edge of the panel. */
+.zotero-evidence-coding-link-picker-controls select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.zotero-evidence-coding-link-picker-controls button {
+  flex: 0 0 auto;
+}
+
+.zotero-evidence-coding-ai-quote {
+  color: #666;
+  font-style: italic;
+  font-size: 0.9em;
+  margin: 0 0 4px 0;
+  overflow-wrap: break-word;
+}
+
+.zotero-evidence-confirmed-list {
+  margin-bottom: 10px;
+}
+
+.zotero-evidence-coding-quote {
+  color: #666;
+  font-style: italic;
+  font-size: 0.9em;
+  margin: 4px 0;
+}
+
+.zotero-evidence-coding-confirmed {
+  color: #2e7d32;
+  font-weight: bold;
+  margin-left: 6px;
+}
+
+.zotero-evidence-coding-pending {
+  color: #a3701f;
+  font-style: italic;
+  margin-left: 6px;
+}
+
+.zotero-evidence-coding-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
 }
