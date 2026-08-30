@@ -34,6 +34,25 @@ function visible<T extends Element>(el: T): boolean {
   return (el as unknown as HTMLElement).offsetParent !== null;
 }
 
+// A fixed sleep before asserting on the rendered pane is inherently a race:
+// onAsyncRender runs on its own schedule, and a delay long enough on a fast
+// local machine can still be too short on a slower/loaded CI runner (this
+// is exactly what caused these tests to pass consistently locally but fail
+// intermittently in GitHub Actions). Poll for the actual condition instead,
+// bounded by a generous timeout -- resolves as soon as the pane is ready
+// and still fails with a clear assertion message if it never is.
+async function waitUntil(
+  check: () => boolean,
+  timeoutMs = 15000,
+  intervalMs = 100,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (check()) return;
+    await Zotero.Promise.delay(intervalMs);
+  }
+}
+
 describe("Screen Queue item-pane section", function () {
   this.timeout(30000);
 
@@ -74,7 +93,12 @@ describe("Screen Queue item-pane section", function () {
     );
     await Zotero.Promise.delay(300);
     await ZoteroPaneGlobal.selectItem(item.id);
-    await Zotero.Promise.delay(2000);
+    await waitUntil(
+      () =>
+        !!doc
+          .getElementById("zotero-view-item")
+          ?.querySelector(".zotero-evidence-card"),
+    );
 
     const container = doc.getElementById("zotero-view-item");
     assert.isNotNull(container, "#zotero-view-item should exist");
@@ -138,10 +162,16 @@ describe("Screen Queue item-pane section", function () {
     );
     await Zotero.Promise.delay(300);
     await ZoteroPaneGlobal.selectItem(item.id);
-    await Zotero.Promise.delay(2000);
+    const excludeLabel = await pluginString("screen-queue-decision-exclude");
+    await waitUntil(() => {
+      const c = doc.getElementById("zotero-view-item");
+      if (!c) return false;
+      return Array.from(c.querySelectorAll(".zotero-evidence-buttons button"))
+        .filter(visible)
+        .some((b) => b.textContent === excludeLabel);
+    });
 
     const container = doc.getElementById("zotero-view-item")!;
-    const excludeLabel = await pluginString("screen-queue-decision-exclude");
     const excludeBtn = Array.from(
       container.querySelectorAll(".zotero-evidence-buttons button"),
     )

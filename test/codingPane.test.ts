@@ -89,6 +89,25 @@ function findPaneCard(
   return null;
 }
 
+// A fixed sleep before asserting on the rendered pane is inherently a race:
+// onAsyncRender runs on its own schedule, and a delay long enough on a fast
+// local machine can still be too short on a slower/loaded CI runner (this
+// is exactly what caused these tests to pass consistently locally but fail
+// intermittently in GitHub Actions). Poll for the actual condition instead,
+// bounded by a generous timeout -- resolves as soon as the pane is ready
+// and still fails with a clear assertion message if it never is.
+async function waitUntil(
+  check: () => boolean,
+  timeoutMs = 15000,
+  intervalMs = 100,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (check()) return;
+    await Zotero.Promise.delay(intervalMs);
+  }
+}
+
 describe("Coding item-pane section", function () {
   describe("(reader)", function () {
     this.timeout(60000);
@@ -284,7 +303,12 @@ describe("Coding item-pane section", function () {
       );
       await Zotero.Promise.delay(300);
       await ZoteroPaneGlobal.selectItem(item.id);
-      await Zotero.Promise.delay(2000);
+      await waitUntil(
+        () =>
+          !!doc
+            .getElementById("zotero-view-item")
+            ?.querySelector(".zotero-evidence-confirmed-list"),
+      );
 
       const container = doc.getElementById("zotero-view-item");
       assert.isNotNull(container, "#zotero-view-item should exist");
@@ -343,7 +367,17 @@ describe("Coding item-pane section", function () {
       );
       await Zotero.Promise.delay(300);
       await ZoteroPaneGlobal.selectItem(item.id);
-      await Zotero.Promise.delay(2000);
+      // renderCardHeader adds the .zotero-evidence-card class and the empty
+      // .zotero-evidence-judgment-area div SYNCHRONOUSLY, before the pane's
+      // own async content (awaited DB calls) fills that area in -- so
+      // "the card exists" is true well before rendering is actually done.
+      // Poll for the content area to actually have something in it instead.
+      await waitUntil(() => {
+        const c = doc.getElementById("zotero-view-item");
+        const found = c && findPaneCard(c, "zotero-evidence-coding");
+        const area = found?.querySelector(".zotero-evidence-judgment-area");
+        return !!area?.textContent?.trim();
+      });
 
       const container = doc.getElementById("zotero-view-item")!;
       assert.isNull(
