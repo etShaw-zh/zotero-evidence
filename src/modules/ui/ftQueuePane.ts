@@ -20,7 +20,6 @@ import {
   el,
   escapeHtml,
   renderCardHeader,
-  renderExcludeReasonPicker,
   renderPaneError,
   resolveAttachment,
   resolveContextSync,
@@ -191,6 +190,59 @@ function renderFtEvidenceLinker(
   return container;
 }
 
+/**
+ * Read-only "review before confirming Exclude" row for FT-Screening. Unlike
+ * TA-Screening (which drops the reason entirely) and unlike this same row's
+ * former shape (a manual `<select>` of exclusion criteria), the reason here
+ * is chosen by the AI itself as part of the same judgment call -- the human
+ * only reviews and confirms, so this just displays whatever
+ * `state.exclusionReason` already holds (persisted by runAIJudgment) rather
+ * than collecting a choice. Hidden by default; the caller's Exclude button
+ * toggles the "open" class to reveal it instead of confirming immediately.
+ */
+function renderFtExcludeConfirm(
+  doc: Document,
+  reason: string | null,
+  onConfirm: () => void | Promise<void>,
+): HTMLElement {
+  const row = el(doc, "div", {
+    classList: ["zotero-evidence-exclude-reason"],
+  }) as HTMLElement;
+
+  row.appendChild(
+    el(doc, "label", {
+      properties: { innerHTML: getString("exclude-reason-label") },
+    }),
+  );
+  row.appendChild(
+    el(doc, "p", {
+      properties: {
+        innerHTML: reason
+          ? escapeHtml(reason)
+          : getString("exclude-reason-none"),
+      },
+    }),
+  );
+  row.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("exclude-reason-confirm") },
+      listeners: [{ type: "click", listener: () => void onConfirm() }],
+    }),
+  );
+  row.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("exclude-reason-cancel") },
+      listeners: [
+        { type: "click", listener: () => row.classList.remove("open") },
+      ],
+    }),
+  );
+
+  return row;
+}
+
 async function renderFtContent(
   container: HTMLElement,
   doc: Document,
@@ -199,7 +251,6 @@ async function renderFtContent(
   attachment: Zotero.Item | null,
   state: ScreeningState | null,
   hasCriteria: boolean,
-  exclusionCriteria: string[],
 ) {
   container.innerHTML = "";
 
@@ -224,7 +275,6 @@ async function renderFtContent(
       attachment,
       newState,
       hasCriteria,
-      exclusionCriteria,
     );
   };
 
@@ -351,10 +401,10 @@ async function renderFtContent(
       }
     };
 
-    const excludeReasonRow = renderExcludeReasonPicker(
+    const excludeReasonRow = renderFtExcludeConfirm(
       doc,
-      exclusionCriteria,
-      (reason) => doConfirm("exclude", reason),
+      state.exclusionReason,
+      () => doConfirm("exclude", state.exclusionReason),
     );
 
     const buttonRow = el(doc, "div", {
@@ -555,7 +605,6 @@ async function renderFtArea(
     attachment,
     state,
     !!criteriaRow,
-    criteriaRow?.criteria.exclusionCriteria ?? [],
   );
 }
 

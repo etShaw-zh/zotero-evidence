@@ -110,69 +110,6 @@ export function renderPaneError(
 }
 
 /**
- * Shared "pick a reason before confirming Exclude" inline widget for the TA
- * and FT panes (REQUIREMENTS EXP-01's PRISMA reasons breakdown needs a real
- * reason captured at decision time, not reconstructed after the fact).
- * Returns a hidden-by-default row the caller appends once; the caller's
- * Exclude button toggles the "open" class to reveal it instead of
- * confirming immediately.
- */
-export function renderExcludeReasonPicker(
-  doc: Document,
-  exclusionCriteria: string[],
-  onConfirm: (reason: string | null) => void | Promise<void>,
-): HTMLElement {
-  const select = el(doc, "select", {
-    children: [
-      {
-        tag: "option",
-        namespace: "html",
-        properties: { value: "", innerHTML: getString("exclude-reason-none") },
-      },
-      ...exclusionCriteria.map((c) => ({
-        tag: "option",
-        namespace: "html",
-        properties: { value: c, innerHTML: escapeHtml(c) },
-      })),
-    ],
-  }) as HTMLSelectElement;
-
-  const row = el(doc, "div", {
-    classList: ["zotero-evidence-exclude-reason"],
-  }) as HTMLElement;
-
-  row.appendChild(
-    el(doc, "label", {
-      properties: { innerHTML: getString("exclude-reason-label") },
-    }),
-  );
-  row.appendChild(select);
-  row.appendChild(
-    el(doc, "button", {
-      attributes: { type: "button" },
-      properties: { innerHTML: getString("exclude-reason-confirm") },
-      listeners: [
-        { type: "click", listener: () => void onConfirm(select.value || null) },
-      ],
-    }),
-  );
-  row.appendChild(
-    el(doc, "button", {
-      attributes: { type: "button" },
-      properties: { innerHTML: getString("exclude-reason-cancel") },
-      listeners: [
-        {
-          type: "click",
-          listener: () => row.classList.remove("open"),
-        },
-      ],
-    }),
-  );
-
-  return row;
-}
-
-/**
  * Renders the shared card header (title, authors/year, collapsible
  * abstract) and returns the empty content area below it for the caller to
  * fill in with stage-specific controls.

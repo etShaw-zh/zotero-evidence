@@ -52,13 +52,12 @@ describe("Phase 6: screeningExport", function () {
           excluded: 1,
           unclearToFt: 0,
           includedToFt: 0,
-          reasons: [{ reason: "Not empirical", count: 1 }],
         },
         eligibility: {
           fullTextAssessed: 0,
           excluded: 0,
           unavailable: 0,
-          reasons: [],
+          reasons: [{ reason: "Sample size < 30", count: 1 }],
         },
         included: { finalStudies: 0 },
       };
@@ -70,9 +69,13 @@ describe("Phase 6: screeningExport", function () {
       assert.include(lines, "Identification: total_records,2");
       assert.include(lines, "TA-Screening: screened,1");
       assert.include(lines, "TA-Screening: excluded,1");
-      assert.equal(lines[lines.length - 3], ""); // blank separator
-      assert.include(lines, "Reason,Stage,Count");
-      assert.include(lines, "Not empirical,TA-Screening,1");
+      const separatorIndex = lines.indexOf("");
+      const reasonsTable = lines.slice(separatorIndex + 1);
+      assert.equal(reasonsTable[0], "Reason,Stage,Count");
+      // TA-Screening no longer captures a reason at all (dropped from the
+      // export entirely, not just naturally-empty) -- only FT-Screening
+      // reasons should ever appear in this table.
+      assert.deepEqual(reasonsTable.slice(1), ["Sample size < 30,FT-Screening,1"]);
     });
   });
 
@@ -168,9 +171,7 @@ describe("Phase 6: screeningExport", function () {
     assert.equal(data.screening.excluded, 1);
     assert.equal(data.screening.unclearToFt, 1);
     assert.equal(data.screening.includedToFt, 2);
-    assert.deepEqual(data.screening.reasons, [
-      { reason: "Not empirical", count: 1 },
-    ]);
+    assert.isUndefined((data.screening as any).reasons);
 
     assert.equal(data.eligibility.fullTextAssessed, 3);
     assert.equal(data.eligibility.excluded, 1);

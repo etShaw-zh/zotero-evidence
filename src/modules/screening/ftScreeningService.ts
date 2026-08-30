@@ -21,6 +21,12 @@ export interface AIJudgmentResult {
    * paraphrase, OCR noise) -- that's expected and falls back to manual
    * linking, not an error. */
   quote: string;
+  /** The single exclusion criterion the AI judged as the best fit, copied
+   * verbatim from the project's configured exclusion criteria -- empty
+   * string when including, or when excluding without a confident match.
+   * The human never picks this manually (unlike TA-Screening, which
+   * doesn't capture a reason at all); they only review and confirm. */
+  exclusionReason: string;
 }
 
 export interface ScreeningState {
@@ -47,9 +53,14 @@ const SYSTEM_PROMPT =
   "You are assisting with full-text screening for a systematic literature review. " +
   "Given full-text inclusion criteria, exclusion criteria, and the full text of a paper " +
   "(which may be truncated if very long), decide whether the paper should be included or excluded. " +
+  "If excluding, also choose the single exclusion criterion from the provided list that best " +
+  "explains why, and copy it into exclusionReason VERBATIM -- character-for-character, exactly as " +
+  "given in the Exclusion criteria list -- so it can be matched back to that criterion; leave " +
+  "exclusionReason as an empty string when including. " +
   'Respond with ONLY a JSON object, no markdown and no extra text: {"decision": "include"|"exclude", ' +
-  '"reasoning": "explain the decision", "quote": "the exact sentence from the text, verbatim, that ' +
-  'drove the decision"}.';
+  '"reasoning": "explain the decision", "exclusionReason": "the verbatim matching exclusion ' +
+  'criterion, or empty string if including", "quote": "the exact sentence from the text, verbatim, ' +
+  'that drove the decision"}.';
 
 function buildPrompt(criteria: ScreeningCriteria, fullText: string): string {
   const truncated = fullText.length > MAX_FULLTEXT_CHARS;
@@ -87,12 +98,21 @@ export function parseJudgment(raw: string): AIJudgmentResult {
         reasoning: sanitizeDbText(String(obj.reasoning ?? "")),
         quote:
           typeof obj.quote === "string" ? sanitizeDbText(obj.quote) : "",
+        exclusionReason:
+          typeof obj.exclusionReason === "string"
+            ? sanitizeDbText(obj.exclusionReason)
+            : "",
       };
     }
   } catch {
     // fall through
   }
-  return { decision: null, reasoning: sanitizeDbText(raw), quote: "" };
+  return {
+    decision: null,
+    reasoning: sanitizeDbText(raw),
+    quote: "",
+    exclusionReason: "",
+  };
 }
 
 /**
@@ -253,12 +273,30 @@ export async function runAIJudgment(
   ]);
   const judgment = parseJudgment(raw);
 
+  // Only trust an exclusionReason that exactly matches one of the
+  // project's configured exclusion criteria -- a paraphrase or near-
+  // duplicate string would otherwise fragment the PRISMA reasons
+  // breakdown (getReasonCounts groups by exact exclusion_reason text).
+  // `null` here also correctly clears a stale reason from a prior run
+  // when this run doesn't exclude or doesn't confidently match.
+  const matchedExclusionReason =
+    judgment.decision === "exclude" &&
+    criteriaRow.criteria.exclusionCriteria.includes(judgment.exclusionReason)
+      ? judgment.exclusionReason
+      : null;
+
   const id = await getOrCreateRecordId(projectId, item.key);
   await databaseService.queryAsync(
     `UPDATE screening_records
-     SET criteria_id = ?, ai_decision = ?, ai_reasoning = ?
+     SET criteria_id = ?, ai_decision = ?, ai_reasoning = ?, exclusion_reason = ?
      WHERE id = ?`,
-    [criteriaRow.id, judgment.decision, judgment.reasoning, id],
+    [
+      criteriaRow.id,
+      judgment.decision,
+      judgment.reasoning,
+      matchedExclusionReason,
+      id,
+    ],
   );
 
   // Best-effort (FTS-06): try to locate the cited quote in the PDF. This

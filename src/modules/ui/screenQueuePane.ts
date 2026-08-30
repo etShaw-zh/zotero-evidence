@@ -16,7 +16,6 @@ import {
   el,
   escapeHtml,
   renderCardHeader,
-  renderExcludeReasonPicker,
   renderPaneError,
   resolveContextSync,
   setNativeSectionsHidden,
@@ -44,14 +43,7 @@ async function renderJudgmentArea(
   }
 
   const state = await getScreeningState(ctx.project.id, item.key);
-  await renderJudgmentContent(
-    container,
-    doc,
-    ctx,
-    item,
-    state,
-    criteriaRow.criteria.exclusionCriteria,
-  );
+  await renderJudgmentContent(container, doc, ctx, item, state);
 }
 
 async function renderJudgmentContent(
@@ -60,7 +52,6 @@ async function renderJudgmentContent(
   ctx: ProjectPaneContext,
   item: Zotero.Item,
   state: ScreeningState | null,
-  exclusionCriteria: string[],
 ) {
   container.innerHTML = "";
 
@@ -76,14 +67,7 @@ async function renderJudgmentContent(
         decision: null,
         exclusionReason: null,
       };
-      await renderJudgmentContent(
-        container,
-        doc,
-        ctx,
-        item,
-        newState,
-        exclusionCriteria,
-      );
+      await renderJudgmentContent(container, doc, ctx, item, newState);
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
         `${getString("screen-queue-error-run-ai")}\n${e?.message ?? e}`,
@@ -151,12 +135,6 @@ async function renderJudgmentContent(
     }
   };
 
-  const excludeReasonRow = renderExcludeReasonPicker(
-    doc,
-    exclusionCriteria,
-    (reason) => doConfirm("exclude", reason),
-  );
-
   const buttonRow = el(doc, "div", { classList: ["zotero-evidence-buttons"] });
   const decisions: TADecision[] = ["include", "exclude", "unclear"];
   for (const decision of decisions) {
@@ -168,22 +146,12 @@ async function renderJudgmentContent(
       properties: { innerHTML: decisionLabel(decision) },
       classList: isCurrent ? ["selected"] : [],
       listeners: [
-        {
-          type: "click",
-          listener: () => {
-            if (decision === "exclude") {
-              excludeReasonRow.classList.add("open");
-            } else {
-              void doConfirm(decision, null);
-            }
-          },
-        },
+        { type: "click", listener: () => void doConfirm(decision, null) },
       ],
     });
     buttonRow.appendChild(btn);
   }
   container.appendChild(buttonRow);
-  container.appendChild(excludeReasonRow);
 
   if (state.decision) {
     container.appendChild(

@@ -9,6 +9,7 @@ import { config } from "../package.json";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
+import { databaseService } from "../src/modules/db/database";
 import { saveCriteria } from "../src/modules/screening/criteriaService";
 import {
   confirmDecision,
@@ -110,7 +111,7 @@ describe("FT-Queue item-pane section", function () {
     );
   });
 
-  it("Exclude reveals a reason picker; confirming writes exclusion_reason (Phase 6)", async function () {
+  it("Exclude confirms the AI-picked reason as read-only text; no manual picker", async function () {
     const project = await createProject(
       `FT Pane Exclude Reason Test ${Date.now()}`,
     );
@@ -133,6 +134,17 @@ describe("FT-Queue item-pane section", function () {
     item.addToCollection(collections.ftQueueId);
     await item.saveTx();
     await markFulltextReady(project.id, item, "test");
+
+    // Simulate what runAIJudgment writes once it parses an AI response --
+    // no live provider is mocked in this suite (see ftScreening.test.ts),
+    // so seed the same columns directly.
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `UPDATE screening_records
+       SET ai_decision = 'exclude', ai_reasoning = 'No control arm reported.', exclusion_reason = 'No control group'
+       WHERE project_id = ? AND item_key = ? AND stage = 'ft_screening'`,
+      [project.id, item.key],
+    );
 
     const win = Zotero.getMainWindow();
     const doc = win.document;
@@ -162,8 +174,12 @@ describe("FT-Queue item-pane section", function () {
     excludeBtn.click();
     assert.isTrue(reasonRow.classList.contains("open"));
 
-    const select = reasonRow.querySelector("select") as HTMLSelectElement;
-    select.value = "No control group";
+    assert.isNull(
+      reasonRow.querySelector("select"),
+      "FT-Screening should show the AI-picked reason as text, not a picker",
+    );
+    assert.include(reasonRow.textContent, "No control group");
+
     const confirmLabel = await pluginString("exclude-reason-confirm");
     const confirmBtn = Array.from(reasonRow.querySelectorAll("button")).find(
       (b) => b.textContent === confirmLabel,

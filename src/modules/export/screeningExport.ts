@@ -16,7 +16,6 @@ export interface PrismaData {
     excluded: number;
     unclearToFt: number;
     includedToFt: number;
-    reasons: { reason: string; count: number }[];
   };
   eligibility: {
     fullTextAssessed: number;
@@ -100,7 +99,6 @@ export async function computePrismaData(
       excluded: taExclude,
       unclearToFt: taUnclear,
       includedToFt: taInclude,
-      reasons: await getReasonCounts(projectId, "ta_screening"),
     },
     eligibility: {
       fullTextAssessed: ftInclude + ftExclude + ftUnavailable,
@@ -157,9 +155,6 @@ export function formatPrismaCsv(data: PrismaData): string {
 
   lines.push("");
   lines.push(toCsvLine(["Reason", "Stage", "Count"]));
-  data.screening.reasons.forEach((r) => {
-    lines.push(toCsvLine([r.reason, "TA-Screening", r.count]));
-  });
   data.eligibility.reasons.forEach((r) => {
     lines.push(toCsvLine([r.reason, "FT-Screening", r.count]));
   });

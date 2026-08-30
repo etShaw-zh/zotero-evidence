@@ -128,6 +128,20 @@ describe("Phase 3: FT-Screening core loop", function () {
     assert.equal(garbage.reasoning, "not json at all");
   });
 
+  it("parseJudgment extracts exclusionReason when present, empty string when omitted", function () {
+    const withReason = parseJudgment(
+      '{"decision": "exclude", "reasoning": "too small", "exclusionReason": "No control group", "quote": "n=5"}',
+    );
+    assert.equal(withReason.decision, "exclude");
+    assert.equal(withReason.exclusionReason, "No control group");
+
+    const withoutReason = parseJudgment(
+      '{"decision": "include", "reasoning": "fits"}',
+    );
+    assert.equal(withoutReason.decision, "include");
+    assert.equal(withoutReason.exclusionReason, "");
+  });
+
   it("markFulltextReady sets the fulltext_ready gate", async function () {
     const project = await createProject(`FT Ready Test ${Date.now()}`);
     const item = await makeTestItem("Ready Gate");

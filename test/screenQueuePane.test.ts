@@ -96,9 +96,9 @@ describe("Screen Queue item-pane section", function () {
     );
   });
 
-  it("Exclude reveals a reason picker; confirming writes exclusion_reason (Phase 6)", async function () {
+  it("Exclude confirms immediately with no reason picker (TA never captures a reason)", async function () {
     const project = await createProject(
-      `Pane Exclude Reason Test ${Date.now()}`,
+      `Pane Exclude No Reason Test ${Date.now()}`,
     );
     const collections = resolveProjectCollections(
       getRootCollectionId(project)!,
@@ -114,7 +114,7 @@ describe("Screen Queue item-pane section", function () {
 
     const item = new Zotero.Item("journalArticle");
     item.libraryID = Zotero.Libraries.userLibraryID;
-    item.setField("title", "Exclude Reason Pane Test Item");
+    item.setField("title", "Exclude No Reason Pane Test Item");
     await item.saveTx();
     item.addToCollection(collections.screenQueueId);
     await item.saveTx();
@@ -149,36 +149,19 @@ describe("Screen Queue item-pane section", function () {
       .find((b) => b.textContent === excludeLabel) as HTMLButtonElement;
     assert.isDefined(excludeBtn, "Exclude button should be rendered");
 
-    // Scope to the same contentArea the button lives in (not just any
-    // .zotero-evidence-exclude-reason in the pane) -- see the `visible`
-    // comment above for why a broad search can find a stale sibling.
     const sectionRoot = excludeBtn.closest(
       ".zotero-evidence-judgment-area",
     ) as HTMLElement;
-    const reasonRow = sectionRoot.querySelector(
-      ".zotero-evidence-exclude-reason",
-    )!;
-    assert.isFalse(reasonRow.classList.contains("open"));
-    excludeBtn.click();
-    assert.isTrue(
-      reasonRow.classList.contains("open"),
-      "reason picker should open after clicking Exclude",
+    assert.isNull(
+      sectionRoot.querySelector(".zotero-evidence-exclude-reason"),
+      "TA-Screening should never render a reason picker/confirm row",
     );
 
-    const select = reasonRow.querySelector("select") as HTMLSelectElement;
-    const optionValues = Array.from(select.options).map((o) => o.value);
-    assert.include(optionValues, "Wrong population");
-    select.value = "Wrong population";
-
-    const confirmLabel = await pluginString("exclude-reason-confirm");
-    const confirmBtn = Array.from(reasonRow.querySelectorAll("button")).find(
-      (b) => b.textContent === confirmLabel,
-    ) as HTMLButtonElement;
-    confirmBtn.click();
+    excludeBtn.click();
     await Zotero.Promise.delay(500);
 
     const state = await getScreeningState(project.id, item.key);
     assert.equal(state?.decision, "exclude");
-    assert.equal(state?.exclusionReason, "Wrong population");
+    assert.isNull(state?.exclusionReason);
   });
 });
