@@ -289,32 +289,23 @@ async function renderFtContent(
     );
   };
 
-  if (!state?.fulltextReady) {
-    const confirmBtn = el(doc, "button", {
-      attributes: { type: "button" },
-      properties: { innerHTML: getString("ft-queue-confirm-ready") },
-      listeners: [
-        {
-          type: "click",
-          listener: async () => {
-            try {
-              await markFulltextReady(ctx.project.id, item, "user");
-              await rerender();
-            } catch (e: any) {
-              ztoolkit.getGlobal("alert")(
-                `${getString("ft-queue-error-ready")}\n${e?.message ?? e}`,
-              );
-            }
-          },
-        },
-      ],
-    });
-    container.appendChild(confirmBtn);
-  } else if (!hasCriteria) {
+  // fulltext_ready is always true by the time this renders -- renderFtArea
+  // (the only caller) auto-confirms it before calling in here, since
+  // simply having the PDF open already proves full text is available.
+  // `state` itself is guaranteed non-null too (that same auto-confirm call
+  // creates the screening_records row via getOrCreateRecordId) -- the
+  // `!state` branch below is purely a type-narrowing formality.
+  if (!hasCriteria) {
     container.appendChild(
       el(doc, "p", {
         properties: { innerHTML: getString("ft-queue-no-criteria") },
         styles: { color: "var(--fill-secondary, #a33)" },
+      }),
+    );
+  } else if (!state) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("ft-queue-history-none") },
       }),
     );
   } else {
@@ -509,10 +500,14 @@ async function renderFtContent(
 }
 
 /**
- * Read-only history view for the FT-Include/FT-Exclude/FT-Unavailable
- * collections, mirroring screenQueuePane.ts's renderHistoryArea: shows the
+ * History view for the FT-Include/FT-Exclude/FT-Unavailable collections,
+ * mirroring screenQueuePane.ts's renderHistoryArea: shows the
  * screening_records trail plus an Undo action, instead of the editable
- * FT-Screen Queue controls above.
+ * FT-Screen Queue controls above. Undo is available in both tabs -- unlike
+ * the underlying include/exclude/unavailable decision itself (which needs
+ * the PDF to make responsibly), reversing that decision doesn't, so there's
+ * no reason to force a trip into the reader just to undo a mistake made
+ * from the library view.
  */
 async function renderFtHistoryArea(
   container: HTMLElement,
@@ -606,7 +601,18 @@ async function renderFtArea(
 ) {
   container.innerHTML = "";
   const criteriaRow = await getLatestCriteria(ctx.project.id, "ft");
-  const state = await getScreeningState(ctx.project.id, item.key);
+  let state = await getScreeningState(ctx.project.id, item.key);
+  // This pane only renders (in the reader tab) once the PDF is already
+  // open -- that alone is the human confirming full text is available, so
+  // there's no separate manual "Confirm Full Text Ready" click to make
+  // here the way the library tab would need (it can't see the PDF at
+  // all). Record it exactly like that button used to, just without
+  // requiring the click; runAIJudgment still gates on this DB flag, so it
+  // must actually get set, not just skipped in the UI.
+  if (!state?.fulltextReady) {
+    await markFulltextReady(ctx.project.id, item, "user");
+    state = await getScreeningState(ctx.project.id, item.key);
+  }
   const attachment = await resolveAttachment(item);
   await renderFtContent(
     container,
@@ -631,8 +637,8 @@ export function registerFtQueuePane() {
       l10nID: getLocaleID("ft-queue-sidenav-tooltip"),
       icon: "chrome://zotero/skin/20/universal/save.svg",
     },
-    onItemChange: ({ item, doc, setEnabled, tabType }) => {
-      const ctx = tabType === "library" ? resolveContextSync(item) : null;
+    onItemChange: ({ item, doc, setEnabled }) => {
+      const ctx = resolveContextSync(item);
       const relevant =
         !!ctx &&
         (ctx.role === "ft_queue" ||
@@ -653,7 +659,15 @@ export function registerFtQueuePane() {
     // Required for registerSection to actually succeed -- see
     // screenQueuePane.ts for the empirically-confirmed reason.
     onRender: () => {},
-    onAsyncRender: async ({ body, doc, item }) => {
+    // Reader tab: the full interactive workflow for ft_queue (Run AI/
+    // Include-Exclude/evidence linker) -- FT-screening fundamentally
+    // requires reading the PDF to decide, so this belongs where the PDF
+    // is, same reasoning as Coding's reader-tab editor. Library tab: a
+    // quick-glance summary without opening the PDF, mirroring
+    // codingPane.ts's renderCodingSummary. Both tabs use the same history
+    // view (with Undo) for the three decided roles -- unlike the decision
+    // itself, undoing it doesn't need the PDF.
+    onAsyncRender: async ({ body, doc, item, tabType }) => {
       const ctx = resolveContextSync(item);
       if (
         !ctx ||
@@ -668,7 +682,7 @@ export function registerFtQueuePane() {
       }
       const contentArea = renderCardHeader(body, doc, item);
       try {
-        if (ctx.role === "ft_queue") {
+        if (tabType === "reader" && ctx.role === "ft_queue") {
           await renderFtArea(contentArea, doc, ctx, item);
         } else {
           await renderFtHistoryArea(contentArea, doc, ctx, item);

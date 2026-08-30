@@ -24,7 +24,7 @@ import {
   importDirectToCoding,
   importLiteratureFile,
 } from "../import/importService";
-import { escapeHtml } from "./paneHelpers";
+import { escapeHtml, resolveAttachment } from "./paneHelpers";
 import {
   resolveProjectCollections,
   SOURCE_DATABASE_LABELS,
@@ -51,6 +51,7 @@ import {
   getScreeningState,
   runAIJudgment,
 } from "../screening/taScreeningService";
+import { markUnavailable } from "../screening/ftScreeningService";
 
 export class EvidenceCommands {
   static registerMenus() {
@@ -169,6 +170,13 @@ export class EvidenceCommands {
       label: getString("menu-batch-confirm-ai"),
       commandListener: () =>
         addon.hooks.onDialogEvents("evidenceBatchConfirmAI"),
+    });
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-evidence-batch-mark-unavailable",
+      label: getString("menu-batch-mark-unavailable"),
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceBatchMarkUnavailable"),
     });
   }
 
@@ -1094,6 +1102,55 @@ export class EvidenceCommands {
       .createLine({
         text: getString("progress-batch-confirm-done", {
           args: { confirmed, skipped },
+        }),
+        type: "success",
+        progress: 100,
+      })
+      .show();
+  }
+
+  private static async resolveFtQueueBatchContext() {
+    const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+    const collectionId = ZoteroPaneGlobal.getSelectedCollection(true);
+    const ctx = await findProjectPaneContext(collectionId ?? null);
+    if (!ctx || ctx.role !== "ft_queue") {
+      ztoolkit.getGlobal("alert")(getString("error-not-ft-queue"));
+      return null;
+    }
+    const items = (ZoteroPaneGlobal.getSelectedItems() as Zotero.Item[]).filter(
+      (i) => i.isRegularItem(),
+    );
+    if (items.length === 0) return null;
+    return { ctx, items };
+  }
+
+  // Distinct from batchConfirmAI (TA): this doesn't touch any AI suggestion
+  // at all -- it's a bulk cleanup for items the human never even got a PDF
+  // for. Each selected item is only moved to FT-Unavailable if it still has
+  // NO detected PDF attachment; an item that does have one is left alone
+  // entirely (no action taken) so a batch run can't accidentally overwrite
+  // a real screening decision for an item that's actually readable.
+  static async batchMarkUnavailable() {
+    const resolved = await EvidenceCommands.resolveFtQueueBatchContext();
+    if (!resolved) return;
+    const { ctx, items } = resolved;
+
+    let marked = 0;
+    let skipped = 0;
+    for (const item of items) {
+      const attachment = await resolveAttachment(item);
+      if (attachment) {
+        skipped++;
+        continue;
+      }
+      await markUnavailable(ctx.project.id, item, ctx.collections, "user");
+      marked++;
+    }
+
+    new ztoolkit.ProgressWindow(addon.data.config.addonName)
+      .createLine({
+        text: getString("progress-batch-unavailable-done", {
+          args: { marked, skipped },
         }),
         type: "success",
         progress: 100,

@@ -90,21 +90,23 @@ progress-batch-running = AI 判断进行中：{ $done }/{ $total }
 progress-batch-done = AI 判断完成：{ $done }/{ $total }（{ $failed } 条失败）
 progress-batch-confirm-done = 已确认 { $confirmed } 条，跳过 { $skipped } 条（无待确认的 AI 建议）。
 
+menu-batch-mark-unavailable = 标记全文不可用（已选条目）
+error-not-ft-queue = 请先在某个 Evidence 项目的全文筛选（FT-Screen Queue）集合中选中条目。
+progress-batch-unavailable-done = 已将 { $marked } 条条目标记为全文不可用，跳过 { $skipped } 条（已检测到 PDF）。
+
 ft-queue-head-text =
     .label = Evidence 全文筛选
 ft-queue-sidenav-tooltip =
     .tooltiptext = 全文筛选
 ft-queue-no-criteria = 该项目还没有配置全文筛选标准，请先通过"文件 > 配置全文筛选标准…"设置。
 ft-queue-pdf-found = 已检测到 PDF 附件。
-ft-queue-pdf-missing = 尚未检测到 PDF 附件。请使用 Zotero 自带的"查找可用全文"功能或手动添加附件，然后在下方确认。
-ft-queue-confirm-ready = 确认全文可用
+ft-queue-pdf-missing = 尚未检测到 PDF 附件。请使用 Zotero 自带的"查找可用全文"功能或手动添加附件。
 ft-queue-mark-unavailable = 标记全文不可用
 ft-queue-run-ai = 运行 AI 判断
 ft-queue-rerun-ai = 重新运行 AI 判断
 ft-queue-loading = 处理中…
 ft-queue-error-run-ai = AI 判断失败。
 ft-queue-error-confirm = 保存筛选结果失败。
-ft-queue-error-ready = 确认全文可用失败。
 ft-queue-error-unavailable = 标记全文不可用失败。
 ft-queue-ai-suggestion = AI 建议：
 ft-queue-ai-unparseable = AI 未返回可解析的判断结果，请人工判断。原始回复：

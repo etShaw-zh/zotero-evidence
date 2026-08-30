@@ -90,21 +90,23 @@ progress-batch-running = Running AI judgment: { $done }/{ $total }
 progress-batch-done = AI judgment done: { $done }/{ $total } ({ $failed } failed)
 progress-batch-confirm-done = Confirmed { $confirmed } item(s), skipped { $skipped } (no pending AI suggestion).
 
+menu-batch-mark-unavailable = Mark Full Text Unavailable (Selected Items)
+error-not-ft-queue = Select items inside an Evidence project's FT-Screen Queue collection first.
+progress-batch-unavailable-done = Marked { $marked } item(s) as full-text unavailable, skipped { $skipped } (PDF already detected).
+
 ft-queue-head-text =
     .label = Evidence Full-Text Screening
 ft-queue-sidenav-tooltip =
     .tooltiptext = FT-Screening
 ft-queue-no-criteria = No FT screening criteria configured for this project yet. Use File > Configure Full-Text Screening Criteria… first.
 ft-queue-pdf-found = PDF attachment detected.
-ft-queue-pdf-missing = No PDF attachment detected yet. Use Zotero's built-in "Find Available PDF" or attach one manually, then confirm below.
-ft-queue-confirm-ready = Confirm Full Text Ready
+ft-queue-pdf-missing = No PDF attachment detected yet. Use Zotero's built-in "Find Available PDF" or attach one manually.
 ft-queue-mark-unavailable = Mark Full Text Unavailable
 ft-queue-run-ai = Run AI Judgment
 ft-queue-rerun-ai = Re-run AI Judgment
 ft-queue-loading = Working…
 ft-queue-error-run-ai = AI judgment failed.
 ft-queue-error-confirm = Failed to save the decision.
-ft-queue-error-ready = Failed to confirm full text ready.
 ft-queue-error-unavailable = Failed to mark full text unavailable.
 ft-queue-ai-suggestion = AI suggests:
 ft-queue-ai-unparseable = AI did not return a parseable decision; please decide manually. Raw response:

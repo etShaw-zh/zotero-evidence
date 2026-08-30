@@ -68,6 +68,27 @@ function writeFixturePdf(name: string): string {
   return file.path;
 }
 
+// See ftQueuePane.test.ts's identical helper for why: #zotero-view-item
+// hosts every registered custom section's body side by side (Screen Queue,
+// FT-Queue, Coding all share the `.zotero-evidence-card` class), and a
+// section that isn't relevant for the current item still leaves its own
+// body element in the DOM rather than being removed -- so a bare
+// `container.querySelector(".zotero-evidence-card")` can silently grab a
+// different pane's stale card. Scope the lookup to the wrapper whose
+// native `data-pane` attribute names this pane's paneID.
+function findPaneCard(
+  container: Element,
+  paneIdFragment: string,
+): Element | null {
+  for (const el of Array.from(container.querySelectorAll("[data-pane]"))) {
+    const attr = el.getAttribute("data-pane") || "";
+    if (attr.includes(paneIdFragment)) {
+      return el.querySelector(".zotero-evidence-card");
+    }
+  }
+  return null;
+}
+
 describe("Coding item-pane section (reader)", function () {
   this.timeout(60000);
 
@@ -186,6 +207,16 @@ async function runTest() {
         "referencing its paneID somewhere in the reader UI (proves registration " +
         "succeeded, i.e. onRender was provided alongside onAsyncRender)",
     );
+
+    // Zotero.Reader.open() above leaves its reader tab open and focused --
+    // without closing it, every later test in the suite that selects a
+    // library item still has this reader tab active, so ZoteroPane's
+    // selection/pane-context calls resolve against the reader's own item
+    // pane (tabType "reader") instead of the library one, wrongly
+    // rendering the full interactive editor where a read-only summary was
+    // expected. closeAll() leaves the fixed Library tab in place and
+    // returns focus to it.
+    (win as any).Zotero_Tabs?.closeAll?.();
   }
 }
 
@@ -321,7 +352,7 @@ describe("Coding item-pane section (library tab summary)", function () {
       "no confirmed-evidence list should render when there's nothing confirmed yet",
     );
     const emptyMessage = await pluginString("coding-summary-empty");
-    const bodyText = container.querySelector(".zotero-evidence-card")
+    const bodyText = findPaneCard(container, "zotero-evidence-coding")
       ?.textContent;
     assert.include(bodyText, emptyMessage);
   });
