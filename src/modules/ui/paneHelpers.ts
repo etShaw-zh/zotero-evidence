@@ -92,10 +92,7 @@ export function quotePreview(text: string | null, max = 60): string {
  * innerHTML template.
  */
 export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Shared "key: preview text" option label for annotation-picker dropdowns

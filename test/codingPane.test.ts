@@ -89,23 +89,24 @@ function findPaneCard(
   return null;
 }
 
-describe("Coding item-pane section (reader)", function () {
-  this.timeout(60000);
+describe("Coding item-pane section", function () {
+  describe("(reader)", function () {
+    this.timeout(60000);
 
-  it("registers successfully and is enabled only for FT-Include/Coding items", async function () {
-    try {
-      await runTest();
-    } catch (e: any) {
-      const file = Zotero.File.pathToFile(Zotero.DataDirectory.dir);
-      file.append("coding-pane-test-error.log");
-      Zotero.File.putContents(
-        file,
-        `${e?.message ?? e}\n\n${e?.stack ?? "(no stack)"}`,
-      );
-      throw e;
-    }
+    it("registers successfully and is enabled only for FT-Include/Coding items", async function () {
+      try {
+        await runTest();
+      } catch (e: any) {
+        const file = Zotero.File.pathToFile(Zotero.DataDirectory.dir);
+        file.append("coding-pane-test-error.log");
+        Zotero.File.putContents(
+          file,
+          `${e?.message ?? e}\n\n${e?.stack ?? "(no stack)"}`,
+        );
+        throw e;
+      }
+    });
   });
-});
 
 async function runTest() {
   {
@@ -227,9 +228,7 @@ describe("Coding item-pane section (library tab summary)", function () {
   this.timeout(30000);
 
   it("shows a read-only confirmed-evidence summary with no action buttons", async function () {
-    const project = await createProject(
-      `Coding Summary Test ${Date.now()}`,
-    );
+    const project = await createProject(`Coding Summary Test ${Date.now()}`);
     const collections = resolveProjectCollections(
       getRootCollectionId(project)!,
     );
@@ -352,8 +351,10 @@ describe("Coding item-pane section (library tab summary)", function () {
       "no confirmed-evidence list should render when there's nothing confirmed yet",
     );
     const emptyMessage = await pluginString("coding-summary-empty");
-    const bodyText = findPaneCard(container, "zotero-evidence-coding")
-      ?.textContent;
+    const bodyText = findPaneCard(
+      container,
+      "zotero-evidence-coding",
+    )?.textContent;
     assert.include(bodyText, emptyMessage);
   });
 });

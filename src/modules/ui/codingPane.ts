@@ -322,7 +322,14 @@ function renderPendingSuggestionsCard(
 
   for (const record of pending) {
     card.appendChild(
-      renderSuggestionRow(doc, item, attachment, annotations, record, onChanged),
+      renderSuggestionRow(
+        doc,
+        item,
+        attachment,
+        annotations,
+        record,
+        onChanged,
+      ),
     );
   }
 

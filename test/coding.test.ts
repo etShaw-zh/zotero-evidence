@@ -249,7 +249,12 @@ describe("Phase 4: Full-Text Coding core loop", function () {
 
     // linkAnnotationToRecord confirms an AI-style unlinked suggestion.
     const suggestionId = id1;
-    await linkAnnotationToRecord(suggestionId, annotation.key, "study_design", "RCT");
+    await linkAnnotationToRecord(
+      suggestionId,
+      annotation.key,
+      "study_design",
+      "RCT",
+    );
     const afterLink = await getCodingRecords(project.id, item.key);
     const linked = afterLink.find((r) => r.id === suggestionId);
     assert.isTrue(linked?.confirmed);
@@ -307,7 +312,10 @@ describe("Phase 4: Full-Text Coding core loop", function () {
       { name: "population", type: "text" },
     ]);
     const item = await makeTestItem("Undo Item");
-    const attachment = await attachRealPdf(item, `coding-undo-${Date.now()}.pdf`);
+    const attachment = await attachRealPdf(
+      item,
+      `coding-undo-${Date.now()}.pdf`,
+    );
     const annotation = await createRealAnnotation(
       attachment,
       "adults aged 18-65",
@@ -430,10 +438,7 @@ describe("Phase 4: Full-Text Coding core loop", function () {
       annotation.annotationText,
       "CODING TEST FIXTURE SAMPLE SIZE 156",
     );
-    assert.equal(
-      (annotation as any).annotationComment,
-      "sample_size: 156",
-    );
+    assert.equal((annotation as any).annotationComment, "sample_size: 156");
   });
 
   it("confirmRecord behaves like updateRecord when there's no pending position (no forced confirm)", async function () {

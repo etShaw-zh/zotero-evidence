@@ -70,5 +70,4 @@ describe("Phase 4: Codebook", function () {
     const latest = await getLatestCodebook(project.id);
     assert.isNull(latest);
   });
-
 });

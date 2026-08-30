@@ -195,7 +195,10 @@ export class EvidenceCommands {
   // (flex="0") and THEN size the window ourselves -- so height is never
   // guessed or clipped, only width is set explicitly.
   private static openSizedDialog(
-    dialog: { open: (title: string, windowFeatures?: any) => any; window?: Window },
+    dialog: {
+      open: (title: string, windowFeatures?: any) => any;
+      window?: Window;
+    },
     title: string,
     width: number,
   ) {
@@ -751,9 +754,10 @@ export class EvidenceCommands {
         const latest = await getLatestCriteria(Number(value), stage);
         const fields = criteriaFields(latest?.criteria ?? null);
         for (const [key, fieldValue] of Object.entries(fields)) {
-          const field = doc.querySelector(
-            `[data-bind="${key}"]`,
-          ) as HTMLInputElement | HTMLTextAreaElement | null;
+          const field = doc.querySelector(`[data-bind="${key}"]`) as
+            | HTMLInputElement
+            | HTMLTextAreaElement
+            | null;
           if (field) field.value = fieldValue;
         }
       },
@@ -953,14 +957,10 @@ export class EvidenceCommands {
     ).filter((r): r is NonNullable<typeof r> => r !== null);
 
     const columns = 10;
-    const dialog = new ztoolkit.Dialog(rows.length + 2, columns).addCell(
-      0,
-      0,
-      {
-        tag: "h1",
-        properties: { innerHTML: getString("dialog-progress-title") },
-      },
-    );
+    const dialog = new ztoolkit.Dialog(rows.length + 2, columns).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-progress-title") },
+    });
     const headers = [
       getString("dialog-progress-col-project"),
       getString("dialog-progress-col-pending"),
@@ -1763,9 +1763,7 @@ export class EvidenceCommands {
           tag: "label",
           namespace: "html",
           properties: {
-            innerHTML: getString(
-              "dialog-codebook-edit-variable-select-label",
-            ),
+            innerHTML: getString("dialog-codebook-edit-variable-select-label"),
           },
         })
         .addCell(
@@ -1958,12 +1956,12 @@ export class EvidenceCommands {
         "evidence-codebook-edit-variable-select",
       ) as HTMLSelectElement | undefined;
       const nameEl = doc?.getElementById("evidence-codebook-edit-name");
-      const typeEl = doc?.getElementById(
-        "evidence-codebook-edit-type",
-      ) as HTMLSelectElement | undefined;
-      const valuesEl = doc?.getElementById(
-        "evidence-codebook-edit-values",
-      ) as HTMLTextAreaElement | undefined;
+      const typeEl = doc?.getElementById("evidence-codebook-edit-type") as
+        | HTMLSelectElement
+        | undefined;
+      const valuesEl = doc?.getElementById("evidence-codebook-edit-values") as
+        | HTMLTextAreaElement
+        | undefined;
       const multipleEl = doc?.getElementById(
         "evidence-codebook-edit-multiple",
       ) as HTMLInputElement | undefined;
@@ -1976,12 +1974,12 @@ export class EvidenceCommands {
       // needs these sibling fields' displayed values (and dialogData
       // itself) written by hand as it happens. notes has no data-bind at
       // all (kept as a plain manual-sync field, like before).
-      const notesEl = doc?.getElementById(
-        "evidence-codebook-edit-notes",
-      ) as HTMLTextAreaElement | undefined;
-      const hintEl = doc?.getElementById(
-        "evidence-codebook-edit-hint",
-      ) as HTMLTextAreaElement | undefined;
+      const notesEl = doc?.getElementById("evidence-codebook-edit-notes") as
+        | HTMLTextAreaElement
+        | undefined;
+      const hintEl = doc?.getElementById("evidence-codebook-edit-hint") as
+        | HTMLTextAreaElement
+        | undefined;
 
       const populateFields = (v: CodebookVariable | undefined) => {
         dialogData.variableName = v?.name ?? "";
@@ -2064,8 +2062,7 @@ export class EvidenceCommands {
               multiple: !!dialogData.multiple,
               required: !!dialogData.required,
               notes: String(dialogData.notes || "").trim() || undefined,
-              extractionHint:
-                String(dialogData.hint || "").trim() || undefined,
+              extractionHint: String(dialogData.hint || "").trim() || undefined,
             }
           : v,
       );
