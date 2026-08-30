@@ -6,6 +6,7 @@ import {
 import { saveCodebook } from "../src/modules/coding/codebookService";
 import {
   addManualRecord,
+  computeCodingStats,
   confirmRecord,
   deleteRecord,
   generateSuggestions,
@@ -13,10 +14,13 @@ import {
   getCodingRecords,
   linkAnnotationToRecord,
   parseSuggestions,
+  unconfirmRecord,
   updateRecord,
 } from "../src/modules/coding/codingService";
 import { databaseService } from "../src/modules/db/database";
 import { locateQuoteInAttachment } from "../src/modules/pdf/pdfAnnotationCreator";
+import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
+import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
 import { CODING_ANNOTATION_COLOR } from "../src/utils/annotationColors";
 
@@ -245,7 +249,7 @@ describe("Phase 4: Full-Text Coding core loop", function () {
 
     // linkAnnotationToRecord confirms an AI-style unlinked suggestion.
     const suggestionId = id1;
-    await linkAnnotationToRecord(suggestionId, annotation.key);
+    await linkAnnotationToRecord(suggestionId, annotation.key, "study_design", "RCT");
     const afterLink = await getCodingRecords(project.id, item.key);
     const linked = afterLink.find((r) => r.id === suggestionId);
     assert.isTrue(linked?.confirmed);
@@ -281,9 +285,64 @@ describe("Phase 4: Full-Text Coding core loop", function () {
       null,
       null,
     );
-    await linkAnnotationToRecord(recordId, annotation.key);
+    await linkAnnotationToRecord(
+      recordId,
+      annotation.key,
+      "population",
+      "Adults 18-65",
+    );
 
     assert.equal(annotation.annotationColor, CODING_ANNOTATION_COLOR);
+    // A manually-linked highlight keeps its own real annotationText (the
+    // user drew it themselves) -- only the comment is coding's to set.
+    assert.equal(
+      (annotation as any).annotationComment,
+      "population: Adults 18-65",
+    );
+  });
+
+  it("unconfirmRecord reverts a confirmed record back to pending (unlinks, doesn't delete the annotation)", async function () {
+    const project = await createProject(`Coding Undo Test ${Date.now()}`);
+    const codebook = await saveCodebook(project.id, [
+      { name: "population", type: "text" },
+    ]);
+    const item = await makeTestItem("Undo Item");
+    const attachment = await attachRealPdf(item, `coding-undo-${Date.now()}.pdf`);
+    const annotation = await createRealAnnotation(
+      attachment,
+      "adults aged 18-65",
+      "#00aa00",
+    );
+
+    const recordId = await addManualRecord(
+      project.id,
+      item,
+      codebook.id,
+      "population",
+      "Adults 18-65",
+      null,
+      null,
+    );
+    await linkAnnotationToRecord(
+      recordId,
+      annotation.key,
+      "population",
+      "Adults 18-65",
+    );
+
+    let records = await getCodingRecords(project.id, item.key);
+    let record = records.find((r) => r.id === recordId)!;
+    assert.equal(record.annotationKey, annotation.key);
+    assert.isTrue(record.confirmed);
+
+    await unconfirmRecord(recordId);
+
+    records = await getCodingRecords(project.id, item.key);
+    record = records.find((r) => r.id === recordId)!;
+    assert.isNull(record.annotationKey);
+    assert.isFalse(record.confirmed);
+    // The real PDF highlight is left untouched -- undo only unlinks it.
+    assert.isFalse(annotation.deleted);
   });
 
   it("updateRecord edits variable/value assignment (COD-08)", async function () {
@@ -363,6 +422,18 @@ describe("Phase 4: Full-Text Coding core loop", function () {
       after.annotationKey!,
     ) as Zotero.Item;
     assert.equal(annotation.annotationColor, CODING_ANNOTATION_COLOR);
+    // Regression: the reader-sidebar annotation list showed a bare coded
+    // value ("156") with no real quote and no indication of which variable
+    // it was -- annotationText must be the actual located quote, and
+    // annotationComment must label which variable/value it maps to.
+    assert.equal(
+      annotation.annotationText,
+      "CODING TEST FIXTURE SAMPLE SIZE 156",
+    );
+    assert.equal(
+      (annotation as any).annotationComment,
+      "sample_size: 156",
+    );
   });
 
   it("confirmRecord behaves like updateRecord when there's no pending position (no forced confirm)", async function () {
@@ -462,6 +533,37 @@ describe("Phase 4: Full-Text Coding core loop", function () {
       codebook.variables,
     );
     assert.deepEqual(progress, { requiredTotal: 2, requiredDone: 1 });
+  });
+
+  it("computeCodingStats counts items in the Coding collection vs. how many have confirmed evidence", async function () {
+    const project = await createProject(`Coding Stats Test ${Date.now()}`);
+    const codebook = await saveCodebook(project.id, [
+      { name: "population", type: "text" },
+    ]);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+
+    const codedItem = await makeTestItem("Stats Coded Item");
+    codedItem.addToCollection(collections.codingId);
+    await codedItem.saveTx();
+    await addManualRecord(
+      project.id,
+      codedItem,
+      codebook.id,
+      "population",
+      "Adults 18-65",
+      null,
+      null,
+    );
+
+    const uncodedItem = await makeTestItem("Stats Uncoded Item");
+    uncodedItem.addToCollection(collections.codingId);
+    await uncodedItem.saveTx();
+
+    const stats = await computeCodingStats(project.id);
+    assert.equal(stats.totalInCoding, 2);
+    assert.equal(stats.itemsWithConfirmedEvidence, 1);
   });
 
   it("Zotero.Reader.open(attachmentId, {annotationKey}) is callable for a real annotation", async function () {

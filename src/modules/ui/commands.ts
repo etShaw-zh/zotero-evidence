@@ -12,21 +12,18 @@ import {
   getLatestCodebook,
   parseCodebookCsv,
   saveCodebook,
-  setCodebookLocked,
 } from "../coding/codebookService";
-import {
-  completePilotRound,
-  ConsistencySummaryRow,
-  getActivePilotRound,
-  startPilotRound,
-} from "../coding/pilotService";
+import { computeCodingStats } from "../coding/codingService";
 import { exportCodingData } from "../export/codingExport";
 import {
   computePrismaData,
   exportScreeningLog,
   formatPrismaCsv,
 } from "../export/screeningExport";
-import { importLiteratureFile } from "../import/importService";
+import {
+  importDirectToCoding,
+  importLiteratureFile,
+} from "../import/importService";
 import { escapeHtml } from "./paneHelpers";
 import {
   resolveProjectCollections,
@@ -43,7 +40,12 @@ import {
   EvidenceProject,
   listProjects,
 } from "../project/projectManager";
-import { saveCriteria, ScreeningStage } from "../screening/criteriaService";
+import {
+  getLatestCriteria,
+  saveCriteria,
+  ScreeningCriteria,
+  ScreeningStage,
+} from "../screening/criteriaService";
 import {
   confirmDecision,
   getScreeningState,
@@ -67,6 +69,13 @@ export class EvidenceCommands {
     });
     ztoolkit.Menu.register("menuFile", {
       tag: "menuitem",
+      id: "zotero-evidence-import-extract",
+      label: getString("menu-import-extract"),
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceImportExtract"),
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
       id: "zotero-evidence-criteria",
       label: getString("menu-criteria"),
       commandListener: () => addon.hooks.onDialogEvents("evidenceCriteria"),
@@ -78,62 +87,39 @@ export class EvidenceCommands {
       commandListener: () => addon.hooks.onDialogEvents("evidenceFtCriteria"),
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-ai-provider",
-      label: getString("menu-ai-provider"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceAIProvider"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-progress",
-      label: getString("menu-progress"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceProgress"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-codebook-import",
-      label: getString("menu-codebook-import"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceCodebookImport"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-codebook-add-variable",
-      label: getString("menu-codebook-add-variable"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceCodebookAddVariable"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-codebook-view",
-      label: getString("menu-codebook-view"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceCodebookView"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-codebook-lock",
-      label: getString("menu-codebook-lock"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceCodebookLock"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-codebook-edit-notes",
-      label: getString("menu-codebook-edit-notes"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceCodebookEditNotes"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-pilot-start",
-      label: getString("menu-pilot-start"),
-      commandListener: () => addon.hooks.onDialogEvents("evidencePilotStart"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-pilot-complete",
-      label: getString("menu-pilot-complete"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidencePilotComplete"),
+      tag: "menu",
+      id: "zotero-evidence-codebook-menu",
+      label: getString("menu-codebook"),
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-import",
+          label: getString("menu-codebook-import"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookImport"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-add-variable",
+          label: getString("menu-codebook-add-variable"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookAddVariable"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-view",
+          label: getString("menu-codebook-view"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookView"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-edit-notes",
+          label: getString("menu-codebook-edit-notes"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookEditNotes"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
     ztoolkit.Menu.register("menuFile", {
@@ -155,6 +141,19 @@ export class EvidenceCommands {
       label: getString("menu-export-coding"),
       commandListener: () => addon.hooks.onDialogEvents("evidenceExportCoding"),
     });
+    ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-ai-provider",
+      label: getString("menu-ai-provider"),
+      commandListener: () => addon.hooks.onDialogEvents("evidenceAIProvider"),
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-progress",
+      label: getString("menu-progress"),
+      commandListener: () => addon.hooks.onDialogEvents("evidenceProgress"),
+    });
   }
 
   static registerItemMenus() {
@@ -173,9 +172,73 @@ export class EvidenceCommands {
     });
   }
 
+  // ztoolkit.Dialog builds every content row as an XUL <hbox flex="1">
+  // (see DialogHelper's constructor in zotero-plugin-toolkit) -- all rows
+  // share the window's height EQUALLY, regardless of how much content each
+  // one actually needs. That's fine when the window is auto-sized to
+  // exactly match total natural content height (ztoolkit's own
+  // `fitContent: true` tries this via a delayed `win.sizeToContent()`, but
+  // that measurement under-sizes things enough to clip text). Passing an
+  // explicit fixed height instead avoids the clipping but makes the
+  // equal-share stretch spread short rows out with ugly empty gaps
+  // whenever the guessed height is taller than the content needs.
+  //
+  // Fix: right after open, flatten every row to its natural height
+  // (flex="0") and THEN size the window ourselves -- so height is never
+  // guessed or clipped, only width is set explicitly.
+  private static openSizedDialog(
+    dialog: { open: (title: string, windowFeatures?: any) => any; window?: Window },
+    title: string,
+    width: number,
+  ) {
+    dialog.open(title, {
+      width,
+      left: 60,
+      top: 60,
+      centerscreen: false,
+      resizable: true,
+      fitContent: false,
+    });
+    const win = dialog.window;
+    win?.setTimeout(() => {
+      const doc = win.document;
+      doc.querySelectorAll('vbox > hbox[flex="1"]').forEach((row: Element) => {
+        row.setAttribute("flex", "0");
+      });
+      win.sizeToContent();
+      // Some dialogs populate a row's content (e.g. a status line or a
+      // rendered list) asynchronously after open, on their own ~50ms
+      // delay -- resize once more, later, so the window fits that too
+      // instead of sizing to what was still empty a moment earlier.
+      win.setTimeout(() => win.sizeToContent(), 250);
+    }, 50);
+  }
+
+  // ztoolkit's Dialog renders <select> as a popup of menuitems and sets
+  // `select.value` directly when one is picked (see zotero-plugin-toolkit's
+  // replaceElement()) -- that assignment doesn't reliably dispatch any
+  // particular DOM event (the element may never receive real focus, so
+  // even the "blur" it calls afterwards can be a no-op). Poll the value
+  // instead of depending on an event firing at all.
+  private static watchSelectValue(
+    dialogData: { [key: string]: any },
+    win: Window | null | undefined,
+    selectEl: HTMLSelectElement | null | undefined,
+    onChange: (value: string) => void | Promise<void>,
+  ) {
+    if (!selectEl || !win) return;
+    let lastValue = selectEl.value;
+    const handle = win.setInterval(() => {
+      if (selectEl.value === lastValue) return;
+      lastValue = selectEl.value;
+      void onChange(selectEl.value);
+    }, 250);
+    dialogData.unloadLock.promise.then(() => win.clearInterval(handle));
+  }
+
   static async newProjectDialog() {
     const dialogData: { [key: string]: any } = { projectName: "" };
-    new ztoolkit.Dialog(3, 1)
+    const dialog = new ztoolkit.Dialog(3, 1)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString("dialog-new-project-title") },
@@ -203,8 +266,12 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-new-project-title"));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-new-project-title"),
+      460,
+    );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
@@ -342,8 +409,12 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-import-title"));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-import-title"),
+      560,
+    );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
@@ -393,6 +464,146 @@ export class EvidenceCommands {
     }
   }
 
+  static async importExtractDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const dialogData: { [key: string]: any } = {
+      projectId: String(projects[0].id),
+      filePath: "",
+    };
+
+    const dialog = new ztoolkit.Dialog(4, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-import-extract-title") },
+      })
+      .addCell(1, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-import-project-label") },
+      })
+      .addCell(
+        1,
+        1,
+        {
+          tag: "select",
+          namespace: "html",
+          attributes: { "data-bind": "projectId", "data-prop": "value" },
+          children: projects.map((p) => ({
+            tag: "option",
+            namespace: "html",
+            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
+          })),
+        },
+        false,
+      )
+      .addCell(2, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-import-file-label") },
+      })
+      .addCell(
+        2,
+        1,
+        {
+          tag: "label",
+          namespace: "html",
+          id: "evidence-import-extract-file-display",
+          properties: { innerHTML: getString("dialog-import-file-none") },
+        },
+        false,
+      )
+      .addCell(
+        3,
+        1,
+        {
+          tag: "button",
+          namespace: "html",
+          attributes: { type: "button" },
+          properties: { innerHTML: getString("dialog-import-file-button") },
+          listeners: [
+            {
+              type: "click",
+              listener: async () => {
+                const path = await new ztoolkit.FilePicker(
+                  getString("dialog-import-file-button"),
+                  "open",
+                  [
+                    [
+                      "RIS/BibTeX/MEDLINE/XML (*.ris;*.bib;*.txt;*.xml;*.nbib)",
+                      "*.ris;*.bib;*.txt;*.xml;*.nbib",
+                    ],
+                    ["Any", "*.*"],
+                  ],
+                ).open();
+                if (path && typeof path === "string") {
+                  dialogData.filePath = path;
+                  const displayEl = dialog.window?.document.getElementById(
+                    "evidence-import-extract-file-display",
+                  );
+                  if (displayEl) displayEl.textContent = path;
+                }
+              },
+            },
+          ],
+        },
+        false,
+      )
+      .addButton(getString("dialog-confirm"), "confirm")
+      .addButton(getString("dialog-cancel"), "cancel")
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-import-extract-title"),
+      560,
+    );
+
+    await dialogData.unloadLock.promise;
+    if (dialogData._lastButtonId !== "confirm") return;
+    if (!dialogData.filePath) {
+      ztoolkit.getGlobal("alert")(getString("error-no-file-selected"));
+      return;
+    }
+
+    const projectId = Number(dialogData.projectId);
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    const rootCollection = Zotero.Collections.getByLibraryAndKey(
+      Zotero.Libraries.userLibraryID,
+      project.collectionKey,
+    );
+    if (!rootCollection) {
+      ztoolkit.getGlobal("alert")(getString("error-import-failed"));
+      return;
+    }
+
+    try {
+      const count = await importDirectToCoding(
+        (rootCollection as Zotero.Collection).id,
+        dialogData.filePath as string,
+      );
+      new ztoolkit.ProgressWindow(addon.data.config.addonName)
+        .createLine({
+          text: getString("progress-import-extract-result", {
+            args: { count },
+          }),
+          type: "success",
+          progress: 100,
+        })
+        .show();
+    } catch (e: any) {
+      ztoolkit.log("Import Extract Literature failed", e);
+      ztoolkit.getGlobal("alert")(
+        `${getString("error-import-failed")}\n${e?.message ?? e}`,
+      );
+    }
+  }
+
   static async criteriaDialog(stage: ScreeningStage = "ta") {
     const projects = await listProjects();
     if (projects.length === 0) {
@@ -403,14 +614,22 @@ export class EvidenceCommands {
     const titleKey =
       stage === "ft" ? "dialog-ft-criteria-title" : "dialog-criteria-title";
 
+    // Reflect whatever's already saved for a project/stage back into the
+    // form -- previously this dialog always opened blank, silently
+    // discarding the existing criteria the moment you hit Save again.
+    const criteriaFields = (criteria: ScreeningCriteria | null) => ({
+      researchQuestion: criteria?.researchQuestion ?? "",
+      inclusionCriteria: (criteria?.inclusionCriteria ?? []).join("\n"),
+      exclusionCriteria: (criteria?.exclusionCriteria ?? []).join("\n"),
+    });
+
+    const initial = await getLatestCriteria(projects[0].id, stage);
     const dialogData: { [key: string]: any } = {
       projectId: String(projects[0].id),
-      researchQuestion: "",
-      inclusionCriteria: "",
-      exclusionCriteria: "",
+      ...criteriaFields(initial?.criteria ?? null),
     };
 
-    new ztoolkit.Dialog(5, 2)
+    const dialog = new ztoolkit.Dialog(5, 2)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString(titleKey) },
@@ -426,6 +645,7 @@ export class EvidenceCommands {
         {
           tag: "select",
           namespace: "html",
+          id: "evidence-criteria-project",
           attributes: { "data-bind": "projectId", "data-prop": "value" },
           children: projects.map((p) => ({
             tag: "option",
@@ -502,8 +722,33 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString(titleKey));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(dialog, getString(titleKey), 640);
+
+    // Switching the project should re-reflect THAT project's saved
+    // criteria, not leave the previous project's text sitting in the form
+    // as if it belonged to the new one.
+    await Zotero.Promise.delay(50);
+    const selectEl = dialog.window?.document.getElementById(
+      "evidence-criteria-project",
+    ) as HTMLSelectElement | undefined;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      selectEl,
+      async (value) => {
+        const doc = selectEl!.ownerDocument;
+        if (!doc) return;
+        const latest = await getLatestCriteria(Number(value), stage);
+        const fields = criteriaFields(latest?.criteria ?? null);
+        for (const [key, fieldValue] of Object.entries(fields)) {
+          const field = doc.querySelector(
+            `[data-bind="${key}"]`,
+          ) as HTMLInputElement | HTMLTextAreaElement | null;
+          if (field) field.value = fieldValue;
+        }
+      },
+    );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
@@ -539,7 +784,7 @@ export class EvidenceCommands {
       model: existing?.model ?? "gpt-4o-mini",
     };
 
-    new ztoolkit.Dialog(5, 2)
+    const dialog = new ztoolkit.Dialog(5, 2)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString("dialog-ai-provider-title") },
@@ -626,8 +871,12 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-ai-provider-title"));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-ai-provider-title"),
+      600,
+    );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
@@ -662,31 +911,58 @@ export class EvidenceCommands {
         Zotero.Collections.get(collectionId) as Zotero.Collection
       ).getChildItems().length;
 
-    const rows = projects
-      .map((p) => {
-        const rootId = getRootCollectionId(p);
-        if (rootId === null) return null;
-        const collections = resolveProjectCollections(rootId);
-        return {
-          name: p.name,
-          pending: countItems(collections.screenQueueId),
-          include: countItems(collections.taIncludeId),
-          exclude: countItems(collections.taExcludeId),
-          unclear: countItems(collections.taUnclearId),
-        };
-      })
-      .filter((r): r is NonNullable<typeof r> => r !== null);
+    const rows = (
+      await Promise.all(
+        projects.map(async (p) => {
+          const rootId = getRootCollectionId(p);
+          if (rootId === null) return null;
+          const collections = resolveProjectCollections(rootId);
+          // computePrismaData/computeCodingStats each re-resolve the
+          // project's own collections (they're written as standalone,
+          // project-id-only entry points for the export/dialog call sites
+          // that only have an id) -- a little redundant with the
+          // resolveProjectCollections call just above, but cheap and keeps
+          // this dialog from having to know their internals.
+          const [prisma, coding] = await Promise.all([
+            computePrismaData(p.id),
+            computeCodingStats(p.id),
+          ]);
+          return {
+            name: p.name,
+            pending: countItems(collections.screenQueueId),
+            include: prisma.screening.includedToFt,
+            exclude: prisma.screening.excluded,
+            unclear: prisma.screening.unclearToFt,
+            ftInclude: prisma.included.finalStudies,
+            ftExclude: prisma.eligibility.excluded,
+            ftUnavailable: prisma.eligibility.unavailable,
+            codingConfirmed: coding.itemsWithConfirmedEvidence,
+            codingTotal: coding.totalInCoding,
+          };
+        }),
+      )
+    ).filter((r): r is NonNullable<typeof r> => r !== null);
 
-    const dialog = new ztoolkit.Dialog(rows.length + 2, 5).addCell(0, 0, {
-      tag: "h1",
-      properties: { innerHTML: getString("dialog-progress-title") },
-    });
+    const columns = 10;
+    const dialog = new ztoolkit.Dialog(rows.length + 2, columns).addCell(
+      0,
+      0,
+      {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-progress-title") },
+      },
+    );
     const headers = [
       getString("dialog-progress-col-project"),
       getString("dialog-progress-col-pending"),
       getString("dialog-progress-col-include"),
       getString("dialog-progress-col-exclude"),
       getString("dialog-progress-col-unclear"),
+      getString("dialog-progress-col-ft-include"),
+      getString("dialog-progress-col-ft-exclude"),
+      getString("dialog-progress-col-ft-unavailable"),
+      getString("dialog-progress-col-coding-confirmed"),
+      getString("dialog-progress-col-coding-total"),
     ];
     headers.forEach((h, col) =>
       dialog.addCell(1, col, {
@@ -697,7 +973,18 @@ export class EvidenceCommands {
     );
     rows.forEach((r, i) => {
       const row = i + 2;
-      const values = [r.name, r.pending, r.include, r.exclude, r.unclear];
+      const values = [
+        r.name,
+        r.pending,
+        r.include,
+        r.exclude,
+        r.unclear,
+        r.ftInclude,
+        r.ftExclude,
+        r.ftUnavailable,
+        r.codingConfirmed,
+        r.codingTotal,
+      ];
       values.forEach((v, col) =>
         dialog.addCell(row, col, {
           tag: "span",
@@ -706,9 +993,14 @@ export class EvidenceCommands {
         }),
       );
     });
-    dialog
-      .addButton(getString("dialog-close"), "close")
-      .open(getString("dialog-progress-title"));
+    dialog.addButton(getString("dialog-close"), "close");
+    // 10 columns of headers/numbers need real width, not the ~300px a
+    // dialog gets by default; height auto-fits the row count.
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-progress-title"),
+      1080,
+    );
   }
 
   private static async resolveScreenQueueBatchContext() {
@@ -901,8 +1193,12 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-codebook-import-title"));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-codebook-import-title"),
+      560,
+    );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
@@ -950,7 +1246,7 @@ export class EvidenceCommands {
       hint: "",
     };
 
-    new ztoolkit.Dialog(9, 2)
+    const dialog = new ztoolkit.Dialog(9, 2)
       .addCell(0, 0, {
         tag: "h1",
         properties: {
@@ -1137,8 +1433,12 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-codebook-variable-title"));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-codebook-variable-title"),
+      580,
+    );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
@@ -1243,8 +1543,12 @@ export class EvidenceCommands {
         false,
       )
       .addButton(getString("dialog-close"), "close")
-      .setDialogData(dialogData)
-      .open(getString("dialog-codebook-view-title"));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-codebook-view-title"),
+      620,
+    );
 
     await Zotero.Promise.delay(50);
     const listEl = dialog.window?.document.getElementById(
@@ -1254,355 +1558,16 @@ export class EvidenceCommands {
 
     const selectEl = dialog.window?.document.getElementById(
       "evidence-codebook-view-project",
+    ) as HTMLSelectElement | undefined;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      selectEl,
+      async (value) => {
+        dialogData.projectId = value;
+        if (listEl) await renderList(listEl as HTMLElement);
+      },
     );
-    selectEl?.addEventListener("change", async (e: Event) => {
-      dialogData.projectId = (e.target as HTMLSelectElement).value;
-      if (listEl) await renderList(listEl as HTMLElement);
-    });
-  }
-
-  static async pilotStartDialog() {
-    const projects = await listProjects();
-    if (projects.length === 0) {
-      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
-      return;
-    }
-
-    const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
-      sampleSize: "20",
-    };
-
-    new ztoolkit.Dialog(3, 2)
-      .addCell(0, 0, {
-        tag: "h1",
-        properties: { innerHTML: getString("dialog-pilot-start-title") },
-      })
-      .addCell(1, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: { innerHTML: getString("dialog-import-project-label") },
-      })
-      .addCell(
-        1,
-        1,
-        {
-          tag: "select",
-          namespace: "html",
-          attributes: { "data-bind": "projectId", "data-prop": "value" },
-          children: projects.map((p) => ({
-            tag: "option",
-            namespace: "html",
-            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
-          })),
-        },
-        false,
-      )
-      .addCell(2, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: {
-          innerHTML: getString("dialog-pilot-sample-size-label"),
-        },
-      })
-      .addCell(
-        2,
-        1,
-        {
-          tag: "input",
-          namespace: "html",
-          attributes: {
-            "data-bind": "sampleSize",
-            "data-prop": "value",
-            type: "number",
-            min: "1",
-          },
-        },
-        false,
-      )
-      .addButton(getString("dialog-confirm"), "confirm")
-      .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-pilot-start-title"));
-
-    await dialogData.unloadLock.promise;
-    if (dialogData._lastButtonId !== "confirm") return;
-
-    const sampleSize = Number(dialogData.sampleSize);
-    if (!Number.isFinite(sampleSize) || sampleSize <= 0) {
-      ztoolkit.getGlobal("alert")(getString("error-pilot-sample-size-invalid"));
-      return;
-    }
-
-    try {
-      const round = await startPilotRound(
-        Number(dialogData.projectId),
-        Math.floor(sampleSize),
-      );
-      new ztoolkit.ProgressWindow(addon.data.config.addonName)
-        .createLine({
-          text: getString("progress-pilot-started", {
-            args: {
-              round: round.roundNumber,
-              count: round.sampleItemKeys.length,
-            },
-          }),
-          type: "success",
-          progress: 100,
-        })
-        .show();
-    } catch (e: any) {
-      ztoolkit.log("Start pilot round failed", e);
-      ztoolkit.getGlobal("alert")(e?.message ?? String(e));
-    }
-  }
-
-  private static showPilotSummaryDialog(summary: ConsistencySummaryRow[]) {
-    const metricLabel = (metric: string) =>
-      metric === "weighted_cohen_kappa"
-        ? getString("pilot-metric-weighted_cohen_kappa")
-        : getString("pilot-metric-cohen_kappa");
-
-    if (summary.length === 0) {
-      new ztoolkit.Dialog(2, 1)
-        .addCell(0, 0, {
-          tag: "h1",
-          properties: { innerHTML: getString("dialog-pilot-complete-title") },
-        })
-        .addCell(1, 0, {
-          tag: "p",
-          namespace: "html",
-          properties: { innerHTML: getString("pilot-complete-no-data") },
-        })
-        .addButton(getString("dialog-close"), "close")
-        .open(getString("dialog-pilot-complete-title"));
-      return;
-    }
-
-    const dialog = new ztoolkit.Dialog(summary.length + 2, 4).addCell(0, 0, {
-      tag: "h1",
-      properties: { innerHTML: getString("dialog-pilot-complete-title") },
-    });
-    const headers = [
-      getString("pilot-complete-col-variable"),
-      getString("pilot-complete-col-metric"),
-      getString("pilot-complete-col-kappa"),
-      getString("pilot-complete-col-n"),
-    ];
-    headers.forEach((h, col) =>
-      dialog.addCell(1, col, {
-        tag: "strong",
-        namespace: "html",
-        properties: { innerHTML: h },
-      }),
-    );
-    summary.forEach((s, i) => {
-      const row = i + 2;
-      const kappaText =
-        s.kappaValue === null
-          ? getString("pilot-kappa-na")
-          : s.kappaValue.toFixed(3);
-      const values = [
-        s.variableName,
-        metricLabel(s.metric),
-        kappaText,
-        String(s.nItems),
-      ];
-      values.forEach((v, col) =>
-        dialog.addCell(row, col, {
-          tag: "span",
-          namespace: "html",
-          properties: { innerHTML: escapeHtml(v) },
-        }),
-      );
-    });
-    dialog
-      .addButton(getString("dialog-close"), "close")
-      .open(getString("dialog-pilot-complete-title"));
-  }
-
-  static async pilotCompleteDialog() {
-    const projects = await listProjects();
-    if (projects.length === 0) {
-      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
-      return;
-    }
-
-    const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
-    };
-
-    const dialog = new ztoolkit.Dialog(3, 1)
-      .addCell(0, 0, {
-        tag: "h1",
-        properties: { innerHTML: getString("dialog-pilot-complete-title") },
-      })
-      .addCell(
-        1,
-        0,
-        {
-          tag: "select",
-          namespace: "html",
-          id: "evidence-pilot-complete-project",
-          attributes: { "data-bind": "projectId", "data-prop": "value" },
-          children: projects.map((p) => ({
-            tag: "option",
-            namespace: "html",
-            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
-          })),
-        },
-        false,
-      )
-      .addCell(
-        2,
-        0,
-        {
-          tag: "p",
-          namespace: "html",
-          id: "evidence-pilot-complete-status",
-        },
-        false,
-      )
-      .addButton(getString("dialog-confirm"), "confirm")
-      .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-pilot-complete-title"));
-
-    const renderStatus = async (el: HTMLElement) => {
-      const active = await getActivePilotRound(Number(dialogData.projectId));
-      el.textContent = active
-        ? getString("pilot-active-round-status", {
-            args: {
-              round: active.roundNumber,
-              count: active.sampleItemKeys.length,
-            },
-          })
-        : getString("error-no-active-pilot-round");
-    };
-
-    await Zotero.Promise.delay(50);
-    const statusEl = dialog.window?.document.getElementById(
-      "evidence-pilot-complete-status",
-    );
-    if (statusEl) await renderStatus(statusEl as HTMLElement);
-
-    const selectEl = dialog.window?.document.getElementById(
-      "evidence-pilot-complete-project",
-    );
-    selectEl?.addEventListener("change", async (e: Event) => {
-      dialogData.projectId = (e.target as HTMLSelectElement).value;
-      if (statusEl) await renderStatus(statusEl as HTMLElement);
-    });
-
-    await dialogData.unloadLock.promise;
-    if (dialogData._lastButtonId !== "confirm") return;
-
-    const active = await getActivePilotRound(Number(dialogData.projectId));
-    if (!active) {
-      ztoolkit.getGlobal("alert")(getString("error-no-active-pilot-round"));
-      return;
-    }
-
-    const summary = await completePilotRound(active.id);
-    new ztoolkit.ProgressWindow(addon.data.config.addonName)
-      .createLine({
-        text: getString("progress-pilot-completed"),
-        type: "success",
-        progress: 100,
-      })
-      .show();
-    EvidenceCommands.showPilotSummaryDialog(summary);
-  }
-
-  static async codebookLockDialog() {
-    const projects = await listProjects();
-    if (projects.length === 0) {
-      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
-      return;
-    }
-
-    const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
-    };
-    let currentCodebookId: number | null = null;
-
-    const renderStatus = async (el: HTMLElement) => {
-      const codebook = await getLatestCodebook(Number(dialogData.projectId));
-      currentCodebookId = codebook?.id ?? null;
-      el.textContent = !codebook
-        ? getString("codebook-lock-status-none")
-        : codebook.locked
-          ? getString("codebook-lock-status-locked")
-          : getString("codebook-lock-status-unlocked");
-    };
-
-    const dialog = new ztoolkit.Dialog(3, 1)
-      .addCell(0, 0, {
-        tag: "h1",
-        properties: { innerHTML: getString("dialog-codebook-lock-title") },
-      })
-      .addCell(
-        1,
-        0,
-        {
-          tag: "select",
-          namespace: "html",
-          id: "evidence-codebook-lock-project",
-          attributes: { "data-bind": "projectId", "data-prop": "value" },
-          children: projects.map((p) => ({
-            tag: "option",
-            namespace: "html",
-            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
-          })),
-        },
-        false,
-      )
-      .addCell(
-        2,
-        0,
-        {
-          tag: "p",
-          namespace: "html",
-          id: "evidence-codebook-lock-status",
-        },
-        false,
-      )
-      .addButton(getString("codebook-lock-action-lock"), "lock")
-      .addButton(getString("codebook-lock-action-unlock"), "unlock")
-      .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-codebook-lock-title"));
-
-    await Zotero.Promise.delay(50);
-    const statusEl = dialog.window?.document.getElementById(
-      "evidence-codebook-lock-status",
-    );
-    if (statusEl) await renderStatus(statusEl as HTMLElement);
-
-    const selectEl = dialog.window?.document.getElementById(
-      "evidence-codebook-lock-project",
-    );
-    selectEl?.addEventListener("change", async (e: Event) => {
-      dialogData.projectId = (e.target as HTMLSelectElement).value;
-      if (statusEl) await renderStatus(statusEl as HTMLElement);
-    });
-
-    await dialogData.unloadLock.promise;
-    const buttonId = dialogData._lastButtonId;
-    if (buttonId !== "lock" && buttonId !== "unlock") return;
-    if (currentCodebookId === null) {
-      ztoolkit.getGlobal("alert")(getString("codebook-lock-status-none"));
-      return;
-    }
-
-    await setCodebookLocked(currentCodebookId, buttonId === "lock");
-    new ztoolkit.ProgressWindow(addon.data.config.addonName)
-      .createLine({
-        text: getString("progress-codebook-lock-changed"),
-        type: "success",
-        progress: 100,
-      })
-      .show();
   }
 
   static async codebookEditNotesDialog() {
@@ -1684,8 +1649,12 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString("dialog-codebook-edit-notes-title"));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-codebook-edit-notes-title"),
+      580,
+    );
 
     await Zotero.Promise.delay(50);
     const variableSelectEl = dialog.window?.document.getElementById(
@@ -1716,20 +1685,30 @@ export class EvidenceCommands {
 
     const projectSelectEl = dialog.window?.document.getElementById(
       "evidence-codebook-notes-project",
+    ) as HTMLSelectElement | undefined;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      projectSelectEl,
+      async (value) => {
+        dialogData.projectId = value;
+        await populateVariables();
+      },
     );
-    projectSelectEl?.addEventListener("change", async (e: Event) => {
-      dialogData.projectId = (e.target as HTMLSelectElement).value;
-      await populateVariables();
-    });
 
-    variableSelectEl?.addEventListener("change", (e: Event) => {
-      dialogData.variableName = (e.target as HTMLSelectElement).value;
-      const match = currentVariables.find(
-        (v) => v.name === dialogData.variableName,
-      );
-      dialogData.notes = match?.notes ?? "";
-      if (notesEl) notesEl.value = dialogData.notes;
-    });
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      variableSelectEl,
+      (value) => {
+        dialogData.variableName = value;
+        const match = currentVariables.find(
+          (v) => v.name === dialogData.variableName,
+        );
+        dialogData.notes = match?.notes ?? "";
+        if (notesEl) notesEl.value = dialogData.notes;
+      },
+    );
 
     notesEl?.addEventListener("input", (e: Event) => {
       dialogData.notes = (e.target as HTMLTextAreaElement).value;
@@ -1776,7 +1755,7 @@ export class EvidenceCommands {
     const dialogData: { [key: string]: any } = {
       projectId: String(projects[0].id),
     };
-    new ztoolkit.Dialog(2, 2)
+    const dialog = new ztoolkit.Dialog(2, 2)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString(titleKey) },
@@ -1803,8 +1782,8 @@ export class EvidenceCommands {
       )
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData)
-      .open(getString(titleKey));
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(dialog, getString(titleKey), 460);
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return null;

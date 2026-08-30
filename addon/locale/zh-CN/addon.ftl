@@ -1,8 +1,10 @@
 menu-new-project = 新建 Evidence 项目…
 menu-import = 导入文献…
+menu-import-extract = 导入提取文献…
 dialog-new-project-title = 新建 Evidence 项目
 dialog-project-name-label = 项目名称
 dialog-import-title = 导入文献
+dialog-import-extract-title = 导入提取文献
 dialog-import-project-label = 项目
 dialog-import-source-label = 来源数据库
 dialog-import-file-label = 文件
@@ -12,16 +14,17 @@ dialog-confirm = 确认
 dialog-cancel = 取消
 progress-project-created = 项目"{ $name }"已创建。
 progress-import-result = 已导入 { $total } 条记录：{ $added } 条新增，{ $duplicates } 条重复已合并。
+progress-import-extract-result = 已将 { $count } 条记录直接导入 Extract Coding。
 error-project-name-required = 请输入项目名称。
 error-no-projects = 还没有 Evidence 项目，请先通过"文件 > 新建 Evidence 项目"创建。
 error-no-file-selected = 请选择要导入的文件。
 error-import-failed = 导入失败。
 
-menu-criteria = 配置筛选标准…
+menu-criteria = 配置标题/摘要筛选标准…
 menu-ft-criteria = 配置全文筛选标准…
 menu-ai-provider = AI Provider 设置…
 
-dialog-criteria-title = TA 筛选标准
+dialog-criteria-title = 标题/摘要筛选标准
 dialog-ft-criteria-title = 全文筛选标准
 dialog-criteria-question-label = 研究问题
 dialog-criteria-inclusion-label = 纳入标准（每行一条）
@@ -61,17 +64,25 @@ screen-queue-history-title = 筛选记录
 screen-queue-history-none = 未找到该条目的筛选记录。
 screen-queue-history-ai = AI：
 screen-queue-history-human = 人工：
+screen-queue-undo = 撤销（回到标题/摘要待筛选）
+screen-queue-undo-done = 已撤销该筛选结果。
+screen-queue-error-undo = 撤销失败。
 
 menu-progress = 筛选进度…
 menu-batch-run-ai = 批量运行 AI 判断（已选条目）
 menu-batch-confirm-ai = 批量确认 AI 建议（已选条目）
 
-dialog-progress-title = 筛选进度
+dialog-progress-title = 流程进度
 dialog-progress-col-project = 项目
-dialog-progress-col-pending = 待筛选
-dialog-progress-col-include = 纳入
-dialog-progress-col-exclude = 排除
-dialog-progress-col-unclear = 不确定
+dialog-progress-col-pending = 标题/摘要待筛选
+dialog-progress-col-include = 标题/摘要纳入
+dialog-progress-col-exclude = 标题/摘要排除
+dialog-progress-col-unclear = 标题/摘要不确定
+dialog-progress-col-ft-include = 全文纳入
+dialog-progress-col-ft-exclude = 全文排除
+dialog-progress-col-ft-unavailable = 全文不可获取
+dialog-progress-col-coding-confirmed = 已编码
+dialog-progress-col-coding-total = 编码集合条目数
 dialog-close = 关闭
 
 error-not-screen-queue = 请先在某个 Evidence 项目的 Screen Queue 集合中选中条目。
@@ -108,7 +119,15 @@ ft-queue-choose-annotation = 选择高亮…
 ft-queue-link-annotation = 标记为筛选依据
 ft-queue-error-no-annotation-selected = 请先选择一个高亮标注。
 ft-queue-error-link-annotation = 标记筛选依据失败。
+ft-queue-history-title = 筛选记录
+ft-queue-history-none = 未找到该条目的筛选记录。
+ft-queue-history-ai = AI：
+ft-queue-history-human = 人工：
+ft-queue-undo = 撤销（回到全文待筛选）
+ft-queue-undo-done = 已撤销该筛选结果。
+ft-queue-error-undo = 撤销失败。
 
+menu-codebook = Extract Codebook
 menu-codebook-import = 导入 Codebook (CSV)…
 menu-codebook-add-variable = 添加 Codebook 变量…
 menu-codebook-view = 查看 Codebook…
@@ -173,6 +192,9 @@ coding-needs-manual-link = 需手动关联
 coding-page-label = 第 { $page } 页
 coding-ai-quote-label = AI 摘抄原文：
 coding-ai-quote-none = （AI 未提供支持这个值的原文引用）
+coding-undo-confirm = 撤销（回到待确认）
+coding-error-undo = 撤销确认失败。
+coding-summary-empty = 暂无已确认的编码证据。
 
 pane-render-error = 该条目的面板加载失败：
 
@@ -183,7 +205,7 @@ exclude-reason-cancel = 取消
 
 menu-export-prisma = 导出 PRISMA 数据…
 menu-export-screening-log = 导出筛选决策日志…
-menu-export-coding = 导出编码数据…
+menu-export-coding = 导出 Extract Coding 数据…
 dialog-export-prisma-title = 导出 PRISMA 数据
 dialog-export-screening-log-title = 导出筛选决策日志
 dialog-export-coding-title = 导出编码数据
@@ -191,38 +213,7 @@ export-choose-destination = 选择保存位置…
 progress-export-done = 导出完成。
 error-export-no-data = 该项目暂无可导出的数据。
 
-pilot-round-banner = 预编码轮次 { $round } — 正在校对 AI 建议以进行校准。
-
-menu-pilot-start = 开始预编码轮次…
-menu-pilot-complete = 完成预编码轮次并查看一致性…
-menu-codebook-lock = 锁定/解锁 Codebook…
 menu-codebook-edit-notes = 编辑 Codebook 变量备注…
-
-dialog-pilot-start-title = 开始预编码轮次
-dialog-pilot-sample-size-label = 抽样数量
-error-pilot-sample-size-invalid = 请输入大于 0 的抽样数量。
-progress-pilot-started = 预编码轮次 { $round } 已开始：共抽取 { $count } 篇文献。
-
-dialog-pilot-complete-title = 预编码轮次一致性
-pilot-active-round-status = 预编码轮次 { $round } 进行中：已抽取 { $count } 篇文献。
-error-no-active-pilot-round = 该项目当前没有正在进行的预编码轮次。
-pilot-complete-col-variable = 变量
-pilot-complete-col-metric = 指标
-pilot-complete-col-kappa = Kappa 值
-pilot-complete-col-n = 样本数
-pilot-complete-no-data = 该轮次尚未记录任何可比较的数据。
-pilot-kappa-na = 不适用
-pilot-metric-cohen_kappa = Cohen's Kappa
-pilot-metric-weighted_cohen_kappa = 加权 Cohen's Kappa
-progress-pilot-completed = 预编码轮次已完成。
-
-dialog-codebook-lock-title = 锁定/解锁 Codebook
-codebook-lock-status-locked = Codebook 当前已锁定。
-codebook-lock-status-unlocked = Codebook 当前未锁定。
-codebook-lock-status-none = 该项目还没有 Codebook。
-codebook-lock-action-lock = 锁定
-codebook-lock-action-unlock = 解锁
-progress-codebook-lock-changed = Codebook 锁定状态已更新。
 
 dialog-codebook-edit-notes-title = 编辑 Codebook 变量备注
 dialog-codebook-edit-notes-variable-label = 变量

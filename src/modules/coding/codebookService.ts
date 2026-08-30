@@ -16,18 +16,13 @@ export interface CodebookRow {
   id: number;
   version: number;
   variables: CodebookVariable[];
-  locked: boolean;
 }
 
 /**
  * Codebooks are versioned (same rationale as screening_criteria): every
  * save inserts a new row rather than updating in place, so past coding
  * decisions stay traceable to the variable definitions in effect at the
- * time. Refuses to create a new version once the latest one is locked
- * (PIL-07) -- lock signals "pilot calibration is done, this is what we're
- * coding with," so further edits require an explicit unlock first rather
- * than silently drifting the Codebook out from under already-locked-in
- * coding decisions.
+ * time.
  */
 export async function saveCodebook(
   projectId: number,
@@ -35,18 +30,15 @@ export async function saveCodebook(
 ): Promise<CodebookRow> {
   await databaseService.init();
   const latest = await getLatestCodebook(projectId);
-  if (latest?.locked) {
-    throw new Error("The Codebook is locked. Unlock it before saving changes.");
-  }
   const version = (latest?.version ?? 0) + 1;
   const now = new Date().toISOString();
   await databaseService.queryAsync(
-    `INSERT INTO codebooks (project_id, version, locked, variables, created_at, updated_at)
-     VALUES (?, ?, 0, ?, ?, ?)`,
+    `INSERT INTO codebooks (project_id, version, variables, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
     [projectId, version, JSON.stringify(variables), now, now],
   );
   const id = await databaseService.getLastInsertId();
-  return { id, version, variables, locked: false };
+  return { id, version, variables };
 }
 
 export async function getLatestCodebook(
@@ -54,35 +46,18 @@ export async function getLatestCodebook(
 ): Promise<CodebookRow | null> {
   await databaseService.init();
   const rows = (await databaseService.queryAsync(
-    `SELECT id, version, variables, locked FROM codebooks
+    `SELECT id, version, variables FROM codebooks
      WHERE project_id = ?
      ORDER BY version DESC LIMIT 1`,
     [projectId],
-  )) as { id: number; version: number; variables: string; locked: number }[];
+  )) as { id: number; version: number; variables: string }[];
   const row = rows?.[0];
   if (!row) return null;
   return {
     id: row.id,
     version: row.version,
     variables: JSON.parse(row.variables),
-    locked: !!row.locked,
   };
-}
-
-/**
- * Manually toggles the lock on the CURRENT latest Codebook version. Purely
- * human-triggered -- there is no automatic threshold on Kappa or anything
- * else that locks/unlocks a Codebook (REQUIREMENTS.md PIL-07).
- */
-export async function setCodebookLocked(
-  codebookId: number,
-  locked: boolean,
-): Promise<void> {
-  await databaseService.init();
-  await databaseService.queryAsync(
-    `UPDATE codebooks SET locked = ?, updated_at = ? WHERE id = ?`,
-    [locked ? 1 : 0, new Date().toISOString(), codebookId],
-  );
 }
 
 function splitCsvLine(line: string): string[] {

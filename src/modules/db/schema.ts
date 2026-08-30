@@ -81,38 +81,20 @@ export const SCHEMA_STATEMENTS: string[] = [
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id),
     FOREIGN KEY (codebook_id) REFERENCES codebooks(id)
   )`,
-  `CREATE TABLE IF NOT EXISTS pilot_rounds (
-    id INTEGER PRIMARY KEY,
-    project_id INTEGER NOT NULL,
-    codebook_id INTEGER NOT NULL,
-    round_number INTEGER NOT NULL,
-    sample_item_keys TEXT,
-    status TEXT NOT NULL DEFAULT 'in_progress',
-    created_at TEXT NOT NULL,
-    completed_at TEXT,
-    FOREIGN KEY (project_id) REFERENCES evidence_projects(id),
-    FOREIGN KEY (codebook_id) REFERENCES codebooks(id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS consistency_records (
-    id INTEGER PRIMARY KEY,
-    pilot_round_id INTEGER NOT NULL,
-    item_key TEXT NOT NULL,
-    variable_name TEXT,
-    ai_value TEXT,
-    human_value TEXT,
-    is_match INTEGER,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (pilot_round_id) REFERENCES pilot_rounds(id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS consistency_summary (
-    id INTEGER PRIMARY KEY,
-    pilot_round_id INTEGER NOT NULL,
-    variable_name TEXT NOT NULL,
-    metric TEXT NOT NULL,
-    kappa_value REAL,
-    n_items INTEGER,
-    FOREIGN KEY (pilot_round_id) REFERENCES pilot_rounds(id)
-  )`,
+];
+
+// Tables from removed features. Dropped unconditionally (idempotent) on
+// every init rather than left orphaned in existing dev databases -- none
+// of the tables above have a foreign key into any of these, so this is
+// safe. `coding_records.is_pilot` and `codebooks.locked` stay in their
+// CREATE TABLE statements above unchanged: those columns are also read/
+// written by ordinary (non-pilot, non-lock) coding flows, and the
+// ADD-COLUMN-only migration pattern below doesn't support dropping a
+// column from a shared table.
+export const DROPPED_TABLES: string[] = [
+  "pilot_rounds",
+  "consistency_records",
+  "consistency_summary",
 ];
 
 // Columns added to tables after their original CREATE TABLE shipped.

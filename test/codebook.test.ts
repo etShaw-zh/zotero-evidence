@@ -3,7 +3,6 @@ import {
   getLatestCodebook,
   parseCodebookCsv,
   saveCodebook,
-  setCodebookLocked,
 } from "../src/modules/coding/codebookService";
 import { createProject } from "../src/modules/project/projectManager";
 
@@ -72,31 +71,4 @@ describe("Phase 4: Codebook", function () {
     assert.isNull(latest);
   });
 
-  it("setCodebookLocked (PIL-07) blocks further saveCodebook calls until unlocked", async function () {
-    const project = await createProject(`Codebook Lock Test ${Date.now()}`);
-    const first = await saveCodebook(project.id, [{ name: "x", type: "text" }]);
-    assert.isFalse(first.locked);
-
-    await setCodebookLocked(first.id, true);
-    const locked = await getLatestCodebook(project.id);
-    assert.isTrue(locked?.locked);
-
-    let threw = false;
-    try {
-      await saveCodebook(project.id, [{ name: "y", type: "text" }]);
-    } catch (e: any) {
-      threw = true;
-      assert.match(e.message, /locked/i);
-    }
-    assert.isTrue(threw);
-    // Version must not have advanced past the locked one.
-    assert.equal((await getLatestCodebook(project.id))?.version, 1);
-
-    await setCodebookLocked(first.id, false);
-    const second = await saveCodebook(project.id, [
-      { name: "y", type: "text" },
-    ]);
-    assert.equal(second.version, 2);
-    assert.isFalse(second.locked);
-  });
 });

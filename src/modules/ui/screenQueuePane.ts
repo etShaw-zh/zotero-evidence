@@ -9,6 +9,7 @@ import {
   runAIJudgment,
   ScreeningState,
   TADecision,
+  undoDecision,
 } from "../screening/taScreeningService";
 import {
   decisionLabel,
@@ -257,6 +258,33 @@ async function renderHistoryArea(
         },
       }),
     );
+
+    const undoBtn = el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("screen-queue-undo") },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            try {
+              await undoDecision(ctx.project.id, item, ctx.collections);
+              new ztoolkit.ProgressWindow(config.addonName)
+                .createLine({
+                  text: getString("screen-queue-undo-done"),
+                  type: "success",
+                  progress: 100,
+                })
+                .show();
+            } catch (e: any) {
+              ztoolkit.getGlobal("alert")(
+                `${getString("screen-queue-error-undo")}\n${e?.message ?? e}`,
+              );
+            }
+          },
+        },
+      ],
+    });
+    container.appendChild(undoBtn);
   }
 }
 

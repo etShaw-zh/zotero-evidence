@@ -11,6 +11,8 @@ export type PaneRole =
   | "ta_unclear"
   | "ft_queue"
   | "ft_include"
+  | "ft_exclude"
+  | "ft_unavailable"
   | "coding";
 
 export interface ProjectPaneContext {
@@ -70,6 +72,16 @@ async function buildContextMap(): Promise<Map<number, ProjectPaneContext>> {
       project,
       collections,
       role: "ft_include",
+    });
+    map.set(collections.ftExcludeId, {
+      project,
+      collections,
+      role: "ft_exclude",
+    });
+    map.set(collections.ftUnavailableId, {
+      project,
+      collections,
+      role: "ft_unavailable",
     });
     map.set(collections.codingId, {
       project,

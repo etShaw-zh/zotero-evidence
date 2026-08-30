@@ -21,20 +21,31 @@ function rowToProject(row: any): EvidenceProject {
   };
 }
 
+const SLR_PREFIX = "SLR-";
+
 /**
  * Creates the fixed Collection tree and the owning evidence_projects row.
  * A project is "marked" as a zotero-evidence project purely by having a
  * matching row here (collection_key -> root Collection key) -- nothing is
  * written onto the Zotero Collection itself.
+ *
+ * The stored name gets an "SLR-" prefix -- every UI surface (option
+ * pickers, dialogs, export filenames) reads `project.name` from this row,
+ * not the Collection's own `.name`, so the prefix has to live here to stay
+ * in sync with the actual Collection tree rather than only on the
+ * Collection. Avoids double-prefixing if the caller already included it.
  */
 export async function createProject(name: string): Promise<EvidenceProject> {
   await databaseService.init();
-  const collections = await createProjectCollectionStructure(name);
+  const prefixedName = name.startsWith(SLR_PREFIX)
+    ? name
+    : `${SLR_PREFIX}${name}`;
+  const collections = await createProjectCollectionStructure(prefixedName);
   const now = new Date().toISOString();
   await databaseService.queryAsync(
     `INSERT INTO evidence_projects (name, collection_key, created_at, updated_at, status)
      VALUES (?, ?, ?, ?, 'active')`,
-    [name, collections.rootKey, now, now],
+    [prefixedName, collections.rootKey, now, now],
   );
   const project = await getProjectByCollectionKey(collections.rootKey);
   if (!project) {

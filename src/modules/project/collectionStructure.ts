@@ -6,18 +6,40 @@ export const SOURCE_DATABASE_LABELS = [
 ] as const;
 export type SourceDatabaseLabel = (typeof SOURCE_DATABASE_LABELS)[number];
 
-export const SCREEN_QUEUE = "Screen Queue";
-export const TA_SCREENING = "Title-Abstract Screening";
+// Numbered so Zotero's alphabetically-sorted Collection tree reads
+// top-to-bottom in literature-review pipeline order: Sources -> TA-Screen
+// Queue -> TA-Screening Results -> FT-Screen Queue -> FT-Screening Results
+// -> Extract Coding. Only new projects get these current names/positions --
+// resolveProjectCollections() below also recognizes every prior generation
+// of names (and FT-Screen Queue's prior nested position under FT-Screening)
+// so projects created at any point keep resolving without a migration.
+export const SCREEN_QUEUE = "2. TA-Screen Queue";
+export const SCREEN_QUEUE_LEGACY_NAMES = ["Screen Queue", "2. Screen Queue"];
+export const TA_SCREENING = "3. TA-Screening Results";
+export const TA_SCREENING_LEGACY_NAMES = [
+  "Title-Abstract Screening",
+  "3. Title-Abstract Screening",
+];
 export const TA_INCLUDE = "TA-Include";
 export const TA_EXCLUDE = "TA-Exclude";
 export const TA_UNCLEAR = "TA-Unclear";
-export const FT_SCREENING = "Full-Text Screening";
-export const FT_QUEUE = "FT-Queue";
+// FT-Screen Queue used to be nested under Full-Text Screening rather than a
+// top-level sibling -- resolveProjectCollections() falls back to searching
+// there by this legacy name if it's not found at the root.
+export const FT_QUEUE = "4. FT-Screen Queue";
+export const FT_QUEUE_LEGACY_NAMES = ["FT-Queue"];
+export const FT_SCREENING = "5. FT-Screening Results";
+export const FT_SCREENING_LEGACY_NAMES = [
+  "Full-Text Screening",
+  "4. Full-Text Screening",
+];
 export const FT_INCLUDE = "FT-Include";
 export const FT_EXCLUDE = "FT-Exclude";
 export const FT_UNAVAILABLE = "FT-Unavailable";
-export const CODING = "Coding";
-export const SOURCES = "Sources";
+export const CODING = "6. Extract Coding";
+export const CODING_LEGACY_NAMES = ["Coding", "5. Coding"];
+export const SOURCES = "1. Sources";
+export const SOURCES_LEGACY_NAMES = ["Sources"];
 
 export interface ProjectCollectionMap {
   rootId: number;
@@ -83,8 +105,9 @@ export async function createProjectCollectionStructure(
     taScreening.id,
   );
 
+  const ftQueue = await createCollection(FT_QUEUE, libraryID, root.id);
+
   const ftScreening = await createCollection(FT_SCREENING, libraryID, root.id);
-  const ftQueue = await createCollection(FT_QUEUE, libraryID, ftScreening.id);
   const ftInclude = await createCollection(
     FT_INCLUDE,
     libraryID,
@@ -132,13 +155,18 @@ export function resolveProjectCollections(
   const root = Zotero.Collections.get(rootId) as Zotero.Collection;
   const libraryID = root.libraryID;
   const children = root.getChildCollections();
-  const byName = (name: string) => children.find((c) => c.name === name);
+  // Every prior generation of stage names is accepted here, so a project
+  // created at any point in this plugin's history keeps resolving without a
+  // migration -- see the constant declarations above for the full history
+  // of each stage's names.
+  const byName = (name: string, legacyNames: string[] = []) =>
+    children.find((c) => c.name === name || legacyNames.includes(c.name));
 
-  const sources = byName(SOURCES);
-  const screenQueue = byName(SCREEN_QUEUE);
-  const taScreening = byName(TA_SCREENING);
-  const ftScreening = byName(FT_SCREENING);
-  const coding = byName(CODING);
+  const sources = byName(SOURCES, SOURCES_LEGACY_NAMES);
+  const screenQueue = byName(SCREEN_QUEUE, SCREEN_QUEUE_LEGACY_NAMES);
+  const taScreening = byName(TA_SCREENING, TA_SCREENING_LEGACY_NAMES);
+  const ftScreening = byName(FT_SCREENING, FT_SCREENING_LEGACY_NAMES);
+  const coding = byName(CODING, CODING_LEGACY_NAMES);
   if (!sources || !screenQueue || !taScreening || !ftScreening || !coding) {
     throw new Error(
       `Project collection structure is incomplete for collection ${rootId}`,
@@ -150,7 +178,14 @@ export function resolveProjectCollections(
   const taInclude = taChildren.find((c) => c.name === TA_INCLUDE);
   const taExclude = taChildren.find((c) => c.name === TA_EXCLUDE);
   const taUnclear = taChildren.find((c) => c.name === TA_UNCLEAR);
-  const ftQueue = ftChildren.find((c) => c.name === FT_QUEUE);
+  // FT-Screen Queue is a top-level sibling in new projects (found via
+  // byName above, alongside Sources/TA-Screen Queue/etc.) but was nested
+  // under FT-Screening in old ones -- fall back to searching there.
+  const ftQueue =
+    byName(FT_QUEUE, FT_QUEUE_LEGACY_NAMES) ??
+    ftChildren.find(
+      (c) => c.name === FT_QUEUE || FT_QUEUE_LEGACY_NAMES.includes(c.name),
+    );
   const ftInclude = ftChildren.find((c) => c.name === FT_INCLUDE);
   const ftExclude = ftChildren.find((c) => c.name === FT_EXCLUDE);
   const ftUnavailable = ftChildren.find((c) => c.name === FT_UNAVAILABLE);

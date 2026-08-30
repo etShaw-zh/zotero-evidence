@@ -3,7 +3,21 @@ import {
   createProject,
   EvidenceProject,
 } from "../src/modules/project/projectManager";
-import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
+import {
+  CODING,
+  FT_EXCLUDE,
+  FT_INCLUDE,
+  FT_QUEUE,
+  FT_SCREENING,
+  FT_UNAVAILABLE,
+  resolveProjectCollections,
+  SCREEN_QUEUE,
+  SOURCES,
+  TA_EXCLUDE,
+  TA_INCLUDE,
+  TA_SCREENING,
+  TA_UNCLEAR,
+} from "../src/modules/project/collectionStructure";
 import { importLiteratureFile } from "../src/modules/import/importService";
 
 // Project rows and Zotero Collections live in separate id spaces
@@ -78,6 +92,65 @@ describe("Phase 1: project structure, import, dedup", function () {
     assert.isNumber(collections.taIncludeId);
     assert.isNumber(collections.ftQueueId);
     assert.isNumber(collections.codingId);
+  });
+
+  it("names a new project's top-level Collections with pipeline-order number prefixes", async function () {
+    const project = await createProject(`Evidence Order Test ${Date.now()}`);
+    const collections = resolveProjectCollections(getRootCollectionId(project));
+    const nameOf = (id: number) =>
+      (Zotero.Collections.get(id) as Zotero.Collection).name;
+    assert.equal(nameOf(collections.sourcesId), SOURCES);
+    assert.equal(nameOf(collections.screenQueueId), SCREEN_QUEUE);
+    assert.equal(nameOf(collections.ftQueueId), FT_QUEUE);
+    assert.equal(nameOf(collections.codingId), CODING);
+    assert.isTrue(SOURCES.startsWith("1."));
+    assert.isTrue(SCREEN_QUEUE.startsWith("2."));
+    assert.isTrue(TA_SCREENING.startsWith("3."));
+    assert.isTrue(FT_QUEUE.startsWith("4."));
+    assert.isTrue(FT_SCREENING.startsWith("5."));
+    assert.isTrue(CODING.startsWith("6."));
+  });
+
+  it("resolveProjectCollections still resolves a pre-existing project whose Collections use the old unprefixed names", async function () {
+    // Regression: projects created before the numbered-prefix naming (see
+    // collectionStructure.ts) have real, already-saved Collections named
+    // "Sources"/"Screen Queue"/etc, not "1. Sources"/"2. Screen Queue" --
+    // those are never renamed, so resolveProjectCollections must still find
+    // them by the legacy name.
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const makeCollection = async (name: string, parentID?: number) => {
+      const c = new Zotero.Collection({ name, libraryID, parentID });
+      await c.saveTx();
+      return c;
+    };
+
+    const root = await makeCollection(`Legacy Naming Test ${Date.now()}`);
+    const sources = await makeCollection("Sources", root.id);
+    const screenQueue = await makeCollection("Screen Queue", root.id);
+    const taScreening = await makeCollection(
+      "Title-Abstract Screening",
+      root.id,
+    );
+    await makeCollection(TA_INCLUDE, taScreening.id);
+    await makeCollection(TA_EXCLUDE, taScreening.id);
+    await makeCollection(TA_UNCLEAR, taScreening.id);
+    const ftScreening = await makeCollection("Full-Text Screening", root.id);
+    // The legacy structure nests FT-Queue under Full-Text Screening rather
+    // than making it a top-level sibling -- resolveProjectCollections()'s
+    // two-tier fallback (root children first, then this) has to find it
+    // here, by its own legacy literal name ("FT-Queue"), not the current
+    // FT_QUEUE constant value.
+    const ftQueue = await makeCollection("FT-Queue", ftScreening.id);
+    await makeCollection(FT_INCLUDE, ftScreening.id);
+    await makeCollection(FT_EXCLUDE, ftScreening.id);
+    await makeCollection(FT_UNAVAILABLE, ftScreening.id);
+    const coding = await makeCollection("Coding", root.id);
+
+    const collections = resolveProjectCollections(root.id);
+    assert.equal(collections.sourcesId, sources.id);
+    assert.equal(collections.screenQueueId, screenQueue.id);
+    assert.equal(collections.ftQueueId, ftQueue.id);
+    assert.equal(collections.codingId, coding.id);
   });
 
   it("imports RIS via Zotero.Translate.Import and dedupes across sources", async function () {

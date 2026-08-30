@@ -1,8 +1,10 @@
 menu-new-project = New Evidence Project…
 menu-import = Import Literature…
+menu-import-extract = Import Extract Literature…
 dialog-new-project-title = New Evidence Project
 dialog-project-name-label = Project name
 dialog-import-title = Import Literature
+dialog-import-extract-title = Import Extract Literature
 dialog-import-project-label = Project
 dialog-import-source-label = Source database
 dialog-import-file-label = File
@@ -12,16 +14,17 @@ dialog-confirm = Confirm
 dialog-cancel = Cancel
 progress-project-created = Project "{ $name }" created.
 progress-import-result = Imported { $total } record(s): { $added } new, { $duplicates } duplicate(s) merged.
+progress-import-extract-result = Imported { $count } record(s) directly into Extract Coding.
 error-project-name-required = Please enter a project name.
 error-no-projects = No Evidence project exists yet. Create one first via File > New Evidence Project.
 error-no-file-selected = Please choose a file to import.
 error-import-failed = Import failed.
 
-menu-criteria = Configure Screening Criteria…
+menu-criteria = Configure Title/Abstract Screening Criteria…
 menu-ft-criteria = Configure Full-Text Screening Criteria…
 menu-ai-provider = AI Provider Settings…
 
-dialog-criteria-title = TA-Screening Criteria
+dialog-criteria-title = Title/Abstract Screening Criteria
 dialog-ft-criteria-title = FT-Screening Criteria
 dialog-criteria-question-label = Research question
 dialog-criteria-inclusion-label = Inclusion criteria (one per line)
@@ -61,17 +64,25 @@ screen-queue-history-title = Screening record
 screen-queue-history-none = No screening record found for this item.
 screen-queue-history-ai = AI:
 screen-queue-history-human = Human:
+screen-queue-undo = Undo (back to TA-Screen Queue)
+screen-queue-undo-done = Decision undone.
+screen-queue-error-undo = Failed to undo the decision.
 
 menu-progress = Screening Progress…
 menu-batch-run-ai = Run AI Judgment (Selected Items)
 menu-batch-confirm-ai = Confirm AI Suggestions (Selected Items)
 
-dialog-progress-title = Screening Progress
+dialog-progress-title = Pipeline Progress
 dialog-progress-col-project = Project
-dialog-progress-col-pending = Pending
-dialog-progress-col-include = Include
-dialog-progress-col-exclude = Exclude
-dialog-progress-col-unclear = Unclear
+dialog-progress-col-pending = TA Pending
+dialog-progress-col-include = TA Include
+dialog-progress-col-exclude = TA Exclude
+dialog-progress-col-unclear = TA Unclear
+dialog-progress-col-ft-include = FT Include
+dialog-progress-col-ft-exclude = FT Exclude
+dialog-progress-col-ft-unavailable = FT Unavailable
+dialog-progress-col-coding-confirmed = Coded
+dialog-progress-col-coding-total = In Coding
 dialog-close = Close
 
 error-not-screen-queue = Select items inside an Evidence project's Screen Queue collection first.
@@ -108,7 +119,15 @@ ft-queue-choose-annotation = Choose a highlight…
 ft-queue-link-annotation = Mark as FT Evidence
 ft-queue-error-no-annotation-selected = Please choose a highlight to mark.
 ft-queue-error-link-annotation = Failed to mark the evidence highlight.
+ft-queue-history-title = Screening record
+ft-queue-history-none = No screening record found for this item.
+ft-queue-history-ai = AI:
+ft-queue-history-human = Human:
+ft-queue-undo = Undo (back to FT-Screen Queue)
+ft-queue-undo-done = Decision undone.
+ft-queue-error-undo = Failed to undo the decision.
 
+menu-codebook = Extract Codebook
 menu-codebook-import = Import Codebook (CSV)…
 menu-codebook-add-variable = Add Codebook Variable…
 menu-codebook-view = View Codebook…
@@ -173,6 +192,9 @@ coding-needs-manual-link = Needs manual linking
 coding-page-label = Page { $page }
 coding-ai-quote-label = AI-extracted quote:
 coding-ai-quote-none = (AI did not return a supporting quote for this suggestion)
+coding-undo-confirm = Undo (back to pending)
+coding-error-undo = Failed to undo the confirmation.
+coding-summary-empty = No confirmed coding evidence yet.
 
 pane-render-error = Couldn't load this item's panel:
 
@@ -183,7 +205,7 @@ exclude-reason-cancel = Cancel
 
 menu-export-prisma = Export PRISMA Data…
 menu-export-screening-log = Export Screening Decision Log…
-menu-export-coding = Export Coding Data…
+menu-export-coding = Export Extract Coding Data…
 dialog-export-prisma-title = Export PRISMA Data
 dialog-export-screening-log-title = Export Screening Decision Log
 dialog-export-coding-title = Export Coding Data
@@ -191,38 +213,7 @@ export-choose-destination = Choose Save Location…
 progress-export-done = Export complete.
 error-export-no-data = There is no data to export for this project yet.
 
-pilot-round-banner = Pilot round { $round } — reviewing AI suggestions for calibration.
-
-menu-pilot-start = Start Pilot Round…
-menu-pilot-complete = Complete Pilot Round & View Consistency…
-menu-codebook-lock = Lock/Unlock Codebook…
 menu-codebook-edit-notes = Edit Codebook Variable Notes…
-
-dialog-pilot-start-title = Start Pilot Round
-dialog-pilot-sample-size-label = Sample size
-error-pilot-sample-size-invalid = Please enter a positive sample size.
-progress-pilot-started = Pilot round { $round } started: { $count } item(s) sampled.
-
-dialog-pilot-complete-title = Pilot Round Consistency
-pilot-active-round-status = Pilot round { $round } is in progress: { $count } item(s) sampled.
-error-no-active-pilot-round = This project has no active pilot round.
-pilot-complete-col-variable = Variable
-pilot-complete-col-metric = Metric
-pilot-complete-col-kappa = Kappa
-pilot-complete-col-n = N
-pilot-complete-no-data = No comparisons were recorded for this round.
-pilot-kappa-na = N/A
-pilot-metric-cohen_kappa = Cohen's Kappa
-pilot-metric-weighted_cohen_kappa = Weighted Cohen's Kappa
-progress-pilot-completed = Pilot round completed.
-
-dialog-codebook-lock-title = Lock/Unlock Codebook
-codebook-lock-status-locked = The Codebook is currently LOCKED.
-codebook-lock-status-unlocked = The Codebook is currently unlocked.
-codebook-lock-status-none = This project has no Codebook yet.
-codebook-lock-action-lock = Lock
-codebook-lock-action-unlock = Unlock
-progress-codebook-lock-changed = Codebook lock status updated.
 
 dialog-codebook-edit-notes-title = Edit Codebook Variable Notes
 dialog-codebook-edit-notes-variable-label = Variable

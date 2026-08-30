@@ -10,14 +10,8 @@ import {
   getCodingProgress,
   getCodingRecords,
   linkAnnotationToRecord,
+  unconfirmRecord,
 } from "../coding/codingService";
-import {
-  getPilotRecords,
-  getPilotRoundForItem,
-  PilotRound,
-  reviewPilotEdit,
-  reviewPilotLink,
-} from "../coding/pilotService";
 import { ProjectPaneContext } from "../project/projectContext";
 import { safeGetField } from "../../utils/zoteroItem";
 import {
@@ -25,9 +19,11 @@ import {
   el,
   escapeHtml,
   quotePreview,
+  renderCardHeader,
   renderPaneError,
   resolveAttachment,
   resolveContextSync,
+  setNativeSectionsHidden,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-coding";
@@ -105,7 +101,6 @@ function renderInlineLinkPicker(
   item: Zotero.Item,
   annotations: Zotero.Item[],
   record: CodingRecord,
-  pilotRound: PilotRound | null,
   onChanged: () => void,
 ): HTMLElement {
   const pickerRow = el(doc, "div", {
@@ -167,11 +162,12 @@ function renderInlineLinkPicker(
             return;
           }
           try {
-            if (pilotRound) {
-              await reviewPilotLink(pilotRound.id, item.key, record, key);
-            } else {
-              await linkAnnotationToRecord(record.id, key);
-            }
+            await linkAnnotationToRecord(
+              record.id,
+              key,
+              record.variableName,
+              record.variableValue,
+            );
             onChanged();
           } catch (e: any) {
             ztoolkit.getGlobal("alert")(
@@ -194,7 +190,6 @@ function renderSuggestionRow(
   attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   record: CodingRecord,
-  pilotRound: PilotRound | null,
   onChanged: () => void,
 ): HTMLElement {
   const wrap = el(doc, "div", {}) as HTMLElement;
@@ -283,7 +278,7 @@ function renderSuggestionRow(
       return;
     }
     wrap.appendChild(
-      renderInlineLinkPicker(doc, item, annotations, record, pilotRound, onChanged),
+      renderInlineLinkPicker(doc, item, annotations, record, onChanged),
     );
   });
 
@@ -305,7 +300,6 @@ function renderPendingSuggestionsCard(
   attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   records: CodingRecord[],
-  pilotRound: PilotRound | null,
   onChanged: () => void,
 ): void {
   const pending = records.filter((r) => !r.annotationKey);
@@ -328,15 +322,7 @@ function renderPendingSuggestionsCard(
 
   for (const record of pending) {
     card.appendChild(
-      renderSuggestionRow(
-        doc,
-        item,
-        attachment,
-        annotations,
-        record,
-        pilotRound,
-        onChanged,
-      ),
+      renderSuggestionRow(doc, item, attachment, annotations, record, onChanged),
     );
   }
 
@@ -390,18 +376,7 @@ function renderPendingSuggestionsCard(
           let failed = 0;
           for (const r of pending.filter((x) => x.pendingPosition)) {
             try {
-              if (pilotRound) {
-                await reviewPilotEdit(
-                  pilotRound.id,
-                  item.key,
-                  item,
-                  r,
-                  r.variableName,
-                  r.variableValue,
-                );
-              } else {
-                await confirmRecord(r.id, item, r.variableName, r.variableValue);
-              }
+              await confirmRecord(r.id, item, r.variableName, r.variableValue);
               accepted++;
             } catch (e) {
               failed++;
@@ -422,7 +397,11 @@ function renderPendingSuggestionsCard(
   container.appendChild(card);
 }
 
-/** Compact, already-confirmed records -- no batch actions needed here. */
+/** Compact, already-confirmed records. When `onChanged` is provided (the
+ * full Coding editor, reader tab), each row gets an Undo action that sends
+ * it back to the pending-suggestions card (see unconfirmRecord); omitting
+ * it renders a read-only summary with no action button -- used by the
+ * library-tab Coding summary, which is evidence-review-only. */
 function renderConfirmedList(
   container: HTMLElement,
   doc: Document,
@@ -430,6 +409,7 @@ function renderConfirmedList(
   attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   records: CodingRecord[],
+  onChanged?: () => void,
 ): void {
   const confirmed = records.filter((r) => r.annotationKey);
   if (confirmed.length === 0) return;
@@ -484,6 +464,35 @@ function renderConfirmedList(
       }),
     );
 
+    if (onChanged) {
+      const onConfirmedChanged = onChanged;
+      const actions = el(doc, "div", {
+        classList: ["zotero-evidence-coding-row-actions"],
+      }) as HTMLElement;
+      const undoBtn = el(doc, "button", {
+        attributes: { type: "button", title: getString("coding-undo-confirm") },
+        properties: { innerHTML: "↺" },
+        listeners: [
+          {
+            type: "click",
+            listener: async (ev: Event) => {
+              ev.stopPropagation();
+              try {
+                await unconfirmRecord(record.id);
+                onConfirmedChanged();
+              } catch (e: any) {
+                ztoolkit.getGlobal("alert")(
+                  `${getString("coding-error-undo")}\n${e?.message ?? e}`,
+                );
+              }
+            },
+          },
+        ],
+      });
+      actions.appendChild(undoBtn);
+      row.appendChild(actions);
+    }
+
     row.addEventListener("click", () => {
       if (!attachment || !record.annotationKey) return;
       void Zotero.Reader.open(
@@ -507,7 +516,6 @@ async function renderManualAddForm(
   codebookId: number,
   variables: CodebookVariable[],
   annotations: Zotero.Item[],
-  isPilot: boolean,
   onChanged: () => void,
 ) {
   const form = el(doc, "div", { classList: ["zotero-evidence-coding-form"] });
@@ -577,7 +585,6 @@ async function renderManualAddForm(
               variableValue,
               annotationKey,
               quote,
-              isPilot,
             );
             onChanged();
           } catch (e: any) {
@@ -613,8 +620,6 @@ async function renderCodingArea(
     return;
   }
 
-  const pilotRound = await getPilotRoundForItem(ctx.project.id, item.key);
-
   const attachment = await resolveAttachment(item);
   container.appendChild(
     el(doc, "p", {
@@ -627,38 +632,20 @@ async function renderCodingArea(
     }),
   );
 
-  if (pilotRound) {
-    // Pilot records are tracked separately from official coding (is_pilot
-    // column) -- the "required variables confirmed" progress bar reflects
-    // official coding only, so it's replaced with a round banner here
-    // rather than shown alongside a number that wouldn't mean the same
-    // thing in this mode.
+  const progress = await getCodingProgress(
+    ctx.project.id,
+    item.key,
+    codebookRow.variables,
+  );
+  if (progress.requiredTotal > 0) {
     container.appendChild(
       el(doc, "p", {
-        classList: ["zotero-evidence-pilot-banner"],
+        classList: ["zotero-evidence-coding-progress"],
         properties: {
-          innerHTML: getString("pilot-round-banner", {
-            args: { round: pilotRound.roundNumber },
-          }),
+          innerHTML: `${progress.requiredDone} / ${progress.requiredTotal} ${getString("coding-progress-suffix")}`,
         },
       }),
     );
-  } else {
-    const progress = await getCodingProgress(
-      ctx.project.id,
-      item.key,
-      codebookRow.variables,
-    );
-    if (progress.requiredTotal > 0) {
-      container.appendChild(
-        el(doc, "p", {
-          classList: ["zotero-evidence-coding-progress"],
-          properties: {
-            innerHTML: `${progress.requiredDone} / ${progress.requiredTotal} ${getString("coding-progress-suffix")}`,
-          },
-        }),
-      );
-    }
   }
 
   const rerender = async () => {
@@ -677,11 +664,7 @@ async function renderCodingArea(
           generateBtn.setAttribute("disabled", "true");
           generateBtn.textContent = getString("coding-loading");
           try {
-            const result = await generateSuggestions(
-              ctx.project.id,
-              item,
-              !!pilotRound,
-            );
+            const result = await generateSuggestions(ctx.project.id, item);
             item.addToCollection(ctx.collections.codingId);
             await item.saveTx();
             if (result.count === 0) {
@@ -711,9 +694,7 @@ async function renderCodingArea(
   container.appendChild(buttonRow);
 
   const annotations = attachment ? attachment.getAnnotations() : [];
-  const records = pilotRound
-    ? await getPilotRecords(ctx.project.id, item.key)
-    : await getCodingRecords(ctx.project.id, item.key);
+  const records = await getCodingRecords(ctx.project.id, item.key);
 
   const listArea = el(doc, "div", {
     classList: ["zotero-evidence-coding-list"],
@@ -734,10 +715,17 @@ async function renderCodingArea(
       attachment,
       annotations,
       records,
-      pilotRound,
       () => void rerender(),
     );
-    renderConfirmedList(listArea, doc, item, attachment, annotations, records);
+    renderConfirmedList(
+      listArea,
+      doc,
+      item,
+      attachment,
+      annotations,
+      records,
+      () => void rerender(),
+    );
   }
 
   container.appendChild(
@@ -753,7 +741,6 @@ async function renderCodingArea(
     codebookRow.id,
     codebookRow.variables,
     annotations,
-    !!pilotRound,
     () => void rerender(),
   );
 }
@@ -777,6 +764,32 @@ function renderHeader(
   return contentArea;
 }
 
+/**
+ * Read-only "what's already been confirmed" summary for a Coding-collection
+ * item, shown in the library item pane (not the full reader-tab editor --
+ * no generate/manual-add/undo actions here, evidence review only).
+ */
+async function renderCodingSummary(
+  contentArea: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+): Promise<void> {
+  const records = await getCodingRecords(ctx.project.id, item.key);
+  const confirmedCount = records.filter((r) => r.annotationKey).length;
+  if (confirmedCount === 0) {
+    contentArea.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("coding-summary-empty") },
+      }),
+    );
+    return;
+  }
+  const attachment = await resolveAttachment(item);
+  const annotations = attachment ? attachment.getAnnotations() : [];
+  renderConfirmedList(contentArea, doc, item, attachment, annotations, records);
+}
+
 export function registerCodingPane() {
   Zotero.ItemPaneManager.registerSection({
     paneID: PANE_ID,
@@ -789,33 +802,54 @@ export function registerCodingPane() {
       l10nID: getLocaleID("coding-sidenav-tooltip"),
       icon: "chrome://zotero/skin/20/universal/save.svg",
     },
-    // Unlike the library item pane (screenQueuePane.ts/ftQueuePane.ts), the
-    // reader sidebar shows registered sections as separate tabs alongside
-    // Zotero's built-in Annotations/Outline tabs rather than stacking
-    // content that needs hiding -- so there's no native-hide toggle here.
-    onItemChange: ({ item, setEnabled, tabType }) => {
+    // The reader's own right-side context pane turns out to reuse the same
+    // stacked item-details sections (info/abstract/attachments/notes) as
+    // the library item pane -- just switched via its sidenav's tabs instead
+    // of scrolled -- so the same #zotero-view-item/.zotero-evidence-hide-
+    // native toggle used by screenQueuePane.ts/ftQueuePane.ts applies here
+    // too (a no-op if that container doesn't exist in some reader layout).
+    // Goal: opening a PDF for a Coding/FT-Include item shouldn't leave Info/
+    // Abstract as the only thing worth looking at in that pane.
+    onItemChange: ({ item, doc, setEnabled, tabType }) => {
       const ctx = resolveContextSync(item);
       const relevant =
-        tabType === "reader" &&
-        !!ctx &&
-        (ctx.role === "ft_include" || ctx.role === "coding");
+        (tabType === "reader" &&
+          !!ctx &&
+          (ctx.role === "ft_include" || ctx.role === "coding")) ||
+        (tabType === "library" && !!ctx && ctx.role === "coding");
       setEnabled(relevant);
+      setNativeSectionsHidden(doc, !!ctx);
+    },
+    onDestroy: ({ doc }) => {
+      setNativeSectionsHidden(doc, false);
     },
     // Required for registerSection to actually succeed -- see
     // screenQueuePane.ts for the empirically-confirmed reason.
     onRender: () => {},
     onAsyncRender: async ({ body, doc, item, tabType }) => {
-      if (tabType !== "reader") return;
       const ctx = resolveContextSync(item);
-      if (!ctx || !(ctx.role === "ft_include" || ctx.role === "coding")) {
+      if (tabType === "reader") {
+        if (!ctx || !(ctx.role === "ft_include" || ctx.role === "coding")) {
+          return;
+        }
+        const contentArea = renderHeader(body, doc, item);
+        try {
+          await renderCodingArea(contentArea, doc, ctx, item);
+        } catch (e) {
+          ztoolkit.log("Coding pane render failed", item.key, e);
+          renderPaneError(doc, contentArea, e);
+        }
         return;
       }
-      const contentArea = renderHeader(body, doc, item);
-      try {
-        await renderCodingArea(contentArea, doc, ctx, item);
-      } catch (e) {
-        ztoolkit.log("Coding pane render failed", item.key, e);
-        renderPaneError(doc, contentArea, e);
+      if (tabType === "library") {
+        if (!ctx || ctx.role !== "coding") return;
+        const contentArea = renderCardHeader(body, doc, item);
+        try {
+          await renderCodingSummary(contentArea, doc, ctx, item);
+        } catch (e) {
+          ztoolkit.log("Coding summary render failed", item.key, e);
+          renderPaneError(doc, contentArea, e);
+        }
       }
     },
   });

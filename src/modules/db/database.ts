@@ -1,4 +1,4 @@
-import { COLUMN_MIGRATIONS, SCHEMA_STATEMENTS } from "./schema";
+import { COLUMN_MIGRATIONS, DROPPED_TABLES, SCHEMA_STATEMENTS } from "./schema";
 
 // Separate SQLite database from zotero.sqlite, following the same pattern
 // beaver-zotero uses (`new Zotero.DBConnection('beaver')`): Zotero creates/opens
@@ -29,6 +29,9 @@ class DatabaseService {
             `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
           );
         }
+      }
+      for (const table of DROPPED_TABLES) {
+        await this.conn!.queryAsync(`DROP TABLE IF EXISTS ${table}`);
       }
     });
   }

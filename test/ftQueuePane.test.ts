@@ -11,6 +11,7 @@ import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
 import { saveCriteria } from "../src/modules/screening/criteriaService";
 import {
+  confirmDecision,
   getScreeningState,
   markFulltextReady,
 } from "../src/modules/screening/ftScreeningService";
@@ -173,5 +174,67 @@ describe("FT-Queue item-pane section", function () {
     const state = await getScreeningState(project.id, item.key);
     assert.equal(state?.decision, "exclude");
     assert.equal(state?.exclusionReason, "No control group");
+  });
+
+  it("FT-Include history view shows the decision and an Undo button that reverts it", async function () {
+    const project = await createProject(`FT Pane Undo Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    await (Zotero as any)[
+      config.addonInstance
+    ].api.refreshProjectPaneContextCache();
+
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "FT Pane Undo Test Item");
+    await item.saveTx();
+    item.addToCollection(collections.ftQueueId);
+    await item.saveTx();
+
+    await confirmDecision(
+      project.id,
+      item,
+      collections,
+      "include",
+      "test-user",
+    );
+    assert.isTrue(item.inCollection(collections.ftIncludeId));
+    assert.isTrue(item.inCollection(collections.codingId));
+
+    const win = Zotero.getMainWindow();
+    const doc = win.document;
+    const ZoteroPaneGlobal = (win as any).ZoteroPane;
+    await ZoteroPaneGlobal.collectionsView.selectCollection(
+      collections.ftIncludeId,
+    );
+    await Zotero.Promise.delay(300);
+    await ZoteroPaneGlobal.selectItem(item.id);
+    await Zotero.Promise.delay(2000);
+
+    const container = doc.getElementById("zotero-view-item")!;
+    const humanLabel = await pluginString("ft-queue-history-human");
+    const includeLabel = await pluginString("screen-queue-decision-include");
+    const historyText = Array.from(
+      container.querySelectorAll(".zotero-evidence-card p"),
+    )
+      .map((p) => p.textContent)
+      .join(" | ");
+    assert.include(historyText, humanLabel);
+    assert.include(historyText, includeLabel);
+
+    const undoLabel = await pluginString("ft-queue-undo");
+    const undoBtn = Array.from(container.querySelectorAll("button"))
+      .filter(visible)
+      .find((b) => b.textContent === undoLabel) as HTMLButtonElement;
+    assert.isDefined(undoBtn, "Undo button should be rendered");
+    undoBtn.click();
+    await Zotero.Promise.delay(500);
+
+    assert.isFalse(item.inCollection(collections.ftIncludeId));
+    assert.isFalse(item.inCollection(collections.codingId));
+    assert.isTrue(item.inCollection(collections.ftQueueId));
+    const state = await getScreeningState(project.id, item.key);
+    assert.isNull(state?.decision);
   });
 });

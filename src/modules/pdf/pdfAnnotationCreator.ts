@@ -38,12 +38,21 @@ export async function locateQuoteInAttachment(
   return null;
 }
 
-/** Create the real Zotero highlight annotation for an already-located quote. */
+/**
+ * Create the real Zotero highlight annotation for an already-located quote.
+ * `text` becomes annotationText -- the highlighted passage itself, shown as
+ * the quote in Zotero's own reader-sidebar annotation list -- and `comment`
+ * (optional) becomes annotationComment, the small note shown alongside it;
+ * callers use that for "{variable}: {value}"-style context so the list
+ * entry isn't just a bare quote with no indication of what it was coded/
+ * decided as.
+ */
 export async function createLocatedHighlight(
   attachment: Zotero.Item,
   located: LocatedQuote,
   color: string,
   text: string,
+  comment?: string,
 ): Promise<string> {
   const annotation = new Zotero.Item("annotation");
   annotation.libraryID = attachment.libraryID;
@@ -51,6 +60,7 @@ export async function createLocatedHighlight(
   (annotation as any).annotationType = "highlight";
   (annotation as any).annotationText = text;
   (annotation as any).annotationColor = color;
+  if (comment) (annotation as any).annotationComment = comment;
   (annotation as any).annotationPosition = JSON.stringify({
     pageIndex: located.pageIndex,
     rects: located.rects,
@@ -72,7 +82,8 @@ export async function materializePendingHighlight(
   pendingPositionJson: string,
   color: string,
   text: string,
+  comment?: string,
 ): Promise<string> {
   const located: LocatedQuote = JSON.parse(pendingPositionJson);
-  return createLocatedHighlight(attachment, located, color, text);
+  return createLocatedHighlight(attachment, located, color, text, comment);
 }

@@ -7,23 +7,47 @@ import {
 } from "../pdf/pdfAnnotationCreator";
 import { databaseService } from "../db/database";
 import { sanitizeDbText } from "../../utils/sanitize";
+import { resolveProjectCollections } from "../project/collectionStructure";
+import { getRootCollectionId } from "../project/projectContext";
+import { getProjectById } from "../project/projectManager";
 import { getAttachmentFullText } from "../screening/ftScreeningService";
 import { CodebookVariable, getLatestCodebook } from "./codebookService";
 
+/** "{variable}: {value}" -- what a coded highlight's annotationComment
+ * shows in Zotero's own reader-sidebar annotation list, so a highlight
+ * reads as more than a bare score once it's out of our own Coding pane. */
+function codingAnnotationComment(
+  variableName: string,
+  variableValue: string,
+): string {
+  return `${variableName}: ${variableValue}`;
+}
+
 /**
  * Forces a linked annotation to the fixed default Coding color (REQUIREMENTS
- * 2.4.5) so it stays visually distinguishable from FT-Screening's orange.
- * Silently no-ops if the key doesn't resolve to a real item -- callers
- * always pass a key drawn from the current PDF's real annotation list, so
- * that's not expected, but this isn't the place to throw over it.
+ * 2.4.5) so it stays visually distinguishable from FT-Screening's orange,
+ * and labels it with which variable/value it was coded as (COD-08 followup
+ * -- see codingAnnotationComment) so Zotero's own reader-sidebar annotation
+ * list is legible on its own, not just inside our Coding pane. Silently
+ * no-ops if the key doesn't resolve to a real item -- callers always pass a
+ * key drawn from the current PDF's real annotation list, so that's not
+ * expected, but this isn't the place to throw over it.
  */
-async function colorizeCodingAnnotation(annotationKey: string): Promise<void> {
+async function colorizeCodingAnnotation(
+  annotationKey: string,
+  variableName: string,
+  variableValue: string,
+): Promise<void> {
   const annotation = Zotero.Items.getByLibraryAndKey(
     Zotero.Libraries.userLibraryID,
     annotationKey,
   );
   if (!annotation) return;
   (annotation as any).annotationColor = CODING_ANNOTATION_COLOR;
+  (annotation as any).annotationComment = codingAnnotationComment(
+    variableName,
+    variableValue,
+  );
   await (annotation as Zotero.Item).saveTx();
 }
 
@@ -124,7 +148,6 @@ export interface GenerateSuggestionsResult {
 export async function generateSuggestions(
   projectId: number,
   item: Zotero.Item,
-  isPilot = false,
 ): Promise<GenerateSuggestionsResult> {
   const provider = getActiveProvider();
   if (!provider) {
@@ -186,7 +209,7 @@ export async function generateSuggestions(
         s.variable,
         s.value,
         s.quote,
-        isPilot ? 1 : 0,
+        0,
         now,
         now,
       ],
@@ -232,12 +255,34 @@ export async function getCodingRecords(
 export async function linkAnnotationToRecord(
   recordId: number,
   annotationKey: string,
+  variableName: string,
+  variableValue: string,
 ): Promise<void> {
-  await colorizeCodingAnnotation(annotationKey);
+  await colorizeCodingAnnotation(annotationKey, variableName, variableValue);
   await databaseService.init();
   await databaseService.queryAsync(
     `UPDATE coding_records SET annotation_key = ?, confirmed = 1, updated_at = ? WHERE id = ?`,
     [annotationKey, new Date().toISOString(), recordId],
+  );
+}
+
+/**
+ * Reverses linkAnnotationToRecord/confirmRecord: clears the record's link
+ * to a real Zotero annotation and marks it unconfirmed again, so it moves
+ * back from the Confirmed list to the pending-suggestions card (COD-04's
+ * confirmation is meant to be a reviewable, not permanent, decision). The
+ * real PDF highlight annotation itself is left alone -- unlinking a wrong
+ * confirmation shouldn't silently delete a highlight the human may still
+ * want, the same way rejecting a suggestion never touches annotations
+ * either; if the highlight was only created via auto-locate materialize and
+ * really is unwanted, deleting it is a separate, explicit action in the
+ * PDF reader itself.
+ */
+export async function unconfirmRecord(recordId: number): Promise<void> {
+  await databaseService.init();
+  await databaseService.queryAsync(
+    `UPDATE coding_records SET annotation_key = NULL, confirmed = 0, updated_at = ? WHERE id = ?`,
+    [new Date().toISOString(), recordId],
   );
 }
 
@@ -249,9 +294,10 @@ export async function addManualRecord(
   variableValue: string,
   annotationKey: string | null,
   quote: string | null,
-  isPilot = false,
 ): Promise<number> {
-  if (annotationKey) await colorizeCodingAnnotation(annotationKey);
+  if (annotationKey) {
+    await colorizeCodingAnnotation(annotationKey, variableName, variableValue);
+  }
   await databaseService.init();
   const now = new Date().toISOString();
   await databaseService.queryAsync(
@@ -266,7 +312,7 @@ export async function addManualRecord(
       variableName,
       variableValue,
       quote,
-      isPilot ? 1 : 0,
+      0,
       now,
       now,
     ],
@@ -305,20 +351,31 @@ export async function confirmRecord(
 ): Promise<void> {
   await databaseService.init();
   const rows = (await databaseService.queryAsync(
-    `SELECT annotation_key, pending_position FROM coding_records WHERE id = ?`,
+    `SELECT annotation_key, pending_position, quote FROM coding_records WHERE id = ?`,
     [recordId],
-  )) as { annotation_key: string | null; pending_position: string | null }[];
+  )) as {
+    annotation_key: string | null;
+    pending_position: string | null;
+    quote: string | null;
+  }[];
   const row = rows?.[0];
 
   if (row && !row.annotation_key && row.pending_position) {
     try {
       const attachment = await item.getBestAttachment();
       if (attachment && attachment.isPDFAttachment()) {
+        // annotationText is the highlighted passage itself (what
+        // locateQuoteInAttachment actually found in the PDF at this
+        // position) -- distinct from annotationComment, which carries the
+        // coded variable/value. Passing variableValue as the highlighted
+        // text (the old behavior) left Zotero's own reader-sidebar
+        // annotation list showing a bare score with no quote and no label.
         const annotationKey = await materializePendingHighlight(
           attachment,
           row.pending_position,
           CODING_ANNOTATION_COLOR,
-          variableValue,
+          row.quote || variableValue,
+          codingAnnotationComment(variableName, variableValue),
         );
         await databaseService.queryAsync(
           `UPDATE coding_records
@@ -426,4 +483,39 @@ export async function getCodingProgress(
     confirmedNames.has(normalizeVariableName(n)),
   ).length;
   return { requiredTotal: requiredNames.length, requiredDone };
+}
+
+export interface CodingStats {
+  totalInCoding: number;
+  itemsWithConfirmedEvidence: number;
+}
+
+/** Project-wide Coding counterpart to screeningExport.ts's computePrismaData
+ * (which only covers TA/FT) -- how many items have reached the Coding
+ * collection versus how many of those already have at least one confirmed
+ * coding record, for the overview panel's collection-level stats view. */
+export async function computeCodingStats(
+  projectId: number,
+): Promise<CodingStats> {
+  const project = await getProjectById(projectId);
+  if (!project) throw new Error("Project not found.");
+  const rootId = getRootCollectionId(project);
+  if (rootId === null) throw new Error("Project collection not found.");
+  const collections = resolveProjectCollections(rootId);
+
+  const totalInCoding = (
+    Zotero.Collections.get(collections.codingId) as Zotero.Collection
+  ).getChildItems().length;
+
+  await databaseService.init();
+  const rows = (await databaseService.queryAsync(
+    `SELECT COUNT(DISTINCT item_key) as n FROM coding_records
+     WHERE project_id = ? AND confirmed = 1 AND is_pilot = 0`,
+    [projectId],
+  )) as { n: number }[] | undefined;
+
+  return {
+    totalInCoding,
+    itemsWithConfirmedEvidence: rows?.[0]?.n ?? 0,
+  };
 }

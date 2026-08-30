@@ -17,9 +17,20 @@
 import { assert } from "chai";
 import { config } from "../package.json";
 import { saveCodebook } from "../src/modules/coding/codebookService";
+import { addManualRecord } from "../src/modules/coding/codingService";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
+
+// getString() can't be imported directly here -- see ftQueuePane.test.ts's
+// pluginString for why; same cross-sandbox bridge technique.
+async function pluginString(id: string): Promise<string> {
+  const addonObj = (Zotero as any)[config.addonInstance];
+  const [value] = await addonObj.data.locale.current.formatValues([
+    { id: `${config.addonRef}-${id}` },
+  ]);
+  return value;
+}
 
 const MINIMAL_PDF = `%PDF-1.4
 1 0 obj
@@ -177,3 +188,141 @@ async function runTest() {
     );
   }
 }
+
+// Unlike the reader-tab editor above, this branch renders in the library
+// item pane the same way Screen Queue/FT-Queue do -- immediately on
+// selection, no lazy tab-click needed -- so it's fully automatable.
+describe("Coding item-pane section (library tab summary)", function () {
+  this.timeout(30000);
+
+  it("shows a read-only confirmed-evidence summary with no action buttons", async function () {
+    const project = await createProject(
+      `Coding Summary Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const codebook = await saveCodebook(project.id, [
+      { name: "population", type: "text" },
+    ]);
+
+    await (Zotero as any)[
+      config.addonInstance
+    ].api.refreshProjectPaneContextCache();
+
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "Coding Summary Test Item");
+    await item.saveTx();
+    item.addToCollection(collections.codingId);
+    await item.saveTx();
+
+    const attachment = await Zotero.Attachments.importFromFile({
+      file: writeFixturePdf(`coding-summary-${Date.now()}.pdf`),
+      parentItemID: item.id,
+      contentType: "application/pdf",
+    });
+
+    const annotation = new Zotero.Item("annotation");
+    annotation.libraryID = attachment.libraryID;
+    (annotation as any).parentID = attachment.id;
+    (annotation as any).annotationType = "highlight";
+    (annotation as any).annotationText = "adults aged 18-65";
+    (annotation as any).annotationColor = "#00aa00";
+    (annotation as any).annotationPosition = JSON.stringify({
+      pageIndex: 0,
+      rects: [[0, 0, 100, 20]],
+    });
+    (annotation as any).annotationSortIndex = "00000|000000|00000";
+    await annotation.saveTx();
+
+    await addManualRecord(
+      project.id,
+      item,
+      codebook.id,
+      "population",
+      "Adults 18-65",
+      annotation.key,
+      null,
+    );
+
+    const win = Zotero.getMainWindow();
+    const doc = win.document;
+    const ZoteroPaneGlobal = (win as any).ZoteroPane;
+    await ZoteroPaneGlobal.collectionsView.selectCollection(
+      collections.codingId,
+    );
+    await Zotero.Promise.delay(300);
+    await ZoteroPaneGlobal.selectItem(item.id);
+    await Zotero.Promise.delay(2000);
+
+    const container = doc.getElementById("zotero-view-item");
+    assert.isNotNull(container, "#zotero-view-item should exist");
+    assert.isTrue(
+      container!.classList.contains("zotero-evidence-hide-native"),
+      "native sections should be hidden while viewing a Coding-collection item",
+    );
+
+    const confirmedList = container!.querySelector(
+      ".zotero-evidence-confirmed-list",
+    );
+    assert.isNotNull(
+      confirmedList,
+      "confirmed-evidence list should be rendered",
+    );
+
+    const rowLabel = container!.querySelector(
+      ".zotero-evidence-coding-row-label",
+    );
+    assert.isNotNull(rowLabel);
+    assert.include(rowLabel!.textContent, "population");
+    assert.include(rowLabel!.textContent, "Adults 18-65");
+
+    // The whole point: no Undo/modify action in this read-only summary.
+    assert.isNull(
+      container!.querySelector(".zotero-evidence-coding-row-actions"),
+      "the library-tab summary must not show the Undo/modify button",
+    );
+  });
+
+  it("shows an empty-state message for a Coding-collection item with no confirmed evidence yet", async function () {
+    const project = await createProject(
+      `Coding Summary Empty Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    await saveCodebook(project.id, [{ name: "population", type: "text" }]);
+
+    await (Zotero as any)[
+      config.addonInstance
+    ].api.refreshProjectPaneContextCache();
+
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "Coding Summary Empty Test Item");
+    await item.saveTx();
+    item.addToCollection(collections.codingId);
+    await item.saveTx();
+
+    const win = Zotero.getMainWindow();
+    const doc = win.document;
+    const ZoteroPaneGlobal = (win as any).ZoteroPane;
+    await ZoteroPaneGlobal.collectionsView.selectCollection(
+      collections.codingId,
+    );
+    await Zotero.Promise.delay(300);
+    await ZoteroPaneGlobal.selectItem(item.id);
+    await Zotero.Promise.delay(2000);
+
+    const container = doc.getElementById("zotero-view-item")!;
+    assert.isNull(
+      container.querySelector(".zotero-evidence-confirmed-list"),
+      "no confirmed-evidence list should render when there's nothing confirmed yet",
+    );
+    const emptyMessage = await pluginString("coding-summary-empty");
+    const bodyText = container.querySelector(".zotero-evidence-card")
+      ?.textContent;
+    assert.include(bodyText, emptyMessage);
+  });
+});

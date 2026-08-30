@@ -376,3 +376,46 @@ export async function markUnavailable(
   item.addToCollection(collections.ftUnavailableId);
   await item.saveTx();
 }
+
+/**
+ * Reverses confirmDecision/markUnavailable: moves the item back to
+ * FT-Screen Queue and clears the human decision fields, leaving
+ * fulltext_ready/annotation_key/pending_position untouched -- the PDF and
+ * whatever highlight was already claimed for it didn't change, so there's
+ * nothing to undo there. Same "only clear confirmation fields" precedent as
+ * codingService.ts's unconfirmRecord.
+ *
+ * If the decision being undone was "include", the item also gets removed
+ * from Extract Coding (confirmDecision put it there automatically) -- but
+ * any coding_records rows already written for it are deliberately left
+ * alone, so re-including later picks up existing coding work rather than
+ * losing it.
+ */
+export async function undoDecision(
+  projectId: number,
+  item: Zotero.Item,
+  collections: ProjectCollectionMap,
+): Promise<void> {
+  const state = await getScreeningState(projectId, item.key);
+  if (!state || !state.decision) return;
+
+  const sourceCollectionId =
+    state.decision === "include"
+      ? collections.ftIncludeId
+      : state.decision === "exclude"
+        ? collections.ftExcludeId
+        : collections.ftUnavailableId;
+  item.removeFromCollection(sourceCollectionId);
+  if (state.decision === "include") {
+    item.removeFromCollection(collections.codingId);
+  }
+  item.addToCollection(collections.ftQueueId);
+  await item.saveTx();
+
+  await databaseService.queryAsync(
+    `UPDATE screening_records
+     SET decision = NULL, human_decision = NULL, exclusion_reason = NULL, decided_by = NULL, decided_at = NULL
+     WHERE id = ?`,
+    [state.id],
+  );
+}

@@ -118,6 +118,9 @@ function onDialogEvents(type: string) {
     case "evidenceImport":
       EvidenceCommands.importDialog();
       break;
+    case "evidenceImportExtract":
+      EvidenceCommands.importExtractDialog();
+      break;
     case "evidenceCriteria":
       EvidenceCommands.criteriaDialog();
       break;
@@ -145,17 +148,8 @@ function onDialogEvents(type: string) {
     case "evidenceCodebookView":
       EvidenceCommands.codebookViewDialog();
       break;
-    case "evidenceCodebookLock":
-      EvidenceCommands.codebookLockDialog();
-      break;
     case "evidenceCodebookEditNotes":
       EvidenceCommands.codebookEditNotesDialog();
-      break;
-    case "evidencePilotStart":
-      EvidenceCommands.pilotStartDialog();
-      break;
-    case "evidencePilotComplete":
-      EvidenceCommands.pilotCompleteDialog();
       break;
     case "evidenceExportPrisma":
       EvidenceCommands.exportPrismaDialog();

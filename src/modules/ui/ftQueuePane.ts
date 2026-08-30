@@ -12,6 +12,7 @@ import {
   markUnavailable,
   runAIJudgment,
   ScreeningState,
+  undoDecision,
 } from "../screening/ftScreeningService";
 import {
   annotationOptionLabel,
@@ -446,6 +447,96 @@ async function renderFtContent(
   container.appendChild(unavailableBtn);
 }
 
+/**
+ * Read-only history view for the FT-Include/FT-Exclude/FT-Unavailable
+ * collections, mirroring screenQueuePane.ts's renderHistoryArea: shows the
+ * screening_records trail plus an Undo action, instead of the editable
+ * FT-Screen Queue controls above.
+ */
+async function renderFtHistoryArea(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+) {
+  container.innerHTML = "";
+  const state = await getScreeningState(ctx.project.id, item.key);
+
+  container.appendChild(
+    el(doc, "h3", {
+      properties: { innerHTML: getString("ft-queue-history-title") },
+    }),
+  );
+
+  if (!state) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("ft-queue-history-none") },
+      }),
+    );
+    return;
+  }
+
+  if (state.aiDecision) {
+    container.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-judgment"],
+        children: [
+          {
+            tag: "strong",
+            namespace: "html",
+            properties: {
+              innerHTML: `${getString("ft-queue-history-ai")} ${decisionLabel(state.aiDecision)}`,
+            },
+          },
+          {
+            tag: "p",
+            namespace: "html",
+            properties: { innerHTML: escapeHtml(state.aiReasoning || "") },
+          },
+        ],
+      }),
+    );
+  }
+
+  if (state.decision) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: {
+          innerHTML: `${getString("ft-queue-history-human")} ${decisionLabel(state.decision)}`,
+        },
+      }),
+    );
+
+    const undoBtn = el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("ft-queue-undo") },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            try {
+              await undoDecision(ctx.project.id, item, ctx.collections);
+              new ztoolkit.ProgressWindow(config.addonName)
+                .createLine({
+                  text: getString("ft-queue-undo-done"),
+                  type: "success",
+                  progress: 100,
+                })
+                .show();
+            } catch (e: any) {
+              ztoolkit.getGlobal("alert")(
+                `${getString("ft-queue-error-undo")}\n${e?.message ?? e}`,
+              );
+            }
+          },
+        },
+      ],
+    });
+    container.appendChild(undoBtn);
+  }
+}
+
 async function renderFtArea(
   container: HTMLElement,
   doc: Document,
@@ -482,7 +573,12 @@ export function registerFtQueuePane() {
     },
     onItemChange: ({ item, doc, setEnabled, tabType }) => {
       const ctx = tabType === "library" ? resolveContextSync(item) : null;
-      const relevant = !!ctx && ctx.role === "ft_queue";
+      const relevant =
+        !!ctx &&
+        (ctx.role === "ft_queue" ||
+          ctx.role === "ft_include" ||
+          ctx.role === "ft_exclude" ||
+          ctx.role === "ft_unavailable");
       setEnabled(relevant);
       // See screenQueuePane.ts for why this must be based on ctx truthiness
       // rather than this section's own relevance -- both sections share one
@@ -499,10 +595,24 @@ export function registerFtQueuePane() {
     onRender: () => {},
     onAsyncRender: async ({ body, doc, item }) => {
       const ctx = resolveContextSync(item);
-      if (!ctx || ctx.role !== "ft_queue") return;
+      if (
+        !ctx ||
+        !(
+          ctx.role === "ft_queue" ||
+          ctx.role === "ft_include" ||
+          ctx.role === "ft_exclude" ||
+          ctx.role === "ft_unavailable"
+        )
+      ) {
+        return;
+      }
       const contentArea = renderCardHeader(body, doc, item);
       try {
-        await renderFtArea(contentArea, doc, ctx, item);
+        if (ctx.role === "ft_queue") {
+          await renderFtArea(contentArea, doc, ctx, item);
+        } else {
+          await renderFtHistoryArea(contentArea, doc, ctx, item);
+        }
       } catch (e) {
         ztoolkit.log("FT-Queue pane render failed", item.key, e);
         renderPaneError(doc, contentArea, e);

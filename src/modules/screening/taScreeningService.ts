@@ -207,3 +207,40 @@ export async function confirmDecision(
   }
   await item.saveTx();
 }
+
+/**
+ * Reverses confirmDecision: moves the item back to Screen Queue and clears
+ * the human decision fields, leaving ai_decision/ai_reasoning intact -- same
+ * "only clear confirmation fields, don't destroy the AI's original
+ * suggestion" precedent as codingService.ts's unconfirmRecord. No-ops if
+ * the item has no recorded TA decision to undo.
+ */
+export async function undoDecision(
+  projectId: number,
+  item: Zotero.Item,
+  collections: ProjectCollectionMap,
+): Promise<void> {
+  const state = await getScreeningState(projectId, item.key);
+  if (!state || !state.decision) return;
+
+  const sourceCollectionId =
+    state.decision === "include"
+      ? collections.taIncludeId
+      : state.decision === "exclude"
+        ? collections.taExcludeId
+        : collections.taUnclearId;
+  item.removeFromCollection(sourceCollectionId);
+  if (state.decision !== "exclude") {
+    item.removeFromCollection(collections.ftQueueId);
+  }
+  item.addToCollection(collections.screenQueueId);
+  await item.saveTx();
+
+  await databaseService.init();
+  await databaseService.queryAsync(
+    `UPDATE screening_records
+     SET decision = NULL, human_decision = NULL, exclusion_reason = NULL, decided_by = NULL, decided_at = NULL
+     WHERE id = ?`,
+    [state.id],
+  );
+}

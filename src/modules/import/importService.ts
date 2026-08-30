@@ -29,3 +29,21 @@ export async function importLiteratureFile(
   );
   return { totalParsed: items.length, newCount, duplicateCount };
 }
+
+/**
+ * Imports a file straight into Extract Coding, bypassing TA/FT screening
+ * and the Sources/dedup pipeline entirely -- for literature the user has
+ * already screened elsewhere and just wants to code.
+ */
+export async function importDirectToCoding(
+  rootCollectionId: number,
+  filePath: string,
+): Promise<number> {
+  const collections = resolveProjectCollections(rootCollectionId);
+  const items = await importItemsFromFile(filePath, collections.libraryID);
+  for (const item of items) {
+    item.addToCollection(collections.codingId);
+    await item.saveTx();
+  }
+  return items.length;
+}

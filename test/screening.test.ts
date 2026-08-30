@@ -18,6 +18,7 @@ import {
   getScreeningState,
   parseJudgment,
   runAIJudgment,
+  undoDecision,
 } from "../src/modules/screening/taScreeningService";
 
 async function makeTestItem(title: string): Promise<Zotero.Item> {
@@ -166,6 +167,83 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     const state = await getScreeningState(project.id, item.key);
     assert.isNull(state?.exclusionReason);
+  });
+
+  it("undoDecision(include) moves the item back to TA-Screen Queue and out of FT-Screen Queue, clearing the decision", async function () {
+    const project = await createProject(`Undo Include Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeTestItem("Undo Include Me");
+    item.addToCollection(collections.screenQueueId);
+    await item.saveTx();
+
+    await confirmDecision(
+      project.id,
+      item,
+      collections,
+      null,
+      "include",
+      "test-user",
+    );
+    assert.isTrue(item.inCollection(collections.taIncludeId));
+    assert.isTrue(item.inCollection(collections.ftQueueId));
+
+    await undoDecision(project.id, item, collections);
+
+    assert.isFalse(item.inCollection(collections.taIncludeId));
+    assert.isFalse(item.inCollection(collections.ftQueueId));
+    assert.isTrue(item.inCollection(collections.screenQueueId));
+
+    const state = await getScreeningState(project.id, item.key);
+    assert.isNull(state?.decision);
+    assert.isNull(state?.exclusionReason);
+  });
+
+  it("undoDecision(exclude) moves the item back to TA-Screen Queue without touching FT-Screen Queue", async function () {
+    const project = await createProject(`Undo Exclude Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeTestItem("Undo Exclude Me");
+    item.addToCollection(collections.screenQueueId);
+    await item.saveTx();
+
+    await confirmDecision(
+      project.id,
+      item,
+      collections,
+      null,
+      "exclude",
+      "test-user",
+      "Not relevant",
+    );
+    assert.isTrue(item.inCollection(collections.taExcludeId));
+    assert.isFalse(item.inCollection(collections.ftQueueId));
+
+    await undoDecision(project.id, item, collections);
+
+    assert.isFalse(item.inCollection(collections.taExcludeId));
+    assert.isFalse(item.inCollection(collections.ftQueueId));
+    assert.isTrue(item.inCollection(collections.screenQueueId));
+
+    const state = await getScreeningState(project.id, item.key);
+    assert.isNull(state?.decision);
+    assert.isNull(state?.exclusionReason);
+  });
+
+  it("undoDecision no-ops for an item with no recorded TA decision", async function () {
+    const project = await createProject(`Undo Noop Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeTestItem("Never Screened");
+    item.addToCollection(collections.screenQueueId);
+    await item.saveTx();
+
+    await undoDecision(project.id, item, collections);
+
+    assert.isTrue(item.inCollection(collections.screenQueueId));
   });
 
   it("runAIJudgment refuses to run without a configured provider", async function () {
