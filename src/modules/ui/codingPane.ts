@@ -116,7 +116,7 @@ function renderInlineLinkPicker(
       classList: ["zotero-evidence-coding-ai-quote"],
       properties: {
         innerHTML: record.quote
-          ? `<strong>${getString("coding-ai-quote-label")}</strong> "${escapeHtml(quotePreview(record.quote, 300))}"`
+          ? `<strong>${getString("coding-ai-quote-label")}</strong> "${escapeHtml(quotePreview(record.quote, 120))}"`
           : getString("coding-ai-quote-none"),
       },
     }),

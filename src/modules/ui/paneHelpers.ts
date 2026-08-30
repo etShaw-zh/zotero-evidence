@@ -7,9 +7,39 @@ import {
 
 const NATIVE_HIDE_CLASS = "zotero-evidence-hide-native";
 
+// Built-in pane IDs that should be hidden when our custom section is active.
+const BUILTIN_PANE_IDS = [
+  "info",
+  "abstract",
+  "attachments",
+  "notes",
+  "note-info",
+  "attachment-info",
+  "attachment-annotations",
+  "libraries-collections",
+  "tags",
+  "related",
+];
+
 export function setNativeSectionsHidden(doc: Document, hidden: boolean) {
-  const container = doc.getElementById("zotero-view-item");
-  container?.classList.toggle(NATIVE_HIDE_CLASS, hidden);
+  // 1. Library pane: toggle class on #zotero-view-item so descendant CSS
+  //    selectors at the top of zoteroPane.css hide native sections there.
+  const libraryContainer = doc.getElementById("zotero-view-item");
+  libraryContainer?.classList.toggle(NATIVE_HIDE_CLASS, hidden);
+
+  // 2. Reader pane (and any other layout): toggle class directly on each
+  //    built-in section element itself. The companion CSS rules target
+  //    [data-pane="..."].zotero-evidence-hide-native, so we don't need to
+  //    know the reader's container ID. This fixes the bug where our
+  //    Evidence coding section shares the reader context pane with info/
+  //    abstract/attachments -- those native sections take up visible space
+  //    and the whole column needs to scroll through them to reach us.
+  for (const paneId of BUILTIN_PANE_IDS) {
+    const sections = doc.querySelectorAll(`[data-pane="${paneId}"]`);
+    for (const section of sections) {
+      section.classList.toggle(NATIVE_HIDE_CLASS, hidden);
+    }
+  }
 }
 
 /**

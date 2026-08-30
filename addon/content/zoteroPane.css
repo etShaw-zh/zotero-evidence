@@ -1,3 +1,57 @@
+/* ============================================================
+   Width-chain fix for Zotero Reader context pane.
+   The native vbox wrapper already has min-width:0, but the
+   intermediate containers between it and our Evidence section
+   don't -- so any long content in our card still pushes the
+   whole sidebar wider regardless of downstream max-width:100%
+   rules. These three selectors are structural, non-invasive
+   (only min-width:0, no !important, no width/height overrides).
+   ============================================================ */
+#zotero-context-pane-inner {
+  min-width: 0;
+}
+
+.zotero-view-item-main {
+  min-width: 0;
+}
+
+#zotero-view-item {
+  min-width: 0;
+}
+
+/* Zotero wraps EVERY registered section's body (native and custom alike)
+   in its own <item-pane-custom-section> element -- this sits directly
+   between #zotero-view-item and our own .zotero-evidence-card, so it's
+   also part of the width chain above. Only min-width:0 here, matching the
+   other three -- NOT max-width/overflow-x (that was tried once, and it
+   broke Info/Abstract for every other section sharing this same generic
+   wrapper element, since it forced a width ceiling and clipped content
+   those sections' own layouts didn't expect). min-width:0 only changes
+   how this element behaves when something is already asking it to shrink;
+   it doesn't set a width or hide anything, so sections that were never
+   overflowing are unaffected. */
+item-pane-custom-section {
+  min-width: 0;
+}
+
+/* Found by inspecting the live DOM: <item-pane-custom-section> isn't our
+   body's direct parent after all -- Zotero wraps every section's actual
+   content (native and custom alike) in its own <collapsible-section>
+   element first, and *that* sits directly between item-pane-custom-section
+   and our .zotero-evidence-card body div. It had no min-width:0 either, so
+   the chain broke there regardless of every other link being fixed.
+   Element selector (not a class), same single-property, non-destructive
+   treatment as the rest of this chain. */
+collapsible-section {
+  min-width: 0;
+}
+
+/* One more real layer above .zotero-view-item-main, confirmed from the
+   live DOM: <hbox id="zotero-view-item-container" flex="1">. */
+#zotero-view-item-container {
+  min-width: 0;
+}
+
 /* Hides native item-pane sections while the Screen Queue card is active
    (see src/modules/ui/screenQueuePane.ts). Native sections all render with a
    stable data-pane attribute matching Zotero.ItemPaneManager's BuiltInPaneID
@@ -13,17 +67,32 @@
 #zotero-view-item.zotero-evidence-hide-native
   > [data-pane="libraries-collections"],
 #zotero-view-item.zotero-evidence-hide-native > [data-pane="tags"],
-#zotero-view-item.zotero-evidence-hide-native > [data-pane="related"] {
+#zotero-view-item.zotero-evidence-hide-native > [data-pane="related"],
+[data-pane="info"].zotero-evidence-hide-native,
+[data-pane="abstract"].zotero-evidence-hide-native,
+[data-pane="attachments"].zotero-evidence-hide-native,
+[data-pane="notes"].zotero-evidence-hide-native,
+[data-pane="note-info"].zotero-evidence-hide-native,
+[data-pane="attachment-info"].zotero-evidence-hide-native,
+[data-pane="attachment-annotations"].zotero-evidence-hide-native,
+[data-pane="libraries-collections"].zotero-evidence-hide-native,
+[data-pane="tags"].zotero-evidence-hide-native,
+[data-pane="related"].zotero-evidence-hide-native {
   display: none !important;
 }
 
 .zotero-evidence-card {
   padding: 8px 12px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .zotero-evidence-card h2 {
   font-size: 1.05em;
   margin: 0 0 4px 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .zotero-evidence-card .authors {
@@ -52,6 +121,10 @@
 
 .zotero-evidence-judgment-area {
   margin-top: 8px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
 }
 
 .zotero-evidence-buttons {
@@ -112,6 +185,8 @@
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.02);
   overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .zotero-evidence-coding-card-header {
@@ -120,8 +195,13 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+/* flex-wrap: wrap is the actual guarantee here -- Accept All/Reject All
+   sit at the end of a nowrap-by-default flex row, so if anything upstream
+   still leaves this row wider than the panel, unwrapped flex-end buttons
+   would sit past the visible edge with nothing to click. */
 .zotero-evidence-coding-card-footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   justify-content: flex-end;
   padding: 8px 10px;
@@ -135,6 +215,8 @@
   gap: 8px;
   padding: 6px 10px;
   cursor: pointer;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .zotero-evidence-coding-suggestion-row:hover,
@@ -163,8 +245,17 @@
   white-space: nowrap;
 }
 
+/* Was flex:0 0 auto -- with a longer status string ("needs manual linking")
+   that reserved guaranteed width the label's shrinking couldn't give back,
+   so the reject button after it still got squeezed out. Letting status
+   shrink+truncate too is what guarantees the button has room. */
 .zotero-evidence-coding-row-status {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #888;
   font-size: 0.85em;
 }
@@ -189,33 +280,46 @@
   box-sizing: border-box;
 }
 
+/* min-width:0 here is the actual fix, not the max-width alone: as a flex
+   item of the column layout above, this row's default min-width is auto
+   (its content's natural size) -- without overriding it, the select's wide
+   intrinsic content pulls everything wider than the sidebar regardless of
+   max-width:100%. */
 .zotero-evidence-coding-link-picker-controls {
   display: flex;
   gap: 6px;
   align-items: center;
   max-width: 100%;
+  min-width: 0;
 }
 
 /* The sidebar is narrow and a select's native intrinsic width follows its
-   longest option (the annotation preview text can run to 50+ chars) --
-   without an explicit shrinkable width it pushes the Link button (and
-   everything after it) off the right edge of the panel. */
+   longest option -- cap it well below the panel width so it never dominates. */
 .zotero-evidence-coding-link-picker-controls select {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 100%;
+  max-width: min(100%, 200px);
 }
 
 .zotero-evidence-coding-link-picker-controls button {
   flex: 0 0 auto;
 }
 
+/* AI quote text -- must wrap, never push its parent wider than the panel.
+   min-width:0 matters here specifically: this is a flex item of
+   .zotero-evidence-coding-link-picker's flex-direction:column layout, and
+   without it the browser's default min-width:auto (the text's own
+   unshrunk, unwrapped size) wins over max-width:100% every time. */
 .zotero-evidence-coding-ai-quote {
   color: #666;
   font-style: italic;
   font-size: 0.9em;
   margin: 0 0 4px 0;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .zotero-evidence-confirmed-list {
