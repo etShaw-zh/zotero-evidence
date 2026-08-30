@@ -266,13 +266,24 @@ async function renderFtContent(
   );
 
   const rerender = async () => {
-    const newState = await getScreeningState(ctx.project.id, item.key);
+    // Re-resolve the attachment too, not just the screening state -- this
+    // closure's `attachment` param is frozen at whatever it was on the
+    // render that created this rerender() (i.e. whenever the item was
+    // first selected/onAsyncRender last ran from scratch). Reusing it here
+    // meant a PDF attached *after* that -- while the user kept the item
+    // selected and just clicked a button in this pane -- would never be
+    // detected until they deselected and reselected the item to force a
+    // fully fresh render.
+    const [newState, newAttachment] = await Promise.all([
+      getScreeningState(ctx.project.id, item.key),
+      resolveAttachment(item),
+    ]);
     await renderFtContent(
       container,
       doc,
       ctx,
       item,
-      attachment,
+      newAttachment,
       newState,
       hasCriteria,
     );
