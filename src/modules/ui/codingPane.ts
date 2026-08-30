@@ -794,13 +794,18 @@ export function registerCodingPane() {
   Zotero.ItemPaneManager.registerSection({
     paneID: PANE_ID,
     pluginID: config.addonID,
+    // Tag -- Coding assigns codebook variable/value tags to extracted
+    // evidence, distinct from TA-Screening's scan (magnifier.svg) and
+    // FT-Screening's document read (page.svg). Matches Zotero's own native
+    // item-pane icon style (chrome://zotero/skin/16/universal/*.svg,
+    // tinted via context-fill).
     header: {
       l10nID: getLocaleID("coding-head-text"),
-      icon: "chrome://zotero/skin/16/universal/book.svg",
+      icon: "chrome://zotero/skin/16/universal/tag.svg",
     },
     sidenav: {
       l10nID: getLocaleID("coding-sidenav-tooltip"),
-      icon: "chrome://zotero/skin/20/universal/save.svg",
+      icon: "chrome://zotero/skin/16/universal/tag.svg",
     },
     // The reader's own right-side context pane turns out to reuse the same
     // stacked item-details sections (info/abstract/attachments/notes) as

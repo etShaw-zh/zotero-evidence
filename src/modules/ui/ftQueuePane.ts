@@ -629,13 +629,18 @@ export function registerFtQueuePane() {
   Zotero.ItemPaneManager.registerSection({
     paneID: PANE_ID,
     pluginID: config.addonID,
+    // Plain document -- FT-Screening reads the actual full-text PDF,
+    // distinct from TA-Screening's abstract-level scan (magnifier.svg) and
+    // Coding's tagging (tag.svg). Matches Zotero's own native item-pane
+    // icon style (chrome://zotero/skin/16/universal/*.svg, tinted via
+    // context-fill).
     header: {
       l10nID: getLocaleID("ft-queue-head-text"),
-      icon: "chrome://zotero/skin/16/universal/book.svg",
+      icon: "chrome://zotero/skin/16/universal/page.svg",
     },
     sidenav: {
       l10nID: getLocaleID("ft-queue-sidenav-tooltip"),
-      icon: "chrome://zotero/skin/20/universal/save.svg",
+      icon: "chrome://zotero/skin/16/universal/page.svg",
     },
     onItemChange: ({ item, doc, setEnabled }) => {
       const ctx = resolveContextSync(item);

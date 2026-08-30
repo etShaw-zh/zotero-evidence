@@ -260,13 +260,17 @@ export function registerScreenQueuePane() {
   Zotero.ItemPaneManager.registerSection({
     paneID: PANE_ID,
     pluginID: config.addonID,
+    // Magnifier -- TA-Screening is a quick title/abstract scan, distinct
+    // from FT-Screening's full-document read (page.svg) and Coding's
+    // tagging (tag.svg). Matches Zotero's own native item-pane icon style
+    // (chrome://zotero/skin/16/universal/*.svg, tinted via context-fill).
     header: {
       l10nID: getLocaleID("screen-queue-head-text"),
-      icon: "chrome://zotero/skin/16/universal/book.svg",
+      icon: "chrome://zotero/skin/16/universal/magnifier.svg",
     },
     sidenav: {
       l10nID: getLocaleID("screen-queue-sidenav-tooltip"),
-      icon: "chrome://zotero/skin/20/universal/save.svg",
+      icon: "chrome://zotero/skin/16/universal/magnifier.svg",
     },
     onItemChange: ({ item, doc, setEnabled, tabType }) => {
       // Must decide synchronously: Zotero renders based on this call's
