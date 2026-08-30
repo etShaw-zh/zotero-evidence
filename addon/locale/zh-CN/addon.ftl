@@ -136,6 +136,7 @@ dialog-codebook-import-title = 导入 Codebook (CSV)
 dialog-codebook-import-project-label = 项目
 dialog-codebook-import-file-label = CSV 文件
 dialog-codebook-import-file-button = 选择文件…
+dialog-codebook-import-template-button = 下载模板…
 dialog-codebook-import-file-none = 未选择文件
 progress-codebook-imported = Codebook 已导入：{ $count } 个变量。
 error-codebook-empty-csv = 该 CSV 文件中没有找到任何变量。

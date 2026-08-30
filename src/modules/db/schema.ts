@@ -91,10 +91,15 @@ export const SCHEMA_STATEMENTS: string[] = [
 // written by ordinary (non-pilot, non-lock) coding flows, and the
 // ADD-COLUMN-only migration pattern below doesn't support dropping a
 // column from a shared table.
+//
+// Order matters: real Zotero enforces foreign keys (the test harness's
+// SQLite doesn't), so a child table with a FK into a parent must be
+// dropped before that parent -- consistency_records/consistency_summary
+// both reference pilot_rounds(id), so they're listed first.
 export const DROPPED_TABLES: string[] = [
-  "pilot_rounds",
   "consistency_records",
   "consistency_summary",
+  "pilot_rounds",
 ];
 
 // Columns added to tables after their original CREATE TABLE shipped.

@@ -666,12 +666,13 @@ export class EvidenceCommands {
         2,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "researchQuestion",
             "data-prop": "value",
-            type: "text",
+            rows: "3",
+            cols: "40",
           },
         },
         false,
@@ -1100,6 +1101,19 @@ export class EvidenceCommands {
       .show();
   }
 
+  // Matches parseCodebookCsv's expected header/columns exactly (see
+  // codebookService.ts): name,type,values,multiple,required,notes,
+  // extraction_hint. `values` is only meaningful for categorical rows.
+  private static readonly CODEBOOK_TEMPLATE_CSV = [
+    "name,type,values,multiple,required,notes,extraction_hint",
+    "study_design,categorical,RCT|Cohort|Case-control|Cross-sectional,0,1,Design as reported by the authors,Look in the Methods section for the study design description",
+    "sample_size,numeric,,0,1,Final analyzed sample size (not enrolled N),Report the number of participants actually analyzed",
+    "intervention_type,categorical,Drug|Behavioral|Surgical|Device|Other,0,0,Leave blank if not applicable,Only fill in if clearly stated in the Methods",
+    "outcomes,text,,1,1,,Extract every reported outcome measure as a separate value",
+    "country,text,,0,0,,Country or countries where the study was conducted",
+    "",
+  ].join("\n");
+
   static async codebookImportDialog() {
     const projects = await listProjects();
     if (projects.length === 0) {
@@ -1156,6 +1170,44 @@ export class EvidenceCommands {
           properties: {
             innerHTML: getString("dialog-codebook-import-file-none"),
           },
+        },
+        false,
+      )
+      .addCell(
+        3,
+        0,
+        {
+          tag: "button",
+          namespace: "html",
+          attributes: { type: "button" },
+          properties: {
+            innerHTML: getString("dialog-codebook-import-template-button"),
+          },
+          listeners: [
+            {
+              type: "click",
+              listener: async () => {
+                const path = await new ztoolkit.FilePicker(
+                  getString("dialog-codebook-import-template-button"),
+                  "save",
+                  [["CSV (*.csv)", "*.csv"]],
+                  "codebook-template.csv",
+                ).open();
+                if (!path || typeof path !== "string") return;
+                Zotero.File.putContents(
+                  Zotero.File.pathToFile(path),
+                  EvidenceCommands.CODEBOOK_TEMPLATE_CSV,
+                );
+                new ztoolkit.ProgressWindow(addon.data.config.addonName)
+                  .createLine({
+                    text: getString("progress-export-done"),
+                    type: "success",
+                    progress: 100,
+                  })
+                  .show();
+              },
+            },
+          ],
         },
         false,
       )

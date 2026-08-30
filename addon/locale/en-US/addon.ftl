@@ -136,6 +136,7 @@ dialog-codebook-import-title = Import Codebook (CSV)
 dialog-codebook-import-project-label = Project
 dialog-codebook-import-file-label = CSV file
 dialog-codebook-import-file-button = Choose File…
+dialog-codebook-import-template-button = Download Template…
 dialog-codebook-import-file-none = No file selected
 progress-codebook-imported = Codebook imported: { $count } variable(s).
 error-codebook-empty-csv = No variables found in that CSV file.

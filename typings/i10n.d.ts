@@ -57,6 +57,7 @@ export type FluentMessageId =
   | 'dialog-codebook-import-file-label'
   | 'dialog-codebook-import-file-none'
   | 'dialog-codebook-import-project-label'
+  | 'dialog-codebook-import-template-button'
   | 'dialog-codebook-import-title'
   | 'dialog-codebook-variable-hint-label'
   | 'dialog-codebook-variable-multiple-label'
