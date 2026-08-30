@@ -151,8 +151,8 @@ function onDialogEvents(type: string) {
     case "evidenceCodebookView":
       EvidenceCommands.codebookViewDialog();
       break;
-    case "evidenceCodebookEditNotes":
-      EvidenceCommands.codebookEditNotesDialog();
+    case "evidenceCodebookEditVariable":
+      EvidenceCommands.codebookEditVariableDialog();
       break;
     case "evidenceExportPrisma":
       EvidenceCommands.exportPrismaDialog();

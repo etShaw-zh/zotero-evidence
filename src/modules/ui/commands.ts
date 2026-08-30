@@ -115,10 +115,10 @@ export class EvidenceCommands {
         },
         {
           tag: "menuitem",
-          id: "zotero-evidence-codebook-edit-notes",
-          label: getString("menu-codebook-edit-notes"),
+          id: "zotero-evidence-codebook-edit-variable",
+          label: getString("menu-codebook-edit-variable"),
           commandListener: () =>
-            addon.hooks.onDialogEvents("evidenceCodebookEditNotes"),
+            addon.hooks.onDialogEvents("evidenceCodebookEditVariable"),
         },
       ],
     });
@@ -1393,12 +1393,13 @@ export class EvidenceCommands {
         2,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "name",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1436,12 +1437,13 @@ export class EvidenceCommands {
         4,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "values",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1509,12 +1511,13 @@ export class EvidenceCommands {
         7,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "notes",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1530,12 +1533,13 @@ export class EvidenceCommands {
         8,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "hint",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1679,176 +1683,407 @@ export class EvidenceCommands {
     );
   }
 
-  static async codebookEditNotesDialog() {
+  // Renaming isn't offered here -- coding_records references a codebook
+  // variable by its raw `variable_name` text (see codingService.ts's
+  // resolveCanonicalVariableName), so changing a variable's name would
+  // silently orphan every existing coding record for it unless those rows
+  // were also migrated. Name stays a read-only identifier; every other
+  // field (type/values/multiple/required/notes/extraction hint) is fully
+  // editable, matching what codebookAddVariableDialog collects when a
+  // variable is first created.
+  //
+  // The variable picker is a real ztoolkit `tag: "select"` -- the exact
+  // same widget and visual styling as the project picker above it -- not
+  // a hand-built substitute. The catch: ztoolkit's Dialog builds that
+  // widget's popup ONCE from its `children` at construction time (see
+  // zotero-plugin-toolkit's replaceElement()), with no supported way to
+  // refresh it afterwards. Switching the selected VARIABLE within one
+  // project works fine as-is (that project's full, correct option list is
+  // already known before the dialog is built), but switching the PROJECT
+  // needs a different variable list -- so that case closes this dialog and
+  // has the outer loop reopen a fresh one seeded for the new project,
+  // rather than trying to mutate the popup in place.
+  static async codebookEditVariableDialog() {
     const projects = await listProjects();
     if (projects.length === 0) {
       ztoolkit.getGlobal("alert")(getString("error-no-projects"));
       return;
     }
 
-    const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
-      variableName: "",
-      notes: "",
-    };
-    let currentVariables: CodebookVariable[] = [];
+    let projectId = projects[0].id;
 
-    const dialog = new ztoolkit.Dialog(4, 2)
-      .addCell(0, 0, {
-        tag: "h1",
-        properties: {
-          innerHTML: getString("dialog-codebook-edit-notes-title"),
-        },
-      })
-      .addCell(1, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: { innerHTML: getString("dialog-import-project-label") },
-      })
-      .addCell(
-        1,
-        1,
-        {
-          tag: "select",
-          namespace: "html",
-          id: "evidence-codebook-notes-project",
-          attributes: { "data-bind": "projectId", "data-prop": "value" },
-          children: projects.map((p) => ({
-            tag: "option",
-            namespace: "html",
-            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
-          })),
-        },
-        false,
-      )
-      .addCell(2, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: {
-          innerHTML: getString("dialog-codebook-edit-notes-variable-label"),
-        },
-      })
-      .addCell(
-        2,
-        1,
-        {
-          tag: "select",
-          namespace: "html",
-          id: "evidence-codebook-notes-variable",
-        },
-        false,
-      )
-      .addCell(3, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: {
-          innerHTML: getString("dialog-codebook-edit-notes-notes-label"),
-        },
-      })
-      .addCell(
-        3,
-        1,
-        {
-          tag: "textarea",
-          namespace: "html",
-          id: "evidence-codebook-notes-textarea",
-          attributes: { rows: "4", cols: "40" },
-        },
-        false,
-      )
-      .addButton(getString("dialog-confirm"), "confirm")
-      .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData);
-    EvidenceCommands.openSizedDialog(
-      dialog,
-      getString("dialog-codebook-edit-notes-title"),
-      580,
-    );
+    while (true) {
+      const codebook = await getLatestCodebook(projectId);
+      const variables = codebook?.variables ?? [];
+      const first = variables[0];
 
-    await Zotero.Promise.delay(50);
-    const variableSelectEl = dialog.window?.document.getElementById(
-      "evidence-codebook-notes-variable",
-    ) as HTMLSelectElement | undefined;
-    const notesEl = dialog.window?.document.getElementById(
-      "evidence-codebook-notes-textarea",
-    ) as HTMLTextAreaElement | undefined;
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        variableName: first?.name ?? "",
+        type: first?.type ?? "text",
+        values: first?.values?.join("|") ?? "",
+        multiple: !!first?.multiple,
+        required: !!first?.required,
+        notes: first?.notes ?? "",
+        hint: first?.extractionHint ?? "",
+      };
 
-    const populateVariables = async () => {
-      const codebook = await getLatestCodebook(Number(dialogData.projectId));
-      currentVariables = codebook?.variables ?? [];
-      if (variableSelectEl) {
-        variableSelectEl.innerHTML = "";
-        for (const v of currentVariables) {
-          const opt = variableSelectEl.ownerDocument!.createElement("option");
-          opt.value = v.name;
-          opt.textContent = v.name;
-          variableSelectEl.appendChild(opt);
-        }
-      }
-      dialogData.variableName = currentVariables[0]?.name ?? "";
-      dialogData.notes = currentVariables[0]?.notes ?? "";
-      if (notesEl) notesEl.value = dialogData.notes;
-    };
-
-    await populateVariables();
-
-    const projectSelectEl = dialog.window?.document.getElementById(
-      "evidence-codebook-notes-project",
-    ) as HTMLSelectElement | undefined;
-    EvidenceCommands.watchSelectValue(
-      dialogData,
-      dialog.window,
-      projectSelectEl,
-      async (value) => {
-        dialogData.projectId = value;
-        await populateVariables();
-      },
-    );
-
-    EvidenceCommands.watchSelectValue(
-      dialogData,
-      dialog.window,
-      variableSelectEl,
-      (value) => {
-        dialogData.variableName = value;
-        const match = currentVariables.find(
-          (v) => v.name === dialogData.variableName,
-        );
-        dialogData.notes = match?.notes ?? "";
-        if (notesEl) notesEl.value = dialogData.notes;
-      },
-    );
-
-    notesEl?.addEventListener("input", (e: Event) => {
-      dialogData.notes = (e.target as HTMLTextAreaElement).value;
-    });
-
-    await dialogData.unloadLock.promise;
-    if (dialogData._lastButtonId !== "confirm") return;
-
-    if (currentVariables.length === 0) {
-      ztoolkit.getGlobal("alert")(getString("error-codebook-no-variables"));
-      return;
-    }
-
-    const updatedVariables = currentVariables.map((v) =>
-      v.name === dialogData.variableName
-        ? { ...v, notes: String(dialogData.notes || "").trim() || undefined }
-        : v,
-    );
-
-    try {
-      await saveCodebook(Number(dialogData.projectId), updatedVariables);
-      new ztoolkit.ProgressWindow(addon.data.config.addonName)
-        .createLine({
-          text: getString("progress-codebook-notes-saved"),
-          type: "success",
-          progress: 100,
+      const dialog = new ztoolkit.Dialog(10, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: {
+            innerHTML: getString("dialog-codebook-edit-variable-title"),
+          },
         })
-        .show();
-    } catch (e: any) {
-      ztoolkit.log("Save codebook notes failed", e);
-      ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-edit-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString(
+              "dialog-codebook-edit-variable-select-label",
+            ),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-edit-variable-select",
+            attributes: { "data-bind": "variableName", "data-prop": "value" },
+            children: variables.map((v) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: v.name, innerHTML: escapeHtml(v.name) },
+            })),
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-name-label"),
+          },
+        })
+        .addCell(
+          3,
+          1,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-codebook-edit-name",
+            properties: { innerHTML: escapeHtml(first?.name ?? "") },
+          },
+          false,
+        )
+        .addCell(4, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-type-label"),
+          },
+        })
+        .addCell(
+          4,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-edit-type",
+            attributes: { "data-bind": "type", "data-prop": "value" },
+            children: ["text", "categorical", "numeric"].map((t) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: t, innerHTML: t },
+            })),
+          },
+          false,
+        )
+        .addCell(5, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-values-label"),
+          },
+        })
+        .addCell(
+          5,
+          1,
+          {
+            tag: "textarea",
+            namespace: "html",
+            id: "evidence-codebook-edit-values",
+            attributes: {
+              "data-bind": "values",
+              "data-prop": "value",
+              rows: "2",
+              cols: "40",
+            },
+          },
+          false,
+        )
+        .addCell(
+          6,
+          0,
+          {
+            tag: "label",
+            namespace: "html",
+            properties: {
+              innerHTML: getString("dialog-codebook-variable-multiple-label"),
+            },
+          },
+          false,
+        )
+        .addCell(
+          6,
+          1,
+          {
+            tag: "input",
+            namespace: "html",
+            id: "evidence-codebook-edit-multiple",
+            attributes: {
+              "data-bind": "multiple",
+              "data-prop": "checked",
+              type: "checkbox",
+            },
+          },
+          false,
+        )
+        .addCell(
+          7,
+          0,
+          {
+            tag: "label",
+            namespace: "html",
+            properties: {
+              innerHTML: getString("dialog-codebook-variable-required-label"),
+            },
+          },
+          false,
+        )
+        .addCell(
+          7,
+          1,
+          {
+            tag: "input",
+            namespace: "html",
+            id: "evidence-codebook-edit-required",
+            attributes: {
+              "data-bind": "required",
+              "data-prop": "checked",
+              type: "checkbox",
+            },
+          },
+          false,
+        )
+        .addCell(8, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-notes-label"),
+          },
+        })
+        .addCell(
+          8,
+          1,
+          {
+            tag: "textarea",
+            namespace: "html",
+            id: "evidence-codebook-edit-notes",
+            attributes: { rows: "4", cols: "40" },
+          },
+          false,
+        )
+        .addCell(9, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-hint-label"),
+          },
+        })
+        .addCell(
+          9,
+          1,
+          {
+            tag: "textarea",
+            namespace: "html",
+            id: "evidence-codebook-edit-hint",
+            attributes: {
+              "data-bind": "hint",
+              "data-prop": "value",
+              rows: "2",
+              cols: "40",
+            },
+          },
+          false,
+        )
+        .addButton(getString("dialog-confirm"), "confirm")
+        .addButton(getString("dialog-cancel"), "cancel")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-codebook-edit-variable-title"),
+        620,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const variableSelectEl = doc?.getElementById(
+        "evidence-codebook-edit-variable-select",
+      ) as HTMLSelectElement | undefined;
+      const nameEl = doc?.getElementById("evidence-codebook-edit-name");
+      const typeEl = doc?.getElementById(
+        "evidence-codebook-edit-type",
+      ) as HTMLSelectElement | undefined;
+      const valuesEl = doc?.getElementById(
+        "evidence-codebook-edit-values",
+      ) as HTMLTextAreaElement | undefined;
+      const multipleEl = doc?.getElementById(
+        "evidence-codebook-edit-multiple",
+      ) as HTMLInputElement | undefined;
+      const requiredEl = doc?.getElementById(
+        "evidence-codebook-edit-required",
+      ) as HTMLInputElement | undefined;
+      // data-bind's own listeners only ever apply a control's INITIAL
+      // value from dialogData once, at construction, and only read it back
+      // at unload -- switching the selected variable within this project
+      // needs these sibling fields' displayed values (and dialogData
+      // itself) written by hand as it happens. notes has no data-bind at
+      // all (kept as a plain manual-sync field, like before).
+      const notesEl = doc?.getElementById(
+        "evidence-codebook-edit-notes",
+      ) as HTMLTextAreaElement | undefined;
+      const hintEl = doc?.getElementById(
+        "evidence-codebook-edit-hint",
+      ) as HTMLTextAreaElement | undefined;
+
+      const populateFields = (v: CodebookVariable | undefined) => {
+        dialogData.variableName = v?.name ?? "";
+        dialogData.type = v?.type ?? "text";
+        dialogData.values = v?.values?.join("|") ?? "";
+        dialogData.multiple = !!v?.multiple;
+        dialogData.required = !!v?.required;
+        dialogData.notes = v?.notes ?? "";
+        dialogData.hint = v?.extractionHint ?? "";
+        if (nameEl) nameEl.textContent = dialogData.variableName;
+        if (typeEl) typeEl.value = dialogData.type;
+        if (valuesEl) valuesEl.value = dialogData.values;
+        if (multipleEl) multipleEl.checked = dialogData.multiple;
+        if (requiredEl) requiredEl.checked = dialogData.required;
+        if (notesEl) notesEl.value = dialogData.notes;
+        if (hintEl) hintEl.value = dialogData.hint;
+      };
+      // notesEl has no data-bind, so its initial display needs this same
+      // manual write once up front -- everything else here is already
+      // correct from data-bind's own construction-time initialization,
+      // this is just a harmless, consistent no-op for those.
+      populateFields(first);
+
+      // Switching among THIS project's own variables works through
+      // ztoolkit's real popup select (see the method-level comment above)
+      // -- watchSelectValue polls the underlying <select>'s value, which
+      // the popup writes to directly when an item is picked.
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        variableSelectEl,
+        (value) => {
+          populateFields(variables.find((v) => v.name === value));
+        },
+      );
+
+      const projectSelectEl = doc?.getElementById(
+        "evidence-codebook-edit-project",
+      ) as HTMLSelectElement | undefined;
+      // Switching the PROJECT needs a different variable list, which the
+      // popup can't be refreshed with in place -- close this dialog and
+      // let the outer loop reopen a fresh one built for the new project.
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      notesEl?.addEventListener("input", (e: Event) => {
+        dialogData.notes = (e.target as HTMLTextAreaElement).value;
+      });
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      if (dialogData._lastButtonId !== "confirm") return;
+
+      if (variables.length === 0) {
+        ztoolkit.getGlobal("alert")(getString("error-codebook-no-variables"));
+        return;
+      }
+
+      const values = String(dialogData.values || "")
+        .split("|")
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const updatedVariables = variables.map((v) =>
+        v.name === dialogData.variableName
+          ? {
+              ...v,
+              type: dialogData.type as CodebookVariable["type"],
+              values: values.length > 0 ? values : undefined,
+              multiple: !!dialogData.multiple,
+              required: !!dialogData.required,
+              notes: String(dialogData.notes || "").trim() || undefined,
+              extractionHint:
+                String(dialogData.hint || "").trim() || undefined,
+            }
+          : v,
+      );
+
+      try {
+        await saveCodebook(projectId, updatedVariables);
+        new ztoolkit.ProgressWindow(addon.data.config.addonName)
+          .createLine({
+            text: getString("progress-codebook-variable-updated"),
+            type: "success",
+            progress: 100,
+          })
+          .show();
+      } catch (e: any) {
+        ztoolkit.log("Save codebook variable failed", e);
+        ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+      }
+      return;
     }
   }
 

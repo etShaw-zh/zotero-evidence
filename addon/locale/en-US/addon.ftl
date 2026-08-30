@@ -216,10 +216,9 @@ export-choose-destination = Choose Save Location…
 progress-export-done = Export complete.
 error-export-no-data = There is no data to export for this project yet.
 
-menu-codebook-edit-notes = Edit Codebook Variable Notes…
+menu-codebook-edit-variable = Edit Codebook Variable…
 
-dialog-codebook-edit-notes-title = Edit Codebook Variable Notes
-dialog-codebook-edit-notes-variable-label = Variable
-dialog-codebook-edit-notes-notes-label = Notes
+dialog-codebook-edit-variable-title = Edit Codebook Variable
+dialog-codebook-edit-variable-select-label = Variable
 error-codebook-no-variables = This project's Codebook has no variables yet.
-progress-codebook-notes-saved = Variable notes saved.
+progress-codebook-variable-updated = Variable updated.

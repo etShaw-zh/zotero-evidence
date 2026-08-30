@@ -216,10 +216,9 @@ export-choose-destination = 选择保存位置…
 progress-export-done = 导出完成。
 error-export-no-data = 该项目暂无可导出的数据。
 
-menu-codebook-edit-notes = 编辑 Codebook 变量备注…
+menu-codebook-edit-variable = 编辑 Codebook 变量…
 
-dialog-codebook-edit-notes-title = 编辑 Codebook 变量备注
-dialog-codebook-edit-notes-variable-label = 变量
-dialog-codebook-edit-notes-notes-label = 备注
+dialog-codebook-edit-variable-title = 编辑 Codebook 变量
+dialog-codebook-edit-variable-select-label = 变量
 error-codebook-no-variables = 该项目的 Codebook 还没有任何变量。
-progress-codebook-notes-saved = 变量备注已保存。
+progress-codebook-variable-updated = 变量已更新。
