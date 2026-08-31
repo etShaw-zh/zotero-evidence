@@ -1,8 +1,8 @@
-# Zotero Evidence
-
 <p align="center">
   <img src="zotero-evidence-social-preview.png" alt="Zotero Evidence" width="800">
 </p>
+
+# Zotero Evidence
 
 [![zotero target version](https://img.shields.io/badge/Zotero-7/8/9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-square&logo=github)](https://github.com/windingwind/zotero-plugin-template)
