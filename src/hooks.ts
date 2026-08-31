@@ -1,6 +1,7 @@
 import { databaseService } from "./modules/db/database";
 import { refreshProjectPaneContextCache } from "./modules/project/projectContext";
 import { registerCodingPane } from "./modules/ui/codingPane";
+import { registerCollectionMenuGuard } from "./modules/ui/collectionMenuGuard";
 import { EvidenceCommands } from "./modules/ui/commands";
 import { registerFtQueuePane } from "./modules/ui/ftQueuePane";
 import { registerScreenQueuePane } from "./modules/ui/screenQueuePane";
@@ -61,6 +62,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 
   EvidenceCommands.registerMenus();
   EvidenceCommands.registerItemMenus();
+  registerCollectionMenuGuard(win);
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {

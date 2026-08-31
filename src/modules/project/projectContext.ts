@@ -29,12 +29,27 @@ export function getRootCollectionId(project: EvidenceProject): number | null {
   return collection ? (collection as Zotero.Collection).id : null;
 }
 
-async function buildContextMap(): Promise<Map<number, ProjectPaneContext>> {
+async function buildContextMap(): Promise<{
+  paneContexts: Map<number, ProjectPaneContext>;
+  ownedCollectionIds: Set<number>;
+}> {
   const map = new Map<number, ProjectPaneContext>();
+  const ownedCollectionIds = new Set<number>();
   const projects = await listProjects();
   for (const project of projects) {
     const rootId = getRootCollectionId(project);
     if (rootId === null) continue;
+    // Every Collection this project owns, not just the 9 pane-mapped roles
+    // below (Sources, its WoS/Scopus/PubMed children, TA-/FT-Screening
+    // parents, ...) -- used to hide the native "New Subcollection"/"Rename"/
+    // "Move To"/"Copy To"/"Delete Collection(...)" menu items on any of
+    // them, since editing this plugin-managed tree by hand would break the
+    // by-name resolution resolveProjectCollections() relies on.
+    ownedCollectionIds.add(rootId);
+    const root = Zotero.Collections.get(rootId) as Zotero.Collection;
+    for (const d of root.getDescendents(false, "collection")) {
+      ownedCollectionIds.add(d.id);
+    }
     let collections: ProjectCollectionMap;
     try {
       collections = resolveProjectCollections(rootId);
@@ -89,7 +104,7 @@ async function buildContextMap(): Promise<Map<number, ProjectPaneContext>> {
       role: "coding",
     });
   }
-  return map;
+  return { paneContexts: map, ownedCollectionIds };
 }
 
 // Zotero.ItemPaneManager's onItemChange must decide setEnabled()
@@ -97,11 +112,17 @@ async function buildContextMap(): Promise<Map<number, ProjectPaneContext>> {
 // setEnabled() from a .then(), the pane framework has already rendered with
 // the section disabled and never revisits that decision. So the
 // collection -> project/role lookup used inside onItemChange has to be a
-// synchronous in-memory read; this cache is what makes that possible.
+// synchronous in-memory read; this cache is what makes that possible. The
+// collection context menu's popupshowing handler (collectionMenuGuard.ts)
+// has the same synchronous constraint, hence ownedCollectionIds living here
+// too rather than as a separate always-fresh lookup.
 let cache: Map<number, ProjectPaneContext> = new Map();
+let ownedCollectionIdCache: Set<number> = new Set();
 
 export async function refreshProjectPaneContextCache(): Promise<void> {
-  cache = await buildContextMap();
+  const built = await buildContextMap();
+  cache = built.paneContexts;
+  ownedCollectionIdCache = built.ownedCollectionIds;
 }
 
 /**
@@ -118,6 +139,19 @@ export function findProjectPaneContextSync(
 }
 
 /**
+ * Synchronous "is this Collection anywhere in an Evidence project's tree"
+ * check -- root, Sources, its source-database children, TA-/FT-Screening
+ * parents, every stage collection, all of it. Same staleness caveat as
+ * findProjectPaneContextSync.
+ */
+export function isProjectOwnedCollectionSync(
+  collectionId: number | null | undefined,
+): boolean {
+  if (!collectionId) return false;
+  return ownedCollectionIdCache.has(collectionId);
+}
+
+/**
  * Always-fresh (uncached) lookup for call sites that can afford to await --
  * dialogs, batch commands, tests. Not safe to use from onItemChange.
  */
@@ -125,6 +159,6 @@ export async function findProjectPaneContext(
   collectionId: number | null | undefined,
 ): Promise<ProjectPaneContext | null> {
   if (!collectionId) return null;
-  const map = await buildContextMap();
-  return map.get(collectionId) ?? null;
+  const { paneContexts } = await buildContextMap();
+  return paneContexts.get(collectionId) ?? null;
 }
