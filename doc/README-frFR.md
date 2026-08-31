@@ -4,8 +4,8 @@
   <img src="zotero-evidence-social-preview.png" alt="Zotero Evidence" width="800">
 </p>
 
-[![zotero target version](https://img.shields.io/badge/Zotero-7+-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![CI](https://img.shields.io/github/actions/workflow/status/etShaw-zh/zotero-evidence/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/etShaw-zh/zotero-evidence/actions/workflows/ci.yml)
+[![zotero target version](https://img.shields.io/badge/Zotero-7/8/9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-square&logo=github)](https://github.com/windingwind/zotero-plugin-template)
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](../LICENSE)
 
@@ -25,19 +25,19 @@ Chaque étape déplace les références entre des Collections fixes créées aut
 
 ## Fonctionnalités
 
-- **Cycle de vie du projet** — créez, supprimez définitivement (confirmation par saisie du nom) ou archivez un projet dans un `.zip` portable, restaurable ailleurs — utile pour la sauvegarde et la relecture par les pairs.
-- **Import & dédoublonnage** — RIS / BibTeX / MEDLINE / PubMed XML via les traducteurs natifs de Zotero ; dédoublonnage par DOI avec repli sur titre+auteur+année ; réimport sûr, sans effet sur les références déjà triées.
-- **Tri titre/résumé** — l'IA propose Include/Exclude/Unclear avec son raisonnement, directement dans le panneau de l'item ; confirmation/annulation en un clic, actions groupées.
-- **Tri du texte intégral** — se fait dans la barre latérale du lecteur PDF ; l'IA choisit un motif d'exclusion mot pour mot dans vos critères et localise les citations à l'appui en surlignages.
+- **Cycle de vie du projet** — créez, supprimez ou archivez un projet dans un `.zip` portable, restaurable ailleurs.
+- **Import & dédoublonnage** — RIS / BibTeX / MEDLINE / PubMed XML via les traducteurs natifs de Zotero.
+- **Tri titre/résumé** — l'IA propose Include/Exclude/Unclear avec son raisonnement.
+- **Tri du texte intégral** — l'IA choisit un motif d'exclusion mot pour mot dans vos critères et localise les citations à l'appui en surlignages.
 - **Codage** — définissez un Codebook (variables catégorielles/numériques/textuelles) ; l'IA propose des correspondances `variable = valeur` appuyées par des citations et des surlignages localisés automatiquement.
-- **Synthèse** — un clic regroupe les preuves confirmées d'une variable en thèmes générés par IA, à l'échelle du projet.
+- **Synthèse** — un clic regroupe les preuves confirmées en thèmes générés par IA.
 - **Export** — données de flux PRISMA, journal des décisions de tri, données de codage et de synthèse, prêtes pour la rédaction.
 - **Suivi & usage de l'IA** — un tableau de bord en direct de l'avancement par projet, ainsi que le nombre d'appels et de tokens IA consommés par fonctionnalité.
 - **Fournisseur IA** — utilisez le fournisseur compatible OpenAI de votre choix (point d'accès, modèle, clé API) ; concurrence des opérations groupées configurable.
 
 ## Prise en main
 
-1. Installez l'extension dans Zotero 7 ou une version ultérieure.
+1. Installez l'extension dans Zotero 7, 8 ou 9.
 2. **File → AI Provider Settings…** : renseignez point d'accès, modèle, clé API.
 3. **File → New Evidence Project…**, puis **Import Literature…**.
 4. **File → Configure Title/Abstract / Full-Text Screening Criteria…**.

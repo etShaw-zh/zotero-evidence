@@ -4,8 +4,8 @@
   <img src="doc/zotero-evidence-social-preview.png" alt="Zotero Evidence" width="800">
 </p>
 
-[![zotero target version](https://img.shields.io/badge/Zotero-7+-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![CI](https://img.shields.io/github/actions/workflow/status/etShaw-zh/zotero-evidence/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/etShaw-zh/zotero-evidence/actions/workflows/ci.yml)
+[![zotero target version](https://img.shields.io/badge/Zotero-7/8/9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-square&logo=github)](https://github.com/windingwind/zotero-plugin-template)
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](LICENSE)
 
@@ -25,19 +25,19 @@ Each stage moves references through a fixed set of Collections created automatic
 
 ## Features
 
-- **Project lifecycle** — create, permanently delete (typed-name confirmation), or archive a project to a portable `.zip` and restore it elsewhere — for backup and peer review.
-- **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators; DOI-first dedup with title+author+year fallback; safe re-import that never disturbs already-screened items.
-- **Title/Abstract screening** — AI suggests Include/Exclude/Unclear with its reasoning, right in the item pane; one-click confirm/undo, plus batch actions.
-- **Full-text screening** — done in the PDF reader sidebar; AI picks a verbatim exclusion reason from your criteria and locates supporting quotes as highlights.
+- **Project lifecycle** — create, delete, or archive a project to a portable `.zip` and restore it elsewhere.
+- **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators.
+- **Title/Abstract screening** — AI suggests Include/Exclude/Unclear with its reasoning.
+- **Full-text screening** — AI picks a verbatim exclusion reason from your criteria and locates supporting quotes as highlights.
 - **Extract coding** — define a Codebook (categorical/numeric/text variables), AI proposes `variable = value` mappings backed by quotes and auto-located highlights.
-- **Synthesis** — one click groups confirmed evidence for any variable into AI-generated themes, project-wide.
+- **Synthesis** — one click groups confirmed evidence for any variable into AI-generated themes.
 - **Export** — PRISMA flow data, screening decision log, coding data, and synthesis data, all ready for write-up.
 - **Progress & AI usage** — a live per-project pipeline dashboard, plus AI call counts and token usage broken down by feature.
 - **AI provider** — bring your own OpenAI-compatible endpoint, model, and API key; configurable batch concurrency.
 
 ## Getting started
 
-1. Install the plugin in Zotero 7 or later.
+1. Install the plugin in Zotero 7, 8 or 9.
 2. **File → AI Provider Settings…** — set endpoint, model, API key.
 3. **File → New Evidence Project…**, then **Import Literature…**.
 4. **File → Configure Title/Abstract / Full-Text Screening Criteria…**.
