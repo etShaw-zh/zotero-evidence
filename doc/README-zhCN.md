@@ -10,7 +10,11 @@
 ## 工作流程
 
 ```
-导入去重 → 标题/摘要筛选 (TA-Screening) → 全文筛选 (FT-Screening) → 证据编码 (Extract Coding) → 主题综合分析 (Synthesis) → 导出
+导入去重 
+→ 标题/摘要筛选 (TA-Screening) → 全文筛选 (FT-Screening) 
+→ 证据编码 (Extract Coding) 
+→ 主题综合分析 (Synthesis) 
+→ 导出
 ```
 
 每个阶段都会把文献在项目自动创建的固定编号 Collection 结构中流转——`1. Sources` → `2. TA-Screen Queue` → `3. TA-Screening Results`（`TA-Include`/`TA-Exclude`/`TA-Unclear`）→ `4. FT-Screen Queue` → `5. FT-Screening Results`（`FT-Include`/`FT-Exclude`/`FT-Unavailable`）→ `6. Extract Coding`——因此每条文献当前所处的状态在 Zotero 文献库面板中一目了然。

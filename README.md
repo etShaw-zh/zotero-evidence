@@ -10,7 +10,11 @@
 ## Workflow
 
 ```
-Import & Dedup → Title/Abstract Screening → Full-Text Screening → Extract Coding → Synthesis → Export
+Import & Dedup
+ → Title/Abstract Screening → Full-Text Screening 
+ → Extract Coding 
+ → Synthesis 
+ → Export
 ```
 
 Each stage moves references between a fixed, numbered set of Collections created automatically for every project — `1. Sources` → `2. TA-Screen Queue` → `3. TA-Screening Results` (`TA-Include`/`TA-Exclude`/`TA-Unclear`) → `4. FT-Screen Queue` → `5. FT-Screening Results` (`FT-Include`/`FT-Exclude`/`FT-Unavailable`) → `6. Extract Coding` — so the current state of every reference is always visible directly in the Zotero library pane.

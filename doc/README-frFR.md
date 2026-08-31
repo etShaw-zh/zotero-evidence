@@ -10,7 +10,11 @@
 ## Flux de travail
 
 ```
-Import & dédoublonnage → Tri titre/résumé (TA-Screening) → Tri du texte intégral (FT-Screening) → Codage (Extract Coding) → Synthèse (Synthesis) → Export
+Import & dédoublonnage 
+→ Tri titre/résumé (TA-Screening) → Tri du texte intégral (FT-Screening) 
+→ Codage (Extract Coding) 
+→ Synthèse (Synthesis) 
+→ Export
 ```
 
 Chaque étape déplace les références entre un ensemble fixe et numéroté de Collections créées automatiquement pour chaque projet — `1. Sources` → `2. TA-Screen Queue` → `3. TA-Screening Results` (`TA-Include`/`TA-Exclude`/`TA-Unclear`) → `4. FT-Screen Queue` → `5. FT-Screening Results` (`FT-Include`/`FT-Exclude`/`FT-Unavailable`) → `6. Extract Coding` — de sorte que l'état actuel de chaque référence est toujours visible directement dans le panneau de la bibliothèque Zotero.
