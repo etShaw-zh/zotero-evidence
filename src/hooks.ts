@@ -120,6 +120,12 @@ function onDialogEvents(type: string) {
     case "evidenceDeleteProject":
       EvidenceCommands.deleteProjectDialog();
       break;
+    case "evidenceArchiveProject":
+      EvidenceCommands.archiveProjectDialog();
+      break;
+    case "evidenceRestoreArchive":
+      EvidenceCommands.restoreArchiveDialog();
+      break;
     case "evidenceImport":
       EvidenceCommands.importDialog();
       break;

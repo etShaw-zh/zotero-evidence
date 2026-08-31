@@ -8,6 +8,8 @@ import {
   upsertProvider,
 } from "../ai/providerConfig";
 import { getAIUsageStats } from "../ai/usageService";
+import { exportProjectArchive } from "../archive/archiveExportService";
+import { importProjectArchive } from "../archive/archiveImportService";
 import {
   CodebookVariable,
   getLatestCodebook,
@@ -76,6 +78,20 @@ export class EvidenceCommands {
       label: getString("menu-delete-project"),
       commandListener: () =>
         addon.hooks.onDialogEvents("evidenceDeleteProject"),
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-archive-project",
+      label: getString("menu-archive-project"),
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceArchiveProject"),
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-restore-archive",
+      label: getString("menu-restore-archive"),
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceRestoreArchive"),
     });
     ztoolkit.Menu.register("menuFile", {
       tag: "menuitem",
@@ -488,6 +504,201 @@ export class EvidenceCommands {
         progress: 100,
       })
       .show();
+  }
+
+  static async archiveProjectDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const dialogData: { [key: string]: any } = {
+      projectId: String(projects[0].id),
+    };
+    const dialog = new ztoolkit.Dialog(2, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-archive-project-title") },
+      })
+      .addCell(1, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-archive-project-label") },
+      })
+      .addCell(
+        1,
+        1,
+        {
+          tag: "select",
+          namespace: "html",
+          id: "evidence-archive-project-select",
+          attributes: { "data-bind": "projectId", "data-prop": "value" },
+          children: projects.map((p) => ({
+            tag: "option",
+            namespace: "html",
+            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
+          })),
+        },
+        false,
+      )
+      .addButton(getString("dialog-confirm"), "confirm")
+      .addButton(getString("dialog-cancel"), "cancel")
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-archive-project-title"),
+      480,
+    );
+
+    await dialogData.unloadLock.promise;
+    if (dialogData._lastButtonId !== "confirm") return;
+
+    const projectId = Number(dialogData.projectId);
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    const outputPath = await new ztoolkit.FilePicker(
+      getString("dialog-archive-project-title"),
+      "save",
+      [["Zip Archive (*.zip)", "*.zip"]],
+      `${project.name}.zip`,
+    ).open();
+    if (!outputPath || typeof outputPath !== "string") return;
+
+    const progressWindow = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+    )
+      .createLine({
+        text: getString("progress-archive-project-running", {
+          args: { name: project.name },
+        }),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+    try {
+      await exportProjectArchive(project.id, outputPath);
+      progressWindow.changeLine({
+        text: getString("progress-archive-project-done", {
+          args: { name: project.name },
+        }),
+        type: "success",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(5000);
+    } catch (e) {
+      progressWindow.changeLine({
+        text: getString("error-archive-project-failed"),
+        type: "error",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(8000);
+      throw e;
+    }
+  }
+
+  static async restoreArchiveDialog() {
+    const dialogData: { [key: string]: any } = { filePath: "" };
+    const dialog = new ztoolkit.Dialog(3, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-restore-archive-title") },
+      })
+      .addCell(1, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-restore-archive-file-label"),
+        },
+      })
+      .addCell(
+        1,
+        1,
+        {
+          tag: "label",
+          namespace: "html",
+          id: "evidence-restore-archive-file-display",
+          properties: {
+            innerHTML: getString("dialog-import-file-none"),
+          },
+        },
+        false,
+      )
+      .addCell(
+        2,
+        1,
+        {
+          tag: "button",
+          namespace: "html",
+          attributes: { type: "button" },
+          properties: { innerHTML: getString("dialog-import-file-button") },
+          listeners: [
+            {
+              type: "click",
+              listener: async () => {
+                const path = await new ztoolkit.FilePicker(
+                  getString("dialog-import-file-button"),
+                  "open",
+                  [["Zip Archive (*.zip)", "*.zip"]],
+                ).open();
+                if (path && typeof path === "string") {
+                  dialogData.filePath = path;
+                  const displayEl = dialog.window?.document.getElementById(
+                    "evidence-restore-archive-file-display",
+                  );
+                  if (displayEl) displayEl.textContent = path;
+                }
+              },
+            },
+          ],
+        },
+        false,
+      )
+      .addButton(getString("dialog-restore-archive-confirm-button"), "confirm")
+      .addButton(getString("dialog-cancel"), "cancel")
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-restore-archive-title"),
+      520,
+    );
+
+    await dialogData.unloadLock.promise;
+    if (dialogData._lastButtonId !== "confirm") return;
+    if (!dialogData.filePath) {
+      ztoolkit.getGlobal("alert")(getString("error-no-file-selected"));
+      return;
+    }
+
+    const progressWindow = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+    )
+      .createLine({
+        text: getString("progress-restore-archive-running"),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+    try {
+      const project = await importProjectArchive(String(dialogData.filePath));
+      progressWindow.changeLine({
+        text: getString("progress-restore-archive-done", {
+          args: { name: project.name },
+        }),
+        type: "success",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(5000);
+    } catch (e) {
+      progressWindow.changeLine({
+        text: getString("error-restore-archive-failed"),
+        type: "error",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(8000);
+      throw e;
+    }
   }
 
   static async importDialog() {
