@@ -6,6 +6,7 @@ menu-import = 导入Evidence文献…
 menu-import-extract = 导入提取文献…
 dialog-new-project-title = 新建 Evidence 项目
 dialog-project-name-label = 项目名称
+dialog-new-project-library-label = 文库
 dialog-delete-project-title = 删除 Evidence 项目
 dialog-delete-project-label = 项目
 dialog-delete-project-warning = 此操作将永久删除该项目的 Collection 及其中的所有文献，且无法恢复。数据量较大时删除过程可能耗时较长，请耐心等待完成。

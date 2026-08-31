@@ -165,6 +165,8 @@ export function formatPrismaCsv(data: PrismaData): string {
 /** EXP-02: full per-item screening decision history for the project. */
 export async function exportScreeningLog(projectId: number): Promise<string> {
   await databaseService.init();
+  const project = await getProjectById(projectId);
+  const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
   const rows = (await databaseService.queryAsync(
     `SELECT item_key, stage, ai_decision, ai_reasoning, human_decision, exclusion_reason, decided_by, decided_at, fulltext_ready
      FROM screening_records WHERE project_id = ? ORDER BY item_key, stage, id`,
@@ -199,10 +201,7 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
     ]),
   );
   for (const row of rows || []) {
-    const item = Zotero.Items.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
-      row.item_key,
-    );
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, row.item_key);
     const title = item ? safeGetField(item as Zotero.Item, "title") : "";
     lines.push(
       toCsvLine([

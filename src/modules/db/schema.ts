@@ -151,4 +151,10 @@ export const COLUMN_MIGRATIONS: {
     definition: "TEXT",
   },
   { table: "coding_records", column: "pending_position", definition: "TEXT" },
+  // Nullable, not backfilled here on purpose: every project created before
+  // this column existed lived in the personal library by definition (group-
+  // library support didn't exist yet), so the service layer's read path
+  // (projectManager.ts's rowToProject) treats a NULL here as
+  // Zotero.Libraries.userLibraryID rather than needing a data migration.
+  { table: "evidence_projects", column: "library_id", definition: "INTEGER" },
 ];

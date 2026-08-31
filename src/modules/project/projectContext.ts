@@ -23,7 +23,7 @@ export interface ProjectPaneContext {
 
 export function getRootCollectionId(project: EvidenceProject): number | null {
   const collection = Zotero.Collections.getByLibraryAndKey(
-    Zotero.Libraries.userLibraryID,
+    project.libraryID,
     project.collectionKey,
   );
   return collection ? (collection as Zotero.Collection).id : null;

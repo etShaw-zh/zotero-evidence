@@ -106,6 +106,7 @@ export type FluentMessageId =
   | 'dialog-import-status-running'
   | 'dialog-import-title'
   | 'dialog-import-wait-note'
+  | 'dialog-new-project-library-label'
   | 'dialog-new-project-title'
   | 'dialog-progress-col-coding-confirmed'
   | 'dialog-progress-col-coding-total'

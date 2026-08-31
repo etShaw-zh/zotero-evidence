@@ -164,6 +164,7 @@ function renderInlineLinkPicker(
           try {
             await linkAnnotationToRecord(
               record.id,
+              item.libraryID,
               key,
               record.variableName,
               record.variableValue,

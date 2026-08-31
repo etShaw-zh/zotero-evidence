@@ -1,6 +1,7 @@
 import { toCsvLine } from "../../utils/csv";
 import { safeGetField } from "../../utils/zoteroItem";
 import { databaseService } from "../db/database";
+import { getProjectById } from "../project/projectManager";
 
 /**
  * One row per confirmed coding record project-wide (not scoped to a single
@@ -12,6 +13,8 @@ import { databaseService } from "../db/database";
  */
 export async function exportSynthesisData(projectId: number): Promise<string> {
   await databaseService.init();
+  const project = await getProjectById(projectId);
+  const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
   const rows = (await databaseService.queryAsync(
     `SELECT cr.item_key, cr.variable_name, cr.variable_value, cr.quote, st.theme
      FROM coding_records cr
@@ -42,10 +45,9 @@ export async function exportSynthesisData(projectId: number): Promise<string> {
   );
 
   for (const r of rows || []) {
-    const item = Zotero.Items.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
-      r.item_key,
-    ) as Zotero.Item | false;
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, r.item_key) as
+      | Zotero.Item
+      | false;
     const title = item ? safeGetField(item, "title") : "";
     lines.push(
       toCsvLine([

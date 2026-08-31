@@ -6,6 +6,7 @@ import {
   resolveCanonicalVariableName,
 } from "../coding/codingService";
 import { databaseService } from "../db/database";
+import { getProjectById } from "../project/projectManager";
 
 /**
  * Core multi-value-row expansion (REQUIREMENTS 2.6.4 / EXP-06): a study
@@ -43,6 +44,8 @@ export async function exportCodingData(projectId: number): Promise<string> {
   const variableNames = (codebook?.variables ?? []).map((v) => v.name);
 
   await databaseService.init();
+  const project = await getProjectById(projectId);
+  const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
   const itemRows = (await databaseService.queryAsync(
     `SELECT DISTINCT item_key FROM coding_records WHERE project_id = ? AND is_pilot = 0`,
     [projectId],
@@ -54,10 +57,9 @@ export async function exportCodingData(projectId: number): Promise<string> {
   );
 
   for (const { item_key: itemKey } of itemRows || []) {
-    const item = Zotero.Items.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
-      itemKey,
-    ) as Zotero.Item | false;
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey) as
+      | Zotero.Item
+      | false;
     if (!item) continue;
 
     const authors = item

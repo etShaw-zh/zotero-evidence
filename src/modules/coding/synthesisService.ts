@@ -1,6 +1,7 @@
 import { callChatCompletion } from "../ai/aiClient";
 import { getActiveProvider } from "../ai/providerConfig";
 import { databaseService } from "../db/database";
+import { getProjectById } from "../project/projectManager";
 import { sanitizeDbText } from "../../utils/sanitize";
 import { safeGetField } from "../../utils/zoteroItem";
 import { getLatestCodebook } from "./codebookService";
@@ -19,12 +20,9 @@ export interface SynthesisRow {
   theme: string | null;
 }
 
-function resolveItemTitle(itemKey: string): string {
+function resolveItemTitle(libraryID: number, itemKey: string): string {
   try {
-    const item = Zotero.Items.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
-      itemKey,
-    );
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
     if (item) {
       const title = safeGetField(item as Zotero.Item, "title");
       if (title) return title;
@@ -48,6 +46,8 @@ export async function getSynthesisRows(
   variableName: string,
 ): Promise<SynthesisRow[]> {
   await databaseService.init();
+  const project = await getProjectById(projectId);
+  const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
   const rows = (await databaseService.queryAsync(
     `SELECT cr.id, cr.item_key, cr.variable_name, cr.variable_value, cr.quote, st.theme
      FROM coding_records cr
@@ -80,7 +80,7 @@ export async function getSynthesisRows(
     .map((r) => ({
       id: r.id,
       itemKey: r.item_key,
-      itemTitle: resolveItemTitle(r.item_key),
+      itemTitle: resolveItemTitle(libraryID, r.item_key),
       variableName: r.variable_name,
       variableValue: r.variable_value,
       quote: r.quote,

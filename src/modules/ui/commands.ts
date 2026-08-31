@@ -297,8 +297,23 @@ export class EvidenceCommands {
   }
 
   static async newProjectDialog() {
-    const dialogData: { [key: string]: any } = { projectName: "" };
-    const dialog = new ztoolkit.Dialog(3, 1)
+    // Only libraries the user can actually write to are offered -- a
+    // read-only Group Library membership couldn't save the Collection tree
+    // this creates. Most users only ever have the personal library, so the
+    // picker itself is only shown when there's an actual choice to make;
+    // one option would just be clutter.
+    const writableLibraries = Zotero.Libraries.getAll().filter((lib) =>
+      Zotero.Libraries.isEditable(lib.libraryID),
+    );
+    const showLibraryPicker = writableLibraries.length > 1;
+
+    const dialogData: { [key: string]: any } = {
+      projectName: "",
+      libraryID: String(Zotero.Libraries.userLibraryID),
+    };
+
+    const cols = showLibraryPicker ? 2 : 1;
+    const dialog = new ztoolkit.Dialog(showLibraryPicker ? 4 : 3, cols)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString("dialog-new-project-title") },
@@ -323,14 +338,45 @@ export class EvidenceCommands {
           },
         },
         false,
-      )
+      );
+
+    if (showLibraryPicker) {
+      dialog
+        .addCell(3, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-new-project-library-label"),
+          },
+        })
+        .addCell(
+          3,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            attributes: { "data-bind": "libraryID", "data-prop": "value" },
+            children: writableLibraries.map((lib) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(lib.libraryID),
+                innerHTML: escapeHtml(lib.name),
+              },
+            })),
+          },
+          false,
+        );
+    }
+
+    dialog
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
       .setDialogData(dialogData);
     EvidenceCommands.openSizedDialog(
       dialog,
       getString("dialog-new-project-title"),
-      460,
+      showLibraryPicker ? 480 : 460,
     );
 
     await dialogData.unloadLock.promise;
@@ -341,8 +387,10 @@ export class EvidenceCommands {
       ztoolkit.getGlobal("alert")(getString("error-project-name-required"));
       return;
     }
+    const libraryID =
+      Number(dialogData.libraryID) || Zotero.Libraries.userLibraryID;
 
-    const project = await createProject(name);
+    const project = await createProject(name, libraryID);
     await refreshProjectPaneContextCache();
     new ztoolkit.ProgressWindow(addon.data.config.addonName)
       .createLine({
@@ -950,7 +998,7 @@ export class EvidenceCommands {
           if (!project) return;
 
           const rootCollection = Zotero.Collections.getByLibraryAndKey(
-            Zotero.Libraries.userLibraryID,
+            project.libraryID,
             project.collectionKey,
           );
           if (!rootCollection) {
@@ -1161,7 +1209,7 @@ export class EvidenceCommands {
     if (!project) return;
 
     const rootCollection = Zotero.Collections.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
+      project.libraryID,
       project.collectionKey,
     );
     if (!rootCollection) {

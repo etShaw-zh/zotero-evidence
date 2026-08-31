@@ -6,6 +6,7 @@ menu-import = Import Evidence Literature…
 menu-import-extract = Import Extract Literature…
 dialog-new-project-title = New Evidence Project
 dialog-project-name-label = Project name
+dialog-new-project-library-label = Library
 dialog-delete-project-title = Delete Evidence Project
 dialog-delete-project-label = Project
 dialog-delete-project-warning = This permanently deletes the project's Collections and every item filed in them. This cannot be undone. Large projects may take a while to delete — please wait for it to finish.

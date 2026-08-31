@@ -34,14 +34,12 @@ function codingAnnotationComment(
  * expected, but this isn't the place to throw over it.
  */
 async function colorizeCodingAnnotation(
+  libraryID: number,
   annotationKey: string,
   variableName: string,
   variableValue: string,
 ): Promise<void> {
-  const annotation = Zotero.Items.getByLibraryAndKey(
-    Zotero.Libraries.userLibraryID,
-    annotationKey,
-  );
+  const annotation = Zotero.Items.getByLibraryAndKey(libraryID, annotationKey);
   if (!annotation) return;
   (annotation as any).annotationColor = CODING_ANNOTATION_COLOR;
   (annotation as any).annotationComment = codingAnnotationComment(
@@ -258,11 +256,17 @@ export async function getCodingRecords(
  */
 export async function linkAnnotationToRecord(
   recordId: number,
+  libraryID: number,
   annotationKey: string,
   variableName: string,
   variableValue: string,
 ): Promise<void> {
-  await colorizeCodingAnnotation(annotationKey, variableName, variableValue);
+  await colorizeCodingAnnotation(
+    libraryID,
+    annotationKey,
+    variableName,
+    variableValue,
+  );
   await databaseService.init();
   await databaseService.queryAsync(
     `UPDATE coding_records SET annotation_key = ?, confirmed = 1, updated_at = ? WHERE id = ?`,
@@ -300,7 +304,12 @@ export async function addManualRecord(
   quote: string | null,
 ): Promise<number> {
   if (annotationKey) {
-    await colorizeCodingAnnotation(annotationKey, variableName, variableValue);
+    await colorizeCodingAnnotation(
+      item.libraryID,
+      annotationKey,
+      variableName,
+      variableValue,
+    );
   }
   await databaseService.init();
   const now = new Date().toISOString();

@@ -98,6 +98,39 @@ describe("Phase 1: project structure, import, dedup", function () {
     assert.isNumber(collections.codingId);
   });
 
+  it("createProject stores and threads through an explicit libraryID (group-library support)", async function () {
+    // No real Group library is constructible offline in this test harness,
+    // so this proves the plumbing (explicit param -> stored column ->
+    // resolveProjectCollections's own libraryID) rather than a second real
+    // library -- the only library actually available here is still
+    // userLibraryID, passed explicitly instead of relying on the default.
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const project = await createProject(
+      `Evidence LibraryID Test ${Date.now()}`,
+      libraryID,
+    );
+    assert.equal(project.libraryID, libraryID);
+
+    const reread = await getProjectById(project.id);
+    assert.equal(reread?.libraryID, libraryID);
+
+    const collections = resolveProjectCollections(getRootCollectionId(project));
+    assert.equal(collections.libraryID, libraryID);
+  });
+
+  it("rowToProject falls back to the personal library for pre-migration rows with no library_id", async function () {
+    const project = await createProject(
+      `Evidence Legacy Row Test ${Date.now()}`,
+    );
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `UPDATE evidence_projects SET library_id = NULL WHERE id = ?`,
+      [project.id],
+    );
+    const reread = await getProjectById(project.id);
+    assert.equal(reread?.libraryID, Zotero.Libraries.userLibraryID);
+  });
+
   it("deleteProject erases the Collection tree, its items, and every DB row for the project", async function () {
     const project = await createProject(`Evidence Delete Test ${Date.now()}`);
     const collections = resolveProjectCollections(getRootCollectionId(project));
