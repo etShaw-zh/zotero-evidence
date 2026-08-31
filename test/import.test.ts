@@ -251,6 +251,62 @@ describe("Phase 1: project structure, import, dedup", function () {
       throw e;
     }
   });
+
+  it("importLiteratureFile accepts any source label, not just the built-in WoS/Scopus/PubMed presets", async function () {
+    // The Import dialog now offers a free-text source field (with the
+    // presets as suggestions) instead of a fixed 3-item picker, since
+    // nothing downstream actually requires one of those three strings --
+    // ensureSourceCollection() creates the Sources sub-collection on demand
+    // for any label, and item_sources.source_database is a plain,
+    // unconstrained TEXT column. This proves that's still true.
+    const project = await createProject(`Custom Source Test ${Date.now()}`);
+    const collections = resolveProjectCollections(getRootCollectionId(project));
+
+    const customSourceRis = `TY  - JOUR
+TI  - A Custom-Source Test Article
+AU  - Example, Author
+PY  - 2023
+DO  - 10.1000/custom-source-example.001
+ER  -
+`;
+    const path = writeFixtureFile(
+      `custom-source-${Date.now()}.ris`,
+      customSourceRis,
+    );
+
+    const result = await importLiteratureFile(
+      project.id,
+      collections.rootId,
+      "PsycINFO",
+      path,
+    );
+    assert.equal(result.totalParsed, 1);
+    assert.equal(result.newCount, 1);
+
+    const refreshedCollections = resolveProjectCollections(collections.rootId);
+    assert.property(
+      refreshedCollections.sourceCollectionIds,
+      "PsycINFO",
+      "a Sources/PsycINFO sub-collection should have been created on demand",
+    );
+    const psycInfoItems = (
+      Zotero.Collections.get(
+        refreshedCollections.sourceCollectionIds.PsycINFO,
+      ) as Zotero.Collection
+    ).getChildItems();
+    assert.equal(psycInfoItems.length, 1);
+    assert.equal(
+      psycInfoItems[0].getField("title"),
+      "A Custom-Source Test Article",
+    );
+
+    await databaseService.init();
+    const rows = (await databaseService.queryAsync(
+      `SELECT source_database FROM item_sources WHERE project_id = ? AND item_key = ?`,
+      [project.id, psycInfoItems[0].key],
+    )) as { source_database: string }[];
+    assert.equal(rows[0]?.source_database, "PsycINFO");
+  });
 });
 
 async function runImportDedupTest() {

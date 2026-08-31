@@ -37,7 +37,6 @@ import { escapeHtml, quotePreview, resolveAttachment } from "./paneHelpers";
 import {
   resolveProjectCollections,
   SOURCE_DATABASE_LABELS,
-  SourceDatabaseLabel,
 } from "../project/collectionStructure";
 import {
   findProjectPaneContext,
@@ -708,13 +707,69 @@ export class EvidenceCommands {
       return;
     }
 
+    // The Sources sub-collection this feeds (ensureSourceCollection,
+    // collectionStructure.ts) and item_sources.source_database (plain TEXT,
+    // no CHECK constraint) both already accept any string -- SOURCE_DATABASE_
+    // LABELS was only ever a UI convenience for the three most common
+    // databases, not an actual limit on what Zotero's own translators can
+    // import. A free-text field plus a "presets" picker keeps that one-click
+    // convenience (including whatever custom labels this project has
+    // already used, so repeat imports reuse the same string instead of
+    // drifting) while allowing any source name.
+    //
+    // Empirically confirmed: a plain HTML <input list="..."> + <datalist> --
+    // the normal way to do this on the web -- doesn't show its suggestion
+    // popup inside Zotero's XUL dialog window, presumably because that
+    // relies on browser-chrome autocomplete UI this embedded HTML content
+    // doesn't get. A second, ordinary <select> that copies its chosen value
+    // into the text input avoids that entirely: both pieces (bound text
+    // input, watched select) are patterns already proven to work in this
+    // exact dialog framework elsewhere in this file.
+    const sourceLabelOptions = (projectId: number): string[] => {
+      const labels = new Set<string>(SOURCE_DATABASE_LABELS);
+      const project = projects.find((p) => p.id === projectId);
+      const rootId = project ? getRootCollectionId(project) : null;
+      if (rootId !== null) {
+        try {
+          const collections = resolveProjectCollections(rootId!);
+          for (const label of Object.keys(collections.sourceCollectionIds)) {
+            labels.add(label);
+          }
+        } catch {
+          // Structure incomplete -- fall back to just the built-in presets.
+        }
+      }
+      return Array.from(labels);
+    };
+
+    const refreshSourcePresetSelect = (doc: Document, projectId: number) => {
+      const select = doc.getElementById(
+        "evidence-import-source-preset",
+      ) as HTMLSelectElement | null;
+      if (!select) return;
+      select.innerHTML = "";
+      const placeholder = doc.createElement("option");
+      placeholder.setAttribute("value", "");
+      placeholder.textContent = getString(
+        "dialog-import-source-preset-placeholder",
+      );
+      select.appendChild(placeholder);
+      for (const label of sourceLabelOptions(projectId)) {
+        const option = doc.createElement("option");
+        option.setAttribute("value", label);
+        option.textContent = label;
+        select.appendChild(option);
+      }
+      select.value = "";
+    };
+
     const dialogData: { [key: string]: any } = {
       projectId: String(projects[0].id),
       sourceLabel: SOURCE_DATABASE_LABELS[0] as string,
       filePath: "",
     };
 
-    const dialog = new ztoolkit.Dialog(5, 2)
+    const dialog = new ztoolkit.Dialog(7, 2)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString("dialog-import-title") },
@@ -749,15 +804,45 @@ export class EvidenceCommands {
         2,
         1,
         {
-          tag: "select",
+          tag: "div",
           namespace: "html",
-          id: "evidence-import-source",
-          attributes: { "data-bind": "sourceLabel", "data-prop": "value" },
-          children: SOURCE_DATABASE_LABELS.map((label) => ({
-            tag: "option",
-            namespace: "html",
-            properties: { value: label, innerHTML: label },
-          })),
+          styles: { display: "flex", gap: "4px", alignItems: "center" },
+          children: [
+            {
+              tag: "input",
+              namespace: "html",
+              id: "evidence-import-source",
+              attributes: {
+                type: "text",
+                "data-bind": "sourceLabel",
+                "data-prop": "value",
+              },
+              styles: { flex: "1 1 auto", minWidth: "0" },
+            },
+            {
+              tag: "select",
+              namespace: "html",
+              id: "evidence-import-source-preset",
+              styles: { flex: "0 0 auto" },
+              children: [
+                {
+                  tag: "option",
+                  namespace: "html",
+                  properties: {
+                    value: "",
+                    innerHTML: getString(
+                      "dialog-import-source-preset-placeholder",
+                    ),
+                  },
+                },
+                ...sourceLabelOptions(projects[0].id).map((label) => ({
+                  tag: "option",
+                  namespace: "html",
+                  properties: { value: label, innerHTML: escapeHtml(label) },
+                })),
+              ],
+            },
+          ],
         },
         false,
       )
@@ -813,7 +898,105 @@ export class EvidenceCommands {
         },
         false,
       )
-      .addButton(getString("dialog-confirm"), "confirm")
+      .addCell(5, 0, {
+        tag: "p",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-import-wait-note"),
+        },
+        styles: { color: "var(--fill-secondary, #666)", fontSize: "0.9em" },
+      })
+      .addCell(6, 0, {
+        tag: "p",
+        namespace: "html",
+        id: "evidence-import-status",
+        properties: { innerHTML: "" },
+        styles: { fontWeight: "bold" },
+      })
+      .addButton(getString("dialog-confirm"), "confirm", {
+        // Importing can take a while for large files -- rather than close
+        // immediately (the previous behavior: the window vanished the
+        // instant you clicked Confirm, with only a toast notification once
+        // it was already done, which is exactly what looked like a freeze),
+        // keep the dialog open, show live status in it, and only close it
+        // once the import has actually finished.
+        noClose: true,
+        callback: async () => {
+          const doc = dialog.window?.document;
+          const statusEl = doc?.getElementById("evidence-import-status");
+          const confirmBtn = doc?.getElementById(
+            "confirm",
+          ) as HTMLButtonElement | null;
+          const cancelBtn = doc?.getElementById(
+            "cancel",
+          ) as HTMLButtonElement | null;
+
+          if (!dialogData.filePath) {
+            if (statusEl) {
+              statusEl.textContent = getString("error-no-file-selected");
+            }
+            return;
+          }
+          const sourceLabel = String(dialogData.sourceLabel || "").trim();
+          if (!sourceLabel) {
+            if (statusEl) {
+              statusEl.textContent = getString("error-import-source-required");
+            }
+            return;
+          }
+
+          const projectId = Number(dialogData.projectId);
+          const project = projects.find((p) => p.id === projectId);
+          if (!project) return;
+
+          const rootCollection = Zotero.Collections.getByLibraryAndKey(
+            Zotero.Libraries.userLibraryID,
+            project.collectionKey,
+          );
+          if (!rootCollection) {
+            if (statusEl) {
+              statusEl.textContent = getString("error-import-failed");
+            }
+            return;
+          }
+
+          if (confirmBtn) confirmBtn.disabled = true;
+          if (cancelBtn) cancelBtn.disabled = true;
+          if (statusEl) {
+            statusEl.textContent = getString("dialog-import-status-running");
+          }
+
+          try {
+            const result = await importLiteratureFile(
+              project.id,
+              (rootCollection as Zotero.Collection).id,
+              sourceLabel,
+              dialogData.filePath as string,
+            );
+            dialog.window?.close();
+            new ztoolkit.ProgressWindow(addon.data.config.addonName)
+              .createLine({
+                text: getString("progress-import-result", {
+                  args: {
+                    total: result.totalParsed,
+                    added: result.newCount,
+                    duplicates: result.duplicateCount,
+                  },
+                }),
+                type: "success",
+                progress: 100,
+              })
+              .show();
+          } catch (e: any) {
+            ztoolkit.log("Import failed", e);
+            if (statusEl) {
+              statusEl.textContent = `${getString("error-import-failed")} ${e?.message ?? e}`;
+            }
+            if (confirmBtn) confirmBtn.disabled = false;
+            if (cancelBtn) cancelBtn.disabled = false;
+          }
+        },
+      })
       .addButton(getString("dialog-cancel"), "cancel")
       .setDialogData(dialogData);
     EvidenceCommands.openSizedDialog(
@@ -822,52 +1005,50 @@ export class EvidenceCommands {
       560,
     );
 
-    await dialogData.unloadLock.promise;
-    if (dialogData._lastButtonId !== "confirm") return;
-    if (!dialogData.filePath) {
-      ztoolkit.getGlobal("alert")(getString("error-no-file-selected"));
-      return;
-    }
-
-    const projectId = Number(dialogData.projectId);
-    const project = projects.find((p) => p.id === projectId);
-    if (!project) return;
-
-    const rootCollection = Zotero.Collections.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
-      project.collectionKey,
+    // Switching the project should offer THAT project's already-used
+    // source labels (plus the built-in presets), not leave the previous
+    // project's custom labels sitting in the presets list as if they
+    // applied here too. Same delay as every other dialog that wires up
+    // watchSelectValue -- see its own comment for why.
+    await Zotero.Promise.delay(50);
+    const projectSelectEl = dialog.window?.document.getElementById(
+      "evidence-import-project",
+    ) as HTMLSelectElement | undefined;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      projectSelectEl,
+      (value) => {
+        if (dialog.window) {
+          refreshSourcePresetSelect(dialog.window.document, Number(value));
+        }
+      },
     );
-    if (!rootCollection) {
-      ztoolkit.getGlobal("alert")(getString("error-import-failed"));
-      return;
-    }
 
-    try {
-      const result = await importLiteratureFile(
-        project.id,
-        (rootCollection as Zotero.Collection).id,
-        dialogData.sourceLabel as SourceDatabaseLabel,
-        dialogData.filePath as string,
-      );
-      new ztoolkit.ProgressWindow(addon.data.config.addonName)
-        .createLine({
-          text: getString("progress-import-result", {
-            args: {
-              total: result.totalParsed,
-              added: result.newCount,
-              duplicates: result.duplicateCount,
-            },
-          }),
-          type: "success",
-          progress: 100,
-        })
-        .show();
-    } catch (e: any) {
-      ztoolkit.log("Import failed", e);
-      ztoolkit.getGlobal("alert")(
-        `${getString("error-import-failed")}\n${e?.message ?? e}`,
-      );
-    }
+    // Picking a preset just fills the free-text field with it -- the field
+    // itself (not this select) is what's bound to dialogData.sourceLabel,
+    // so it stays editable afterward.
+    const presetSelectEl = dialog.window?.document.getElementById(
+      "evidence-import-source-preset",
+    ) as HTMLSelectElement | undefined;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      presetSelectEl,
+      (value) => {
+        if (!value) return;
+        dialogData.sourceLabel = value;
+        const sourceInputEl = dialog.window?.document.getElementById(
+          "evidence-import-source",
+        ) as HTMLInputElement | undefined;
+        if (sourceInputEl) sourceInputEl.value = value;
+        // Reset to the placeholder so the same preset can be picked again
+        // later (e.g. after the user has typed something else in between)
+        // -- a <select> that already shows "Web of Science" wouldn't fire
+        // another change event if you picked "Web of Science" again.
+        if (presetSelectEl) presetSelectEl.value = "";
+      },
+    );
   }
 
   static async importExtractDialog() {
