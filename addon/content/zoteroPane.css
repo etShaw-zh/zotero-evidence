@@ -351,4 +351,25 @@ collapsible-section {
   gap: 6px;
   align-items: center;
   margin-top: 6px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Same fix as .zotero-evidence-coding-link-picker-controls select above:
+   a select's native intrinsic width follows its longest option (here, full
+   Codebook variable names and annotation quote previews), and flex-wrap on
+   the parent alone doesn't stop a single item from being that wide -- each
+   flex item's default min-width is auto (its unshrunk content size), so it
+   still overflows the sidebar without min-width:0 here too. */
+.zotero-evidence-coding-form select,
+.zotero-evidence-coding-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(100%, 200px);
+  box-sizing: border-box;
+}
+
+.zotero-evidence-coding-form button {
+  flex: 0 0 auto;
 }
