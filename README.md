@@ -13,6 +13,9 @@
 
 [English](README.md) | [简体中文](doc/README-zhCN.md) | [Français](doc/README-frFR.md)
 
+> [!NOTE]
+> This plugin is scoped tightly to systematic-review workflows — feature-complete for that, not for chasing every Zotero release. Recent major-version churn hasn't meaningfully benefited this project, so there's currently no plan to track future Zotero versions beyond what's already supported.
+
 ## Workflow
 
 Each stage moves references through a fixed set of Collections created automatically per project, so status is always visible in the Zotero library pane. Synthesis and Export then work across the whole project's coded data rather than moving items further:

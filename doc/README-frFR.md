@@ -13,6 +13,9 @@
 
 [English](../README.md) | [简体中文](./README-zhCN.md) | [Français](./README-frFR.md)
 
+> [!NOTE]
+> Cette extension se concentre strictement sur les besoins de la revue systématique — fonctionnellement suffisante pour cela, sans chercher à suivre chaque nouvelle version de Zotero. Les changements majeurs récents de Zotero n'apportant que peu de bénéfice réel à ce projet, il n'est pour l'instant pas prévu de suivre les versions futures au-delà de ce qui est déjà pris en charge.
+
 ## Flux de travail
 
 Chaque étape déplace les références entre des Collections fixes créées automatiquement par projet, ce qui rend l'état de chaque référence visible directement dans le panneau de bibliothèque Zotero. La Synthèse et l'Export travaillent ensuite sur l'ensemble des données codées du projet, sans déplacer davantage les références :
