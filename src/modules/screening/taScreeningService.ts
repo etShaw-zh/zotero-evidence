@@ -87,13 +87,17 @@ export async function runAIJudgment(
   const title = safeGetField(item, "title");
   const abstract = safeGetField(item, "abstractNote");
 
-  const raw = await callChatCompletion(provider, [
-    { role: "system", content: SYSTEM_PROMPT },
-    {
-      role: "user",
-      content: buildPrompt(criteriaRow.criteria, title, abstract),
-    },
-  ]);
+  const raw = await callChatCompletion(
+    provider,
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: buildPrompt(criteriaRow.criteria, title, abstract),
+      },
+    ],
+    "ta_screening",
+  );
   const judgment = parseJudgment(raw);
 
   await databaseService.init();

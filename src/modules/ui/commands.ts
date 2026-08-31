@@ -7,6 +7,7 @@ import {
   setActiveProviderId,
   upsertProvider,
 } from "../ai/providerConfig";
+import { getAIUsageStats } from "../ai/usageService";
 import {
   CodebookVariable,
   getLatestCodebook,
@@ -175,6 +176,12 @@ export class EvidenceCommands {
       id: "zotero-evidence-ai-provider",
       label: getString("menu-ai-provider"),
       commandListener: () => addon.hooks.onDialogEvents("evidenceAIProvider"),
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-ai-usage",
+      label: getString("menu-ai-usage"),
+      commandListener: () => addon.hooks.onDialogEvents("evidenceAIUsage"),
     });
     ztoolkit.Menu.register("menuFile", {
       tag: "menuitem",
@@ -1087,6 +1094,73 @@ export class EvidenceCommands {
         progress: 100,
       })
       .show();
+  }
+
+  static async aiUsageDialog() {
+    const stats = await getAIUsageStats();
+
+    const purposeLabel = (purpose: string): string => {
+      switch (purpose) {
+        case "ta_screening":
+          return getString("ai-usage-purpose-ta-screening");
+        case "ft_screening":
+          return getString("ai-usage-purpose-ft-screening");
+        case "coding":
+          return getString("ai-usage-purpose-coding");
+        case "synthesis":
+          return getString("ai-usage-purpose-synthesis");
+        default:
+          return purpose;
+      }
+    };
+
+    const rows = [
+      ...stats.byPurpose.map((r) => ({ ...r, label: purposeLabel(r.purpose) })),
+      { ...stats.total, label: getString("ai-usage-purpose-total") },
+    ];
+
+    const columns = 5;
+    const dialog = new ztoolkit.Dialog(rows.length + 2, columns).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-ai-usage-title") },
+    });
+    const headers = [
+      getString("dialog-ai-usage-col-purpose"),
+      getString("dialog-ai-usage-col-calls"),
+      getString("dialog-ai-usage-col-prompt-tokens"),
+      getString("dialog-ai-usage-col-completion-tokens"),
+      getString("dialog-ai-usage-col-total-tokens"),
+    ];
+    headers.forEach((h, col) =>
+      dialog.addCell(1, col, {
+        tag: "strong",
+        namespace: "html",
+        properties: { innerHTML: h },
+      }),
+    );
+    rows.forEach((r, i) => {
+      const row = i + 2;
+      const values = [
+        r.label,
+        r.calls,
+        r.promptTokens,
+        r.completionTokens,
+        r.totalTokens,
+      ];
+      values.forEach((v, col) =>
+        dialog.addCell(row, col, {
+          tag: r.purpose === "total" ? "strong" : "span",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(String(v)) },
+        }),
+      );
+    });
+    dialog.addButton(getString("dialog-close"), "close");
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-ai-usage-title"),
+      620,
+    );
   }
 
   static async progressDialog() {

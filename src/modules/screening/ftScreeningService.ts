@@ -266,10 +266,14 @@ export async function runAIJudgment(
     throw new Error("Could not read full text from the PDF attachment.");
   }
 
-  const raw = await callChatCompletion(provider, [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: buildPrompt(criteriaRow.criteria, fullText) },
-  ]);
+  const raw = await callChatCompletion(
+    provider,
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildPrompt(criteriaRow.criteria, fullText) },
+    ],
+    "ft_screening",
+  );
   const judgment = parseJudgment(raw);
 
   // Only trust an exclusionReason that exactly matches one of the

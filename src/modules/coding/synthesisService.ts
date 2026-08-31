@@ -196,10 +196,14 @@ export async function runSynthesis(
   }
   const capped = rows.slice(0, MAX_ROWS_PER_CALL);
 
-  const raw = await callChatCompletion(provider, [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: buildSynthesisPrompt(variableName, capped) },
-  ]);
+  const raw = await callChatCompletion(
+    provider,
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildSynthesisPrompt(variableName, capped) },
+    ],
+    "synthesis",
+  );
   const themes = parseThemes(raw);
   const themeById = new Map(themes.map((t) => [t.id, t.theme]));
 

@@ -47,6 +47,19 @@ dialog-ai-provider-model-label = Model
 dialog-ai-provider-apikey-label = API key
 progress-ai-provider-saved = AI provider settings saved.
 
+menu-ai-usage = AI Usage Statistics…
+dialog-ai-usage-title = AI Usage Statistics
+dialog-ai-usage-col-purpose = Feature
+dialog-ai-usage-col-calls = Calls
+dialog-ai-usage-col-prompt-tokens = Prompt Tokens
+dialog-ai-usage-col-completion-tokens = Completion Tokens
+dialog-ai-usage-col-total-tokens = Total Tokens
+ai-usage-purpose-ta-screening = TA-Screening
+ai-usage-purpose-ft-screening = FT-Screening
+ai-usage-purpose-coding = Extract Coding
+ai-usage-purpose-synthesis = Synthesis
+ai-usage-purpose-total = Total
+
 screen-queue-head-text =
     .label = Evidence Screening
 screen-queue-sidenav-tooltip =

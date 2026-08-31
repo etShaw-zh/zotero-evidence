@@ -3,6 +3,11 @@
 /* eslint-disable */
 // @ts-nocheck
 export type FluentMessageId =
+  | 'ai-usage-purpose-coding'
+  | 'ai-usage-purpose-ft-screening'
+  | 'ai-usage-purpose-synthesis'
+  | 'ai-usage-purpose-ta-screening'
+  | 'ai-usage-purpose-total'
   | 'annotation-no-text'
   | 'codebook-view-empty'
   | 'codebook-view-multiple'
@@ -48,6 +53,12 @@ export type FluentMessageId =
   | 'dialog-ai-provider-model-label'
   | 'dialog-ai-provider-name-label'
   | 'dialog-ai-provider-title'
+  | 'dialog-ai-usage-col-calls'
+  | 'dialog-ai-usage-col-completion-tokens'
+  | 'dialog-ai-usage-col-prompt-tokens'
+  | 'dialog-ai-usage-col-purpose'
+  | 'dialog-ai-usage-col-total-tokens'
+  | 'dialog-ai-usage-title'
   | 'dialog-cancel'
   | 'dialog-close'
   | 'dialog-codebook-edit-variable-select-label'
@@ -153,6 +164,7 @@ export type FluentMessageId =
   | 'ft-queue-undo'
   | 'ft-queue-undo-done'
   | 'menu-ai-provider'
+  | 'menu-ai-usage'
   | 'menu-batch-confirm-ai'
   | 'menu-batch-mark-unavailable'
   | 'menu-batch-run-ai'

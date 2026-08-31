@@ -96,6 +96,23 @@ export const SCHEMA_STATEMENTS: string[] = [
     updated_at TEXT NOT NULL,
     FOREIGN KEY (coding_record_id) REFERENCES coding_records(id)
   )`,
+  // One row per callChatCompletion() call (aiClient.ts), recorded right
+  // after the HTTP response is parsed there -- the single choke point every
+  // AI-calling feature (TA/FT-Screening, Coding, Synthesis) already goes
+  // through. provider_id/provider_name/model are a snapshot at call time,
+  // not a live reference: providers live in prefs (providerConfig.ts), not
+  // this DB, and can be renamed/deleted later without invalidating history.
+  `CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    model TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on

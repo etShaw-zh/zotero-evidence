@@ -47,6 +47,19 @@ dialog-ai-provider-model-label = 模型
 dialog-ai-provider-apikey-label = API Key
 progress-ai-provider-saved = AI Provider 设置已保存。
 
+menu-ai-usage = AI 使用统计…
+dialog-ai-usage-title = AI 使用统计
+dialog-ai-usage-col-purpose = 功能
+dialog-ai-usage-col-calls = 调用次数
+dialog-ai-usage-col-prompt-tokens = 输入 Token
+dialog-ai-usage-col-completion-tokens = 输出 Token
+dialog-ai-usage-col-total-tokens = 总 Token
+ai-usage-purpose-ta-screening = 标题/摘要筛选
+ai-usage-purpose-ft-screening = 全文筛选
+ai-usage-purpose-coding = 证据编码
+ai-usage-purpose-synthesis = 主题综合
+ai-usage-purpose-total = 合计
+
 screen-queue-head-text =
     .label = Evidence 筛选
 screen-queue-sidenav-tooltip =

@@ -135,6 +135,9 @@ function onDialogEvents(type: string) {
     case "evidenceAIProvider":
       EvidenceCommands.aiProviderDialog();
       break;
+    case "evidenceAIUsage":
+      EvidenceCommands.aiUsageDialog();
+      break;
     case "evidenceProgress":
       EvidenceCommands.progressDialog();
       break;

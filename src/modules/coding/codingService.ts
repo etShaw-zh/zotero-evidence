@@ -162,10 +162,14 @@ export async function generateSuggestions(
     throw new Error("Could not read full text from the PDF attachment.");
   }
 
-  const raw = await callChatCompletion(provider, [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: buildPrompt(codebookRow.variables, fullText) },
-  ]);
+  const raw = await callChatCompletion(
+    provider,
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildPrompt(codebookRow.variables, fullText) },
+    ],
+    "coding",
+  );
   const suggestions = parseSuggestions(raw);
 
   // Best-effort (COD-04): try to locate each suggestion's quote in the PDF.
