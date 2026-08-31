@@ -52,6 +52,17 @@ collapsible-section {
   min-width: 0;
 }
 
+/* item-pane-sidenav's own base rule (.inherit-flex, its icon-button strip
+   container -- see itemPaneSidenav.js's `this._buttonContainer`) sets
+   `gap: inherit`, pulling in whatever gap the parent sidenav element
+   happens to have. With this plugin's sections added to the strip that
+   inherited gap misspaces the icon buttons -- drop just this one
+   declaration back to the property's own default rather than hardcoding a
+   replacement value. */
+item-pane-sidenav .inherit-flex {
+  gap: unset;
+}
+
 /* Hides native item-pane sections while the Screen Queue card is active
    (see src/modules/ui/screenQueuePane.ts). Native sections all render with a
    stable data-pane attribute matching Zotero.ItemPaneManager's BuiltInPaneID
