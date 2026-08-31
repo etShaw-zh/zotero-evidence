@@ -1,6 +1,10 @@
 # Zotero Evidence
 
-[![zotero target version](https://img.shields.io/badge/Zotero-9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+<p align="center">
+  <img src="zotero-evidence-social-preview.png" alt="Zotero Evidence" width="800">
+</p>
+
+[![zotero target version](https://img.shields.io/badge/Zotero-7+-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![CI](https://img.shields.io/github/actions/workflow/status/etShaw-zh/zotero-evidence/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/etShaw-zh/zotero-evidence/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](../LICENSE)
@@ -11,31 +15,36 @@
 
 ## Flux de travail
 
-Chaque étape déplace les références entre des Collections fixes créées automatiquement par projet, ce qui rend l'état de chaque référence visible directement dans le panneau de bibliothèque Zotero :
+Chaque étape déplace les références entre des Collections fixes créées automatiquement par projet, ce qui rend l'état de chaque référence visible directement dans le panneau de bibliothèque Zotero. La Synthèse et l'Export travaillent ensuite sur l'ensemble des données codées du projet, sans déplacer davantage les références :
 
 ```
 1. Sources → 2. TA-Screen Queue → 3. TA-Screening Results
   → 4. FT-Screen Queue → 5. FT-Screening Results → 6. Extract Coding
+  → Synthesis → Export
 ```
 
 ## Fonctionnalités
 
+- **Cycle de vie du projet** — créez, supprimez définitivement (confirmation par saisie du nom) ou archivez un projet dans un `.zip` portable, restaurable ailleurs — utile pour la sauvegarde et la relecture par les pairs.
 - **Import & dédoublonnage** — RIS / BibTeX / MEDLINE / PubMed XML via les traducteurs natifs de Zotero ; dédoublonnage par DOI avec repli sur titre+auteur+année ; réimport sûr, sans effet sur les références déjà triées.
 - **Tri titre/résumé** — l'IA propose Include/Exclude/Unclear avec son raisonnement, directement dans le panneau de l'item ; confirmation/annulation en un clic, actions groupées.
 - **Tri du texte intégral** — se fait dans la barre latérale du lecteur PDF ; l'IA choisit un motif d'exclusion mot pour mot dans vos critères et localise les citations à l'appui en surlignages.
-- **Codage (Extract Coding)** — définissez un Codebook (variables catégorielles/numériques/textuelles) ; l'IA propose des correspondances `variable = valeur` appuyées par des citations et des surlignages localisés automatiquement.
+- **Codage** — définissez un Codebook (variables catégorielles/numériques/textuelles) ; l'IA propose des correspondances `variable = valeur` appuyées par des citations et des surlignages localisés automatiquement.
 - **Synthèse** — un clic regroupe les preuves confirmées d'une variable en thèmes générés par IA, à l'échelle du projet.
 - **Export** — données de flux PRISMA, journal des décisions de tri, données de codage et de synthèse, prêtes pour la rédaction.
+- **Suivi & usage de l'IA** — un tableau de bord en direct de l'avancement par projet, ainsi que le nombre d'appels et de tokens IA consommés par fonctionnalité.
 - **Fournisseur IA** — utilisez le fournisseur compatible OpenAI de votre choix (point d'accès, modèle, clé API) ; concurrence des opérations groupées configurable.
 
 ## Prise en main
 
-1. Installez l'extension dans Zotero 7.
+1. Installez l'extension dans Zotero 7 ou une version ultérieure.
 2. **File → AI Provider Settings…** : renseignez point d'accès, modèle, clé API.
 3. **File → New Evidence Project…**, puis **Import Literature…**.
 4. **File → Configure Title/Abstract / Full-Text Screening Criteria…**.
-5. Parcourez `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
-6. Utilisez **File → Synthesis…** et le menu **Export…** au moment de la rédaction.
+5. **File → Extract Codebook →** définissez les variables (ou importez-les depuis un CSV) avant de commencer le codage.
+6. Parcourez `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
+7. Utilisez **File → Synthesis…** et le menu **Export…** au moment de la rédaction.
+8. **File → Archive Project…** pour sauvegarder ou partager un projet en `.zip` ; **Restore Project from Archive…** pour le restaurer.
 
 ## Développement
 
@@ -64,8 +73,9 @@ src/
 |   |-- screening/  # tri TA/FT : jugement IA, critères, décisions
 |   |-- coding/     # services Codebook et Extract Coding
 |   |-- pdf/        # extraction de texte, localisation de citations, surlignages
-|   |-- ai/         # configuration du fournisseur IA et chat completions
+|   |-- ai/         # fournisseur IA, chat completions, suivi d'usage
 |   |-- export/     # export PRISMA / journal de tri / données de codage
+|   |-- archive/    # archivage/restauration de projet (.zip)
 |   |-- db/         # schéma SQLite et migrations
 |   `-- ui/         # sections du panneau d'item et boîtes de dialogue
 addon/              # manifest, locales, contenu statique

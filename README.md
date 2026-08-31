@@ -1,6 +1,10 @@
 # Zotero Evidence
 
-[![zotero target version](https://img.shields.io/badge/Zotero-9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+<p align="center">
+  <img src="doc/zotero-evidence-social-preview.png" alt="Zotero Evidence" width="800">
+</p>
+
+[![zotero target version](https://img.shields.io/badge/Zotero-7+-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![CI](https://img.shields.io/github/actions/workflow/status/etShaw-zh/zotero-evidence/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/etShaw-zh/zotero-evidence/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](LICENSE)
@@ -11,31 +15,36 @@
 
 ## Workflow
 
-Each stage moves references through a fixed set of Collections created automatically per project, so status is always visible in the Zotero library pane:
+Each stage moves references through a fixed set of Collections created automatically per project, so status is always visible in the Zotero library pane. Synthesis and Export then work across the whole project's coded data rather than moving items further:
 
 ```
 1. Sources → 2. TA-Screen Queue → 3. TA-Screening Results
   → 4. FT-Screen Queue → 5. FT-Screening Results → 6. Extract Coding
+  → Synthesis → Export
 ```
 
 ## Features
 
+- **Project lifecycle** — create, permanently delete (typed-name confirmation), or archive a project to a portable `.zip` and restore it elsewhere — for backup and peer review.
 - **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators; DOI-first dedup with title+author+year fallback; safe re-import that never disturbs already-screened items.
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear with its reasoning, right in the item pane; one-click confirm/undo, plus batch actions.
 - **Full-text screening** — done in the PDF reader sidebar; AI picks a verbatim exclusion reason from your criteria and locates supporting quotes as highlights.
 - **Extract coding** — define a Codebook (categorical/numeric/text variables), AI proposes `variable = value` mappings backed by quotes and auto-located highlights.
 - **Synthesis** — one click groups confirmed evidence for any variable into AI-generated themes, project-wide.
 - **Export** — PRISMA flow data, screening decision log, coding data, and synthesis data, all ready for write-up.
+- **Progress & AI usage** — a live per-project pipeline dashboard, plus AI call counts and token usage broken down by feature.
 - **AI provider** — bring your own OpenAI-compatible endpoint, model, and API key; configurable batch concurrency.
 
 ## Getting started
 
-1. Install the plugin in Zotero 7.
+1. Install the plugin in Zotero 7 or later.
 2. **File → AI Provider Settings…** — set endpoint, model, API key.
 3. **File → New Evidence Project…**, then **Import Literature…**.
 4. **File → Configure Title/Abstract / Full-Text Screening Criteria…**.
-5. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
-6. **File → Synthesis…** and the **Export…** menu when ready to write up.
+5. **File → Extract Codebook →** define variables (or import from CSV) before coding begins.
+6. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
+7. **File → Synthesis…** and the **Export…** menu when ready to write up.
+8. **File → Archive Project…** to back up or share a project as a `.zip`; **Restore Project from Archive…** to bring it back.
 
 ## Development
 
@@ -64,8 +73,9 @@ src/
 |   |-- screening/  # TA/FT: AI judgment, criteria, decisions
 |   |-- coding/     # Codebook + Extract Coding services
 |   |-- pdf/        # text extraction, quote location, highlights
-|   |-- ai/         # AI provider config + chat completions
+|   |-- ai/         # AI provider config, chat completions, usage tracking
 |   |-- export/     # PRISMA / screening log / coding export
+|   |-- archive/    # project archive export/restore (.zip)
 |   |-- db/         # SQLite schema and migrations
 |   `-- ui/         # item-pane sections and dialogs
 addon/              # manifest, locales, static content
