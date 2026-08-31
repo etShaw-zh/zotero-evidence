@@ -23,20 +23,17 @@ Chaque étape déplace les références entre des Collections fixes créées aut
 ```
 1. Sources → 2. TA-Screen Queue → 3. TA-Screening Results
   → 4. FT-Screen Queue → 5. FT-Screening Results → 6. Extract Coding
-  → Synthesis → Export
+  → 7. Synthesis → 8. Export
 ```
 
 ## Fonctionnalités
 
-- **Cycle de vie du projet** — créez, supprimez ou archivez un projet dans un `.zip` portable, restaurable ailleurs.
 - **Import & dédoublonnage** — RIS / BibTeX / MEDLINE / PubMed XML via les traducteurs natifs de Zotero.
 - **Tri titre/résumé** — l'IA propose Include/Exclude/Unclear avec son raisonnement.
 - **Tri du texte intégral** — l'IA choisit un motif d'exclusion mot pour mot dans vos critères et localise les citations à l'appui en surlignages.
 - **Codage** — définissez un Codebook (variables catégorielles/numériques/textuelles) ; l'IA propose des correspondances `variable = valeur` appuyées par des citations et des surlignages localisés automatiquement.
 - **Synthèse** — un clic regroupe les preuves confirmées en thèmes générés par IA.
 - **Export** — données de flux PRISMA, journal des décisions de tri, données de codage et de synthèse, prêtes pour la rédaction.
-- **Suivi & usage de l'IA** — un tableau de bord en direct de l'avancement par projet, ainsi que le nombre d'appels et de tokens IA consommés par fonctionnalité.
-- **Fournisseur IA** — utilisez le fournisseur compatible OpenAI de votre choix (point d'accès, modèle, clé API) ; concurrence des opérations groupées configurable.
 
 ## Prise en main
 
@@ -85,14 +82,7 @@ addon/              # manifest, locales, contenu statique
 test/               # suite de tests Mocha, exécutée dans Zotero via `npm test`
 ```
 
-### Ressources
-
-- [📖 Documentation de développement des extensions Zotero 7](https://www.zotero.org/support/dev/zotero_7_for_developers)
-- [🛠️ Zotero Plugin Toolkit](https://github.com/windingwind/zotero-plugin-toolkit) | [Documentation API](https://github.com/windingwind/zotero-plugin-toolkit/blob/master/docs/zotero-plugin-toolkit.md)
-- [🛠️ Zotero Plugin Scaffold](https://github.com/northword/zotero-plugin-scaffold)
-- [ℹ️ Définitions de types Zotero](https://github.com/windingwind/zotero-types)
-- [📜 Code source de Zotero](https://github.com/zotero/zotero)
-
 ## Licence
 
-Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, voir [LICENSE](../LICENSE). Aucune garantie n'est fournie — gardez à l'esprit les lois de votre pays.
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, voir [LICENSE](../LICENSE).   
+Aucune garantie n'est fournie — gardez à l'esprit les lois de votre pays.

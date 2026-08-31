@@ -23,20 +23,17 @@
 ```
 1. Sources → 2. TA-Screen Queue → 3. TA-Screening Results
   → 4. FT-Screen Queue → 5. FT-Screening Results → 6. Extract Coding
-  → Synthesis → Export
+  → 7. Synthesis → 8. Export
 ```
 
 ## 功能特性
 
-- **项目生命周期** — 新建、删除、或将项目存档为可移植的 `.zip` 并在其他地方恢复。
 - **导入与去重** — 支持 RIS / BibTeX / MEDLINE / PubMed XML（通过 Zotero 自带翻译器）。
 - **标题/摘要筛选** — AI 给出纳入/排除/不确定建议及理由。
 - **全文筛选** — AI 从排除标准中逐字挑选理由，并将支持性原文定位为高亮。
 - **证据编码** — 定义分类/数值/文本型 Codebook 变量，AI 提出 `变量 = 值` 映射，附原文引用与自动定位的高亮。
 - **主题综合** — 一键将已确认证据归并为 AI 生成的主题。
 - **数据导出** — PRISMA 流程数据、筛选决策日志、编码数据、主题分析数据，可直接用于撰写综述。
-- **进度与 AI 用量** — 实时查看各项目的流程进度看板，以及按功能拆分的 AI 调用次数与 Token 用量。
-- **AI Provider** — 接入任意兼容 OpenAI 接口的服务商（自定义端点/模型/API Key），批量并发数可配置。
 
 ## 快速上手
 
@@ -85,15 +82,7 @@ addon/              # manifest、locale、静态资源
 test/               # Mocha 测试套件，通过 `npm test` 在 Zotero 内运行
 ```
 
-### 参考资料
-
-- [📖 Zotero 7 插件开发文档](https://www.zotero.org/support/dev/zotero_7_for_developers)
-- [📖 插件开发文档（中文，尚不完善）](https://zotero-chinese.com/plugin-dev-guide/)
-- [🛠️ Zotero 插件工具包](https://github.com/windingwind/zotero-plugin-toolkit) | [API 文档](https://github.com/windingwind/zotero-plugin-toolkit/blob/master/docs/zotero-plugin-toolkit.md)
-- [🛠️ Zotero 插件开发脚手架](https://github.com/northword/zotero-plugin-scaffold)
-- [ℹ️ Zotero 类型定义](https://github.com/windingwind/zotero-types)
-- [📜 Zotero 源代码](https://github.com/zotero/zotero)
-
 ## 许可协议
 
-Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com)。AGPL-3.0-or-later，详见 [LICENSE](../LICENSE)。不提供任何保证，请遵守你所在地区的法律。
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com)。AGPL-3.0-or-later，详见 [LICENSE](../LICENSE)。  
+不提供任何保证，请遵守你所在地区的法律。

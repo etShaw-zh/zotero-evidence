@@ -23,20 +23,17 @@ Each stage moves references through a fixed set of Collections created automatic
 ```
 1. Sources → 2. TA-Screen Queue → 3. TA-Screening Results
   → 4. FT-Screen Queue → 5. FT-Screening Results → 6. Extract Coding
-  → Synthesis → Export
+  → 7. Synthesis → 8. Export
 ```
 
 ## Features
 
-- **Project lifecycle** — create, delete, or archive a project to a portable `.zip` and restore it elsewhere.
 - **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators.
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear with its reasoning.
 - **Full-text screening** — AI picks a verbatim exclusion reason from your criteria and locates supporting quotes as highlights.
 - **Extract coding** — define a Codebook (categorical/numeric/text variables), AI proposes `variable = value` mappings backed by quotes and auto-located highlights.
 - **Synthesis** — one click groups confirmed evidence for any variable into AI-generated themes.
 - **Export** — PRISMA flow data, screening decision log, coding data, and synthesis data, all ready for write-up.
-- **Progress & AI usage** — a live per-project pipeline dashboard, plus AI call counts and token usage broken down by feature.
-- **AI provider** — bring your own OpenAI-compatible endpoint, model, and API key; configurable batch concurrency.
 
 ## Getting started
 
@@ -85,14 +82,7 @@ addon/              # manifest, locales, static content
 test/               # Mocha suite, run inside Zotero via `npm test`
 ```
 
-### Resources
-
-- [📖 Zotero 7 Plugin Development Documentation](https://www.zotero.org/support/dev/zotero_7_for_developers)
-- [🛠️ Zotero Plugin Toolkit](https://github.com/windingwind/zotero-plugin-toolkit) | [API Documentation](https://github.com/windingwind/zotero-plugin-toolkit/blob/master/docs/zotero-plugin-toolkit.md)
-- [🛠️ Zotero Plugin Scaffold](https://github.com/northword/zotero-plugin-scaffold)
-- [ℹ️ Zotero Type Definitions](https://github.com/windingwind/zotero-types)
-- [📜 Zotero Source Code](https://github.com/zotero/zotero)
-
 ## License
 
-Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, see [LICENSE](LICENSE). No warranties are provided — keep the laws of your locality in mind.
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, see [LICENSE](LICENSE).   
+No warranties are provided — keep the laws of your locality in mind.
