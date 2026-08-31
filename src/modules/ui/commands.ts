@@ -43,6 +43,7 @@ import {
 } from "../project/projectContext";
 import {
   createProject,
+  deleteProject,
   EvidenceProject,
   listProjects,
 } from "../project/projectManager";
@@ -67,6 +68,13 @@ export class EvidenceCommands {
       id: "zotero-evidence-new-project",
       label: getString("menu-new-project"),
       commandListener: () => addon.hooks.onDialogEvents("evidenceNewProject"),
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-delete-project",
+      label: getString("menu-delete-project"),
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceDeleteProject"),
     });
     ztoolkit.Menu.register("menuFile", {
       tag: "menuitem",
@@ -317,6 +325,156 @@ export class EvidenceCommands {
     new ztoolkit.ProgressWindow(addon.data.config.addonName)
       .createLine({
         text: getString("progress-project-created", {
+          args: { name: project.name },
+        }),
+        type: "success",
+        progress: 100,
+      })
+      .show();
+  }
+
+  static async deleteProjectDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const dialogData: { [key: string]: any } = {
+      projectId: String(projects[0].id),
+      confirmName: "",
+    };
+
+    const dialog = new ztoolkit.Dialog(5, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-delete-project-title") },
+      })
+      .addCell(1, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-delete-project-label") },
+      })
+      .addCell(
+        1,
+        1,
+        {
+          tag: "select",
+          namespace: "html",
+          id: "evidence-delete-project-select",
+          attributes: { "data-bind": "projectId", "data-prop": "value" },
+          children: projects.map((p) => ({
+            tag: "option",
+            namespace: "html",
+            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
+          })),
+        },
+        false,
+      )
+      .addCell(2, 0, {
+        tag: "p",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-delete-project-warning"),
+        },
+        styles: { color: "var(--fill-secondary, #a33)", fontWeight: "bold" },
+      })
+      .addCell(3, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-delete-project-name-display-label"),
+        },
+      })
+      .addCell(
+        3,
+        1,
+        {
+          tag: "label",
+          namespace: "html",
+          id: "evidence-delete-project-name-display",
+          properties: { innerHTML: escapeHtml(projects[0].name) },
+          styles: { fontWeight: "bold" },
+        },
+        false,
+      )
+      .addCell(4, 0, {
+        tag: "label",
+        namespace: "html",
+        attributes: { for: "evidence-delete-project-confirm" },
+        properties: {
+          innerHTML: getString("dialog-delete-project-confirm-label"),
+        },
+      })
+      .addCell(
+        4,
+        1,
+        {
+          tag: "input",
+          namespace: "html",
+          id: "evidence-delete-project-confirm",
+          attributes: {
+            "data-bind": "confirmName",
+            "data-prop": "value",
+            type: "text",
+          },
+        },
+        false,
+      )
+      .addButton(getString("dialog-delete-project-confirm-button"), "confirm")
+      .addButton(getString("dialog-cancel"), "cancel")
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-delete-project-title"),
+      520,
+    );
+
+    // The name-to-type-to-confirm display must track whichever project is
+    // currently selected in the dropdown, not just the initial default --
+    // see watchSelectValue's own comment for why polling is needed instead
+    // of a change-event listener. Same delay as every other dialog that
+    // wires up watchSelectValue (criteriaDialog, codebookViewDialog, ...):
+    // dialog.window/its DOM aren't necessarily ready the instant
+    // openSizedDialog() returns, so grabbing the <select> immediately can
+    // silently find nothing and watchSelectValue no-ops.
+    await Zotero.Promise.delay(50);
+    const projectSelectEl = dialog.window?.document.getElementById(
+      "evidence-delete-project-select",
+    ) as HTMLSelectElement | null;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      projectSelectEl,
+      (value) => {
+        const project = projects.find((p) => p.id === Number(value));
+        const displayEl = dialog.window?.document.getElementById(
+          "evidence-delete-project-name-display",
+        );
+        if (displayEl && project) displayEl.textContent = project.name;
+      },
+    );
+
+    await dialogData.unloadLock.promise;
+    if (dialogData._lastButtonId !== "confirm") return;
+
+    const projectId = Number(dialogData.projectId);
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    const typedName = String(dialogData.confirmName || "").trim();
+    if (typedName !== project.name) {
+      ztoolkit.getGlobal("alert")(
+        getString("error-delete-project-name-mismatch"),
+      );
+      return;
+    }
+
+    await deleteProject(project.id);
+    await refreshProjectPaneContextCache();
+    new ztoolkit.ProgressWindow(addon.data.config.addonName)
+      .createLine({
+        text: getString("progress-project-deleted", {
           args: { name: project.name },
         }),
         type: "success",

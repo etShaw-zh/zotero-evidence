@@ -85,3 +85,59 @@ export async function getProjectById(
   )) as any[];
   return rows && rows[0] ? rowToProject(rows[0]) : null;
 }
+
+/**
+ * Permanently deletes a project: every Collection in its tree (root and all
+ * descendants), every Item filed anywhere in that tree (not just trashed --
+ * actually erased, since the confirmation dialog promises this can't be
+ * undone), and every row this plugin's own tables hold for the project.
+ *
+ * Deletes items before the root Collection so getDescendents() still has a
+ * tree to walk; deletes DB rows in child-before-parent order to respect the
+ * FK relationships in schema.ts (real Zotero's SQLite enforces them even
+ * though the test harness doesn't).
+ */
+export async function deleteProject(projectId: number): Promise<void> {
+  await databaseService.init();
+  const project = await getProjectById(projectId);
+  if (!project) {
+    throw new Error(`No evidence project found with id ${projectId}`);
+  }
+
+  const root = Zotero.Collections.getByLibraryAndKey(
+    Zotero.Libraries.userLibraryID,
+    project.collectionKey,
+  ) as Zotero.Collection | false;
+  if (root) {
+    const itemIds = root.getDescendents(false, "item", true).map((d) => d.id);
+    for (const itemId of itemIds) {
+      const item = Zotero.Items.get(itemId);
+      if (item) await item.eraseTx();
+    }
+    await root.eraseTx();
+  }
+
+  await databaseService.executeTransaction(async () => {
+    await databaseService.queryAsync(
+      `DELETE FROM synthesis_themes WHERE coding_record_id IN
+       (SELECT id FROM coding_records WHERE project_id = ?)`,
+      [projectId],
+    );
+    for (const table of [
+      "coding_records",
+      "codebooks",
+      "screening_records",
+      "screening_criteria",
+      "item_sources",
+    ]) {
+      await databaseService.queryAsync(
+        `DELETE FROM ${table} WHERE project_id = ?`,
+        [projectId],
+      );
+    }
+    await databaseService.queryAsync(
+      `DELETE FROM evidence_projects WHERE id = ?`,
+      [projectId],
+    );
+  });
+}

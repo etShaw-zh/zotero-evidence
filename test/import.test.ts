@@ -1,7 +1,9 @@
 import { assert } from "chai";
 import {
   createProject,
+  deleteProject,
   EvidenceProject,
+  getProjectById,
 } from "../src/modules/project/projectManager";
 import {
   CODING,
@@ -19,6 +21,8 @@ import {
   TA_UNCLEAR,
 } from "../src/modules/project/collectionStructure";
 import { importLiteratureFile } from "../src/modules/import/importService";
+import { databaseService } from "../src/modules/db/database";
+import { saveCodebook } from "../src/modules/coding/codebookService";
 
 // Project rows and Zotero Collections live in separate id spaces
 // (evidence_projects.id is a SQLite autoincrement; Collection ids are
@@ -92,6 +96,87 @@ describe("Phase 1: project structure, import, dedup", function () {
     assert.isNumber(collections.taIncludeId);
     assert.isNumber(collections.ftQueueId);
     assert.isNumber(collections.codingId);
+  });
+
+  it("deleteProject erases the Collection tree, its items, and every DB row for the project", async function () {
+    const project = await createProject(`Evidence Delete Test ${Date.now()}`);
+    const collections = resolveProjectCollections(getRootCollectionId(project));
+
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "Delete Test Item");
+    await item.saveTx();
+    item.addToCollection(collections.screenQueueId);
+    await item.saveTx();
+    const itemId = item.id;
+
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `INSERT INTO screening_criteria (project_id, stage, version, criteria, created_at)
+       VALUES (?, 'ta', 1, '{}', ?)`,
+      [project.id, new Date().toISOString()],
+    );
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage) VALUES (?, ?, 'ta_screening')`,
+      [project.id, item.key],
+    );
+    const codebook = await saveCodebook(project.id, [
+      { name: "population", type: "text" },
+    ]);
+    await databaseService.queryAsync(
+      `INSERT INTO coding_records
+        (project_id, codebook_id, item_key, variable_name, variable_value, confirmed, created_at, updated_at)
+       VALUES (?, ?, ?, 'population', 'Adults', 1, ?, ?)`,
+      [
+        project.id,
+        codebook.id,
+        item.key,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
+    );
+    const codingRecordId = await databaseService.getLastInsertId();
+    await databaseService.queryAsync(
+      `INSERT INTO synthesis_themes (coding_record_id, theme, created_at, updated_at)
+       VALUES (?, 'Theme A', ?, ?)`,
+      [codingRecordId, new Date().toISOString(), new Date().toISOString()],
+    );
+
+    await deleteProject(project.id);
+
+    assert.isFalse(
+      !!Zotero.Collections.get(collections.rootId),
+      "root Collection should be gone",
+    );
+    assert.isFalse(!!Zotero.Items.get(itemId), "item should be erased");
+    assert.isNull(
+      await getProjectById(project.id),
+      "evidence_projects row should be gone",
+    );
+    for (const table of [
+      "screening_criteria",
+      "screening_records",
+      "codebooks",
+      "coding_records",
+      "item_sources",
+    ]) {
+      const rows = await databaseService.queryAsync(
+        `SELECT * FROM ${table} WHERE project_id = ?`,
+        [project.id],
+      );
+      assert.isEmpty(
+        rows,
+        `${table} should have no rows for the deleted project`,
+      );
+    }
+    const themeRows = await databaseService.queryAsync(
+      `SELECT * FROM synthesis_themes WHERE coding_record_id = ?`,
+      [codingRecordId],
+    );
+    assert.isEmpty(
+      themeRows,
+      "synthesis_themes should have no rows for the deleted project",
+    );
   });
 
   it("names a new project's top-level Collections with pipeline-order number prefixes", async function () {
