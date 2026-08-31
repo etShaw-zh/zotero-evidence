@@ -81,6 +81,21 @@ export const SCHEMA_STATEMENTS: string[] = [
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id),
     FOREIGN KEY (codebook_id) REFERENCES codebooks(id)
   )`,
+  // Synthesis themes deliberately live in their own table rather than a
+  // column on coding_records: that table is shared by every other coding
+  // flow, and this feature is layered entirely on top of it (one row per
+  // coding_records id that's been through a Synthesis run) -- keeping it
+  // separate means Synthesis can never risk that shared table's shape or
+  // existing data, and this table only needs a plain CREATE TABLE IF NOT
+  // EXISTS (see database.ts), not an ALTER-TABLE column migration.
+  `CREATE TABLE IF NOT EXISTS synthesis_themes (
+    id INTEGER PRIMARY KEY,
+    coding_record_id INTEGER NOT NULL UNIQUE,
+    theme TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (coding_record_id) REFERENCES coding_records(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on

@@ -154,6 +154,9 @@ function onDialogEvents(type: string) {
     case "evidenceCodebookEditVariable":
       EvidenceCommands.codebookEditVariableDialog();
       break;
+    case "evidenceSynthesis":
+      EvidenceCommands.synthesisDialog();
+      break;
     case "evidenceExportPrisma":
       EvidenceCommands.exportPrismaDialog();
       break;
@@ -162,6 +165,9 @@ function onDialogEvents(type: string) {
       break;
     case "evidenceExportCoding":
       EvidenceCommands.exportCodingDataDialog();
+      break;
+    case "evidenceExportSynthesis":
+      EvidenceCommands.exportSynthesisDataDialog();
       break;
     default:
       break;

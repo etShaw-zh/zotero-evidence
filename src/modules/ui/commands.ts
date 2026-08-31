@@ -14,7 +14,13 @@ import {
   saveCodebook,
 } from "../coding/codebookService";
 import { computeCodingStats } from "../coding/codingService";
+import {
+  getSynthesisRows,
+  runSynthesis,
+  SynthesisRow,
+} from "../coding/synthesisService";
 import { exportCodingData } from "../export/codingExport";
+import { exportSynthesisData } from "../export/synthesisExport";
 import {
   computePrismaData,
   exportScreeningLog,
@@ -24,7 +30,7 @@ import {
   importDirectToCoding,
   importLiteratureFile,
 } from "../import/importService";
-import { escapeHtml, resolveAttachment } from "./paneHelpers";
+import { escapeHtml, quotePreview, resolveAttachment } from "./paneHelpers";
 import {
   resolveProjectCollections,
   SOURCE_DATABASE_LABELS,
@@ -122,6 +128,12 @@ export class EvidenceCommands {
         },
       ],
     });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-synthesis",
+      label: getString("menu-synthesis"),
+      commandListener: () => addon.hooks.onDialogEvents("evidenceSynthesis"),
+    });
     ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
     ztoolkit.Menu.register("menuFile", {
       tag: "menuitem",
@@ -141,6 +153,13 @@ export class EvidenceCommands {
       id: "zotero-evidence-export-coding",
       label: getString("menu-export-coding"),
       commandListener: () => addon.hooks.onDialogEvents("evidenceExportCoding"),
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-export-synthesis",
+      label: getString("menu-export-synthesis"),
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceExportSynthesis"),
     });
     ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
     ztoolkit.Menu.register("menuFile", {
@@ -2084,6 +2103,290 @@ export class EvidenceCommands {
     }
   }
 
+  // Same reopen-on-project-change loop as codebookEditVariableDialog, and
+  // for the same reason: the variable picker is a real ztoolkit `select`
+  // (so it looks/behaves exactly like every other dropdown in this dialog),
+  // and that widget's option popup can only be built once, from static
+  // `children`, at construction time -- switching project needs a
+  // different variable list, so this closes and reopens rather than trying
+  // to refresh the popup in place. Switching the VARIABLE within one
+  // project doesn't have that problem (its option list is already known),
+  // so that just rebuilds the results table in place via refreshTable().
+  static async synthesisDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    let projectId = projects[0].id;
+
+    while (true) {
+      const codebook = await getLatestCodebook(projectId);
+      const variables = codebook?.variables ?? [];
+      const first = variables[0];
+
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        variableName: first?.name ?? "",
+      };
+
+      const dialog = new ztoolkit.Dialog(6, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: { innerHTML: getString("dialog-synthesis-title") },
+        })
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-synthesis-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-edit-variable-select-label"),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-synthesis-variable",
+            attributes: { "data-bind": "variableName", "data-prop": "value" },
+            children: variables.map((v) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: v.name, innerHTML: escapeHtml(v.name) },
+            })),
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "div",
+          namespace: "html",
+          id: "evidence-synthesis-table-container",
+          styles: { maxHeight: "440px", overflow: "auto", marginTop: "6px" },
+        })
+        .addCell(
+          4,
+          0,
+          {
+            tag: "button",
+            namespace: "html",
+            id: "evidence-synthesis-run",
+            attributes: { type: "button" },
+            properties: { innerHTML: getString("synthesis-run-button") },
+          },
+          false,
+        )
+        .addCell(
+          4,
+          1,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-synthesis-status",
+          },
+          false,
+        )
+        .addButton(getString("dialog-close"), "close")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-synthesis-title"),
+        900,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const variableSelectEl = doc?.getElementById(
+        "evidence-synthesis-variable",
+      ) as HTMLSelectElement | undefined;
+      const tableContainer = doc?.getElementById(
+        "evidence-synthesis-table-container",
+      );
+      const runBtn = doc?.getElementById("evidence-synthesis-run") as
+        | HTMLButtonElement
+        | undefined;
+      const statusEl = doc?.getElementById("evidence-synthesis-status");
+
+      // History here matters -- three data points across this feature's
+      // debugging: (A) table-layout:fixed + <colgroup>/<col> + position:
+      // sticky = Zotero crashed outright on open; (B) none of the three,
+      // per-element inline styles, char-truncated text, plain auto table
+      // layout = confirmed stable; (C) dropped colgroup/sticky but brought
+      // table-layout:fixed BACK (via a shared injected <style> instead) =
+      // crashed again. table-layout:fixed is the one thing present in both
+      // crashing attempts and absent from the only stable one, so it and
+      // the shared <style>/CSS-class approach are BOTH out for good here --
+      // this is back to (B)'s exact technique (per-element cssText, no
+      // classes, no injected stylesheet, no forced layout), with only the
+      // VISUAL VALUES improved (header tint, single-line via inline
+      // white-space:nowrap) on top of that proven-safe foundation. No
+      // text-overflow:ellipsis either -- quotePreview already appends its
+      // own "…" at the string level when it truncates, so there's no need
+      // for the CSS version of the same thing.
+      const MAX_DISPLAY_ROWS = 150;
+      const renderTable = (rows: SynthesisRow[]) => {
+        if (!tableContainer) return;
+        tableContainer.innerHTML = "";
+        if (rows.length === 0) {
+          tableContainer.appendChild(
+            doc!.createElementNS(HTML_NS, "p") as HTMLElement,
+          ).textContent = getString("synthesis-no-records");
+          return;
+        }
+        const shown = rows.slice(0, MAX_DISPLAY_ROWS);
+        const table = doc!.createElementNS(
+          HTML_NS,
+          "table",
+        ) as HTMLTableElement;
+        table.style.cssText = "width:100%;border-collapse:collapse;";
+        const headRow = doc!.createElementNS(HTML_NS, "tr");
+        for (const label of [
+          getString("synthesis-col-source"),
+          getString("synthesis-col-name"),
+          getString("synthesis-col-value"),
+          getString("synthesis-col-quote"),
+          getString("synthesis-col-theme"),
+        ]) {
+          const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+          th.textContent = label;
+          th.style.cssText =
+            "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+          headRow.appendChild(th);
+        }
+        table.appendChild(headRow);
+        for (const row of shown) {
+          const tr = doc!.createElementNS(HTML_NS, "tr");
+          const cells: [string, number][] = [
+            [row.itemTitle, 40],
+            [row.variableName, 22],
+            [row.variableValue, 22],
+            [row.quote || "", 80],
+            [row.theme || "", 36],
+          ];
+          for (const [text, max] of cells) {
+            const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+            td.textContent = quotePreview(text, max);
+            if (text) td.title = text;
+            td.style.cssText =
+              "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+        tableContainer.appendChild(table);
+        if (rows.length > shown.length) {
+          const note = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          note.style.cssText = "color:#888;font-size:0.85em;margin-top:4px;";
+          note.textContent = getString("synthesis-truncated", {
+            args: { shown: shown.length, total: rows.length },
+          });
+          tableContainer.appendChild(note);
+        }
+      };
+
+      const refreshTable = async () => {
+        try {
+          if (!dialogData.variableName) {
+            renderTable([]);
+            return;
+          }
+          const rows = await getSynthesisRows(
+            Number(dialogData.projectId),
+            dialogData.variableName,
+          );
+          renderTable(rows);
+        } catch (e: any) {
+          // Surface a diagnosable message instead of leaving the table
+          // area stuck or silently empty if rendering/fetching fails.
+          ztoolkit.log("Synthesis table render failed", e);
+          if (tableContainer) {
+            tableContainer.textContent = `${getString("synthesis-error")} ${e?.message ?? e}`;
+          }
+        }
+      };
+
+      await refreshTable();
+
+      const projectSelectEl = doc?.getElementById(
+        "evidence-synthesis-project",
+      ) as HTMLSelectElement | undefined;
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        variableSelectEl,
+        async (value) => {
+          dialogData.variableName = value;
+          await refreshTable();
+        },
+      );
+
+      runBtn?.addEventListener("click", async () => {
+        if (!dialogData.variableName) return;
+        runBtn.setAttribute("disabled", "true");
+        if (statusEl) statusEl.textContent = getString("synthesis-loading");
+        try {
+          const rows = await runSynthesis(
+            Number(dialogData.projectId),
+            dialogData.variableName,
+          );
+          renderTable(rows);
+          if (statusEl) statusEl.textContent = getString("synthesis-done");
+        } catch (e: any) {
+          if (statusEl) statusEl.textContent = getString("synthesis-error");
+          ztoolkit.getGlobal("alert")(
+            `${getString("synthesis-error")}\n${e?.message ?? e}`,
+          );
+        } finally {
+          runBtn.removeAttribute("disabled");
+        }
+      });
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      return;
+    }
+  }
+
   private static async pickProjectForExport(
     titleKey: FluentMessageId,
   ): Promise<EvidenceProject | null> {
@@ -2200,6 +2503,23 @@ export class EvidenceCommands {
     }
     await EvidenceCommands.saveExportFile(
       `${project.name}-coding-data.csv`,
+      csv,
+    );
+  }
+
+  static async exportSynthesisDataDialog() {
+    const project = await EvidenceCommands.pickProjectForExport(
+      "dialog-export-synthesis-title",
+    );
+    if (!project) return;
+
+    const csv = await exportSynthesisData(project.id);
+    if (csv.split("\n").length <= 1) {
+      ztoolkit.getGlobal("alert")(getString("error-export-no-data"));
+      return;
+    }
+    await EvidenceCommands.saveExportFile(
+      `${project.name}-synthesis-data.csv`,
       csv,
     );
   }
