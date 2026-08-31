@@ -82,9 +82,17 @@ function sanitizeItemJson(
  * Restores a project from a .zip produced by exportProjectArchive(): always
  * creates a brand-new project (auto-suffixing the name on a collision, per
  * REQUIREMENTS -- Archive & Share), never overwrites an existing one.
+ *
+ * `libraryID` defaults to the personal library (matching the pre-group-
+ * library-support behavior of always restoring there) but can target any
+ * writable library instead -- the archive itself carries no library of its
+ * own, since a project can be archived from one library and restored into
+ * a different one entirely (that's the whole point of letting the caller
+ * choose here rather than baking the original library into the manifest).
  */
 export async function importProjectArchive(
   zipPath: string,
+  libraryID: number = Zotero.Libraries.userLibraryID,
 ): Promise<EvidenceProject> {
   await databaseService.init();
 
@@ -109,7 +117,7 @@ export async function importProjectArchive(
     ) as ArchiveManifest;
 
     const projectName = await uniqueProjectName(manifest.project.name);
-    const project = await createProject(projectName);
+    const project = await createProject(projectName, libraryID);
     const rootId = getRootCollectionId(project);
     if (rootId === null) {
       throw new Error(

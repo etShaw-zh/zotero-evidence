@@ -241,4 +241,24 @@ describe("Archive & Share (export/restore round trip)", function () {
     assert.equal(second.name, `${project.name} (3)`);
     assert.notEqual(first.id, second.id);
   });
+
+  it("importProjectArchive restores into an explicitly chosen library rather than always the personal one", async function () {
+    // No real Group library is constructible offline in this test harness
+    // (see import.test.ts's equivalent createProject test) -- this proves
+    // the libraryID parameter threads all the way through to the restored
+    // project rather than being silently ignored, using the only library
+    // actually available here.
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const project = await createProject(`Archive Library Test ${Date.now()}`);
+    const zipFile = Zotero.File.pathToFile(Zotero.DataDirectory.dir) as any;
+    zipFile.append(`archive-library-${Date.now()}.zip`);
+    await exportProjectArchive(project.id, zipFile.path);
+
+    const restored = await importProjectArchive(zipFile.path, libraryID);
+    assert.equal(restored.libraryID, libraryID);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(restored)!,
+    );
+    assert.equal(collections.libraryID, libraryID);
+  });
 });

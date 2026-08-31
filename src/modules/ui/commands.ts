@@ -646,13 +646,63 @@ export class EvidenceCommands {
   }
 
   static async restoreArchiveDialog() {
-    const dialogData: { [key: string]: any } = { filePath: "" };
-    const dialog = new ztoolkit.Dialog(3, 2)
-      .addCell(0, 0, {
+    // Same reasoning as newProjectDialog: an archive carries no library of
+    // its own (you might restore it into a different library than it was
+    // archived from), so the picker offers every *writable* library, and
+    // only appears at all when there's an actual choice to make.
+    const writableLibraries = Zotero.Libraries.getAll().filter((lib) =>
+      Zotero.Libraries.isEditable(lib.libraryID),
+    );
+    const showLibraryPicker = writableLibraries.length > 1;
+
+    const dialogData: { [key: string]: any } = {
+      filePath: "",
+      libraryID: String(Zotero.Libraries.userLibraryID),
+    };
+
+    const fileLabelRow = showLibraryPicker ? 2 : 1;
+    const fileButtonRow = showLibraryPicker ? 3 : 2;
+
+    const dialog = new ztoolkit.Dialog(showLibraryPicker ? 4 : 3, 2).addCell(
+      0,
+      0,
+      {
         tag: "h1",
         properties: { innerHTML: getString("dialog-restore-archive-title") },
-      })
-      .addCell(1, 0, {
+      },
+    );
+
+    if (showLibraryPicker) {
+      dialog
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-new-project-library-label"),
+          },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            attributes: { "data-bind": "libraryID", "data-prop": "value" },
+            children: writableLibraries.map((lib) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(lib.libraryID),
+                innerHTML: escapeHtml(lib.name),
+              },
+            })),
+          },
+          false,
+        );
+    }
+
+    dialog
+      .addCell(fileLabelRow, 0, {
         tag: "label",
         namespace: "html",
         properties: {
@@ -660,7 +710,7 @@ export class EvidenceCommands {
         },
       })
       .addCell(
-        1,
+        fileLabelRow,
         1,
         {
           tag: "label",
@@ -673,7 +723,7 @@ export class EvidenceCommands {
         false,
       )
       .addCell(
-        2,
+        fileButtonRow,
         1,
         {
           tag: "button",
@@ -717,6 +767,8 @@ export class EvidenceCommands {
       ztoolkit.getGlobal("alert")(getString("error-no-file-selected"));
       return;
     }
+    const libraryID =
+      Number(dialogData.libraryID) || Zotero.Libraries.userLibraryID;
 
     const progressWindow = new ztoolkit.ProgressWindow(
       addon.data.config.addonName,
@@ -728,7 +780,10 @@ export class EvidenceCommands {
       })
       .show();
     try {
-      const project = await importProjectArchive(String(dialogData.filePath));
+      const project = await importProjectArchive(
+        String(dialogData.filePath),
+        libraryID,
+      );
       progressWindow.changeLine({
         text: getString("progress-restore-archive-done", {
           args: { name: project.name },
