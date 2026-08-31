@@ -82,4 +82,4 @@ test/               # suite de tests Mocha, exécutée dans Zotero via `npm test
 
 ## Licence
 
-AGPL-3.0-or-later. Voir [LICENSE](../LICENSE). Aucune garantie n'est fournie — gardez à l'esprit les lois de votre pays.
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, voir [LICENSE](../LICENSE). Aucune garantie n'est fournie — gardez à l'esprit les lois de votre pays.

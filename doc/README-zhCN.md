@@ -83,4 +83,4 @@ test/               # Mocha 测试套件，通过 `npm test` 在 Zotero 内运�
 
 ## 许可协议
 
-AGPL-3.0-or-later，详见 [LICENSE](../LICENSE)。不提供任何保证，请遵守你所在地区的法律。
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com)。AGPL-3.0-or-later，详见 [LICENSE](../LICENSE)。不提供任何保证，请遵守你所在地区的法律。
