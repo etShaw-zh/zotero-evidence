@@ -39,7 +39,7 @@ Chaque étape déplace les références entre des Collections fixes créées aut
 
 1. Installez l'extension dans Zotero 7, 8 ou 9.
 2. **File → AI Provider Settings…** : renseignez point d'accès, modèle, clé API.
-3. **File → New Evidence Project…**, puis **Import Literature…**.
+3. **File → New Evidence Project…**, puis **Import Evidence Literature…**.
 4. **File → Configure Title/Abstract / Full-Text Screening Criteria…**.
 5. **File → Extract Codebook →** définissez les variables (ou importez-les depuis un CSV) avant de commencer le codage.
 6. Parcourez `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
@@ -84,5 +84,5 @@ test/               # suite de tests Mocha, exécutée dans Zotero via `npm test
 
 ## Licence
 
-Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, voir [LICENSE](../LICENSE).   
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, voir [LICENSE](../LICENSE).  
 Aucune garantie n'est fournie — gardez à l'esprit les lois de votre pays.

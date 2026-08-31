@@ -39,7 +39,7 @@ Each stage moves references through a fixed set of Collections created automatic
 
 1. Install the plugin in Zotero 7, 8 or 9.
 2. **File → AI Provider Settings…** — set endpoint, model, API key.
-3. **File → New Evidence Project…**, then **Import Literature…**.
+3. **File → New Evidence Project…**, then **Import Evidence Literature…**.
 4. **File → Configure Title/Abstract / Full-Text Screening Criteria…**.
 5. **File → Extract Codebook →** define variables (or import from CSV) before coding begins.
 6. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
@@ -84,5 +84,5 @@ test/               # Mocha suite, run inside Zotero via `npm test`
 
 ## License
 
-Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, see [LICENSE](LICENSE).   
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, see [LICENSE](LICENSE).  
 No warranties are provided — keep the laws of your locality in mind.

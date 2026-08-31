@@ -39,7 +39,7 @@
 
 1. 在 Zotero 7、8 或 9 中安装插件。
 2. **文件 → AI Provider 设置…**：填入端点、模型、API Key。
-3. **文件 → 新建 Evidence 项目…**，然后 **导入文献…**。
+3. **文件 → 新建 Evidence 项目…**，然后 **导入Evidence文献…**。
 4. **文件 → 配置标题/摘要 / 全文筛选标准…**。
 5. **文件 → 提取编码手册 →** 在开始编码前定义变量（或从 CSV 导入）。
 6. 依次处理 `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`。
