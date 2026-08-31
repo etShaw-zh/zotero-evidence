@@ -10,10 +10,10 @@
 ## Flux de travail
 
 ```
-Import & dédoublonnage → Tri titre/résumé (TA-Screening) → Tri du texte intégral (FT-Screening) → Codage (Extract Coding) → Export
+Import & dédoublonnage → Tri titre/résumé (TA-Screening) → Tri du texte intégral (FT-Screening) → Codage (Extract Coding) → Synthèse (Synthesis) → Export
 ```
 
-Chaque étape déplace les références entre un ensemble fixe de Collections créées automatiquement pour chaque projet (`Sources`, `Screen Queue`, `TA-Include/Exclude/Unclear`, `FT-Queue`, `FT-Include/Exclude/Unavailable`, `Coding`), de sorte que l'état actuel de chaque référence est toujours visible directement dans le panneau de la bibliothèque Zotero.
+Chaque étape déplace les références entre un ensemble fixe et numéroté de Collections créées automatiquement pour chaque projet — `1. Sources` → `2. TA-Screen Queue` → `3. TA-Screening Results` (`TA-Include`/`TA-Exclude`/`TA-Unclear`) → `4. FT-Screen Queue` → `5. FT-Screening Results` (`FT-Include`/`FT-Exclude`/`FT-Unavailable`) → `6. Extract Coding` — de sorte que l'état actuel de chaque référence est toujours visible directement dans le panneau de la bibliothèque Zotero.
 
 ## Fonctionnalités
 
@@ -43,11 +43,17 @@ Chaque étape déplace les références entre un ensemble fixe de Collections cr
 - Passez en revue les suggestions une à une, ou acceptez/rejetez-les en masse ; ajoutez manuellement ce que l'IA aurait manqué ; annulez un enregistrement confirmé si nécessaire.
 - Même répartition lecteur/bibliothèque que pour le FT-Screening : l'éditeur interactif se trouve dans le lecteur PDF, la vue bibliothèque affiche un résumé en lecture seule des preuves confirmées.
 
+### Synthèse (Synthesis)
+
+- Choisissez une variable du Codebook et consultez, sous forme de tableau, toutes les valeurs/citations confirmées pour cette variable à l'échelle du projet, une ligne par article avec sa référence.
+- Un clic lance la synthèse thématique par IA : elle regroupe les lignes en un petit nombre de thèmes récurrents (les lignes partageant un thème reçoivent un libellé identique) et enregistre le résultat ; relancer l'opération régénère toujours l'ensemble du tableau.
+
 ### Rapports
 
 - **Export PRISMA Data** — comptages par étape et répartition des motifs d'exclusion, prêts pour un diagramme de flux PRISMA.
 - **Export Screening Decision Log** — journal d'audit détaillé de chaque décision de tri, par référence.
 - **Export Extract Coding Data** — l'ensemble des correspondances variable/valeur confirmées.
+- **Export Synthesis Data** — toutes les correspondances variable/valeur/citation confirmées à l'échelle du projet, avec leur thème.
 - **Screening Progress** — un tableau de bord en direct des comptages de chaque projet à travers toutes les étapes du pipeline.
 
 ### Fournisseur IA
@@ -61,8 +67,9 @@ Utilisez le fournisseur compatible OpenAI (chat/completions) de votre choix : po
 3. **File → New Evidence Project…**
 4. **File → Import Literature…** pour importer vos résultats de recherche (ou **Import Extract Literature…** si la littérature a déjà été triée ailleurs).
 5. **File → Configure Title/Abstract Screening Criteria…** et **Configure Full-Text Screening Criteria…** pour définir votre question de recherche et vos critères d'inclusion/exclusion.
-6. Parcourez `Screen Queue` → `FT-Queue` → `Coding` : décidez depuis le panneau de l'item (étape titre/résumé et résumés en bibliothèque) et depuis la barre latérale du lecteur PDF (étape texte intégral et codage).
-7. **File → Export PRISMA Data…** / **Export Screening Decision Log…** / **Export Extract Coding Data…** au moment de la rédaction.
+6. Parcourez `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding` : décidez depuis le panneau de l'item (étape titre/résumé et résumés en bibliothèque) et depuis la barre latérale du lecteur PDF (étape texte intégral et codage).
+7. **File → Synthesis…** pour voir les thèmes transversaux d'une variable du Codebook une fois suffisamment de preuves codées.
+8. **File → Export PRISMA Data…** / **Export Screening Decision Log…** / **Export Extract Coding Data…** / **Export Synthesis Data…** au moment de la rédaction.
 
 ## Développement
 

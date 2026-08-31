@@ -10,10 +10,10 @@
 ## Workflow
 
 ```
-Import & Dedup → Title/Abstract Screening → Full-Text Screening → Extract Coding → Export
+Import & Dedup → Title/Abstract Screening → Full-Text Screening → Extract Coding → Synthesis → Export
 ```
 
-Each stage moves references between a fixed set of Collections created automatically for every project (`Sources`, `Screen Queue`, `TA-Include/Exclude/Unclear`, `FT-Queue`, `FT-Include/Exclude/Unavailable`, `Coding`), so the current state of every reference is always visible directly in the Zotero library pane.
+Each stage moves references between a fixed, numbered set of Collections created automatically for every project — `1. Sources` → `2. TA-Screen Queue` → `3. TA-Screening Results` (`TA-Include`/`TA-Exclude`/`TA-Unclear`) → `4. FT-Screen Queue` → `5. FT-Screening Results` (`FT-Include`/`FT-Exclude`/`FT-Unavailable`) → `6. Extract Coding` — so the current state of every reference is always visible directly in the Zotero library pane.
 
 ## Features
 
@@ -43,11 +43,17 @@ Each stage moves references between a fixed set of Collections created automatic
 - Review suggestions one at a time or accept/reject them in bulk; add mappings manually for anything AI missed; undo a confirmed record if you change your mind.
 - Same reader/library split as FT-Screening: the interactive editor lives in the PDF reader, the library view shows a read-only confirmed-evidence summary.
 
+### Synthesis
+
+- Pick a Codebook variable and see every confirmed value/quote for it project-wide, one row per paper, in a table.
+- One click runs AI thematic synthesis: it groups the rows into a small set of recurring themes (rows sharing a theme get identical labels) and saves the result; re-running always regenerates the whole table.
+
 ### Reporting
 
 - **Export PRISMA Data** — stage counts and an exclusion-reason breakdown, ready for a PRISMA flow diagram.
 - **Export Screening Decision Log** — a per-reference audit trail of every screening decision.
 - **Export Extract Coding Data** — the full set of confirmed variable/value mappings.
+- **Export Synthesis Data** — every confirmed variable/value/quote project-wide, plus its theme.
 - **Screening Progress** — a live dashboard of every project's counts across all pipeline stages.
 
 ### AI provider
@@ -61,8 +67,9 @@ Bring your own OpenAI-compatible chat/completions endpoint, model, and API key. 
 3. **File → New Evidence Project…**
 4. **File → Import Literature…** to pull in your search results (or **Import Extract Literature…** if the literature is already screened).
 5. **File → Configure Title/Abstract Screening Criteria…** and **Configure Full-Text Screening Criteria…** to set your research question and inclusion/exclusion rules.
-6. Work through `Screen Queue` → `FT-Queue` → `Coding`, deciding items from the item pane (title/abstract stage and library summaries) and the PDF reader sidebar (full-text stage and coding).
-7. **File → Export PRISMA Data…** / **Export Screening Decision Log…** / **Export Extract Coding Data…** when you're ready to write up.
+6. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`, deciding items from the item pane (title/abstract stage and library summaries) and the PDF reader sidebar (full-text stage and coding).
+7. **File → Synthesis…** to see cross-study themes for any Codebook variable once enough evidence is coded.
+8. **File → Export PRISMA Data…** / **Export Screening Decision Log…** / **Export Extract Coding Data…** / **Export Synthesis Data…** when you're ready to write up.
 
 ## Development
 
