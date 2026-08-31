@@ -108,6 +108,29 @@ async function waitUntil(
   }
 }
 
+// Same race as above, but for assertions that need the actual matched node
+// afterward (not just a boolean): polling with waitUntil() and then
+// re-querying the DOM in a separate statement leaves a gap -- the `await`
+// inside waitUntil's own delay loop yields to the event loop at least once,
+// during which a re-render can swap out the exact node the poll just found,
+// so the follow-up query can come back empty even though the poll "passed".
+// Returning the node directly from inside the synchronous `get()` call that
+// found it closes that gap: nothing yields between "found it" and "handed
+// it back to the caller".
+async function waitForValue<T>(
+  get: () => T | null | undefined,
+  timeoutMs = 15000,
+  intervalMs = 100,
+): Promise<T> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const value = get();
+    if (value) return value;
+    await Zotero.Promise.delay(intervalMs);
+  }
+  throw new Error("waitForValue: timed out waiting for a truthy value");
+}
+
 describe("Coding item-pane section", function () {
   describe("(reader)", function () {
     this.timeout(60000);
@@ -303,22 +326,17 @@ describe("Coding item-pane section", function () {
       );
       await Zotero.Promise.delay(300);
       await ZoteroPaneGlobal.selectItem(item.id);
-      await waitUntil(
-        () =>
-          !!doc
-            .getElementById("zotero-view-item")
-            ?.querySelector(".zotero-evidence-confirmed-list"),
-      );
+      const confirmedList = await waitForValue(() => {
+        const c = doc.getElementById("zotero-view-item");
+        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
+        return c.querySelector(".zotero-evidence-confirmed-list");
+      });
 
       const container = doc.getElementById("zotero-view-item");
       assert.isNotNull(container, "#zotero-view-item should exist");
       assert.isTrue(
         container!.classList.contains("zotero-evidence-hide-native"),
         "native sections should be hidden while viewing a Coding-collection item",
-      );
-
-      const confirmedList = container!.querySelector(
-        ".zotero-evidence-confirmed-list",
       );
       assert.isNotNull(
         confirmedList,
@@ -371,12 +389,16 @@ describe("Coding item-pane section", function () {
       // .zotero-evidence-judgment-area div SYNCHRONOUSLY, before the pane's
       // own async content (awaited DB calls) fills that area in -- so
       // "the card exists" is true well before rendering is actually done.
-      // Poll for the content area to actually have something in it instead.
-      await waitUntil(() => {
+      // Poll for the content area to actually have something in it instead,
+      // and hand back the card node itself rather than re-querying for it
+      // afterward (see waitForValue's doc comment for why that re-query is
+      // a race).
+      const card = await waitForValue(() => {
         const c = doc.getElementById("zotero-view-item");
-        const found = c && findPaneCard(c, "zotero-evidence-coding");
+        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
+        const found = findPaneCard(c, "zotero-evidence-coding");
         const area = found?.querySelector(".zotero-evidence-judgment-area");
-        return !!area?.textContent?.trim();
+        return area?.textContent?.trim() ? found : null;
       });
 
       const container = doc.getElementById("zotero-view-item")!;
@@ -385,11 +407,7 @@ describe("Coding item-pane section", function () {
         "no confirmed-evidence list should render when there's nothing confirmed yet",
       );
       const emptyMessage = await pluginString("coding-summary-empty");
-      const bodyText = findPaneCard(
-        container,
-        "zotero-evidence-coding",
-      )?.textContent;
-      assert.include(bodyText, emptyMessage);
+      assert.include(card!.textContent, emptyMessage);
     });
   });
 });

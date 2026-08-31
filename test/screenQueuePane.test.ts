@@ -53,6 +53,29 @@ async function waitUntil(
   }
 }
 
+// Same race as above, but for assertions that need the actual matched node
+// afterward (not just a boolean): polling with waitUntil() and then
+// re-querying the DOM in a separate statement leaves a gap -- the `await`
+// inside waitUntil's own delay loop yields to the event loop at least once,
+// during which a re-render can swap out the exact node the poll just found,
+// so the follow-up query can come back empty even though the poll "passed".
+// Returning the node directly from inside the synchronous `get()` call that
+// found it closes that gap: nothing yields between "found it" and "handed
+// it back to the caller".
+async function waitForValue<T>(
+  get: () => T | null | undefined,
+  timeoutMs = 15000,
+  intervalMs = 100,
+): Promise<T> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const value = get();
+    if (value) return value;
+    await Zotero.Promise.delay(intervalMs);
+  }
+  throw new Error("waitForValue: timed out waiting for a truthy value");
+}
+
 describe("Screen Queue item-pane section", function () {
   this.timeout(30000);
 
@@ -93,12 +116,11 @@ describe("Screen Queue item-pane section", function () {
     );
     await Zotero.Promise.delay(300);
     await ZoteroPaneGlobal.selectItem(item.id);
-    await waitUntil(
-      () =>
-        !!doc
-          .getElementById("zotero-view-item")
-          ?.querySelector(".zotero-evidence-card"),
-    );
+    await waitForValue(() => {
+      const c = doc.getElementById("zotero-view-item");
+      if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
+      return c.querySelector(".zotero-evidence-card");
+    });
 
     const container = doc.getElementById("zotero-view-item");
     assert.isNotNull(container, "#zotero-view-item should exist");
@@ -163,20 +185,19 @@ describe("Screen Queue item-pane section", function () {
     await Zotero.Promise.delay(300);
     await ZoteroPaneGlobal.selectItem(item.id);
     const excludeLabel = await pluginString("screen-queue-decision-exclude");
-    await waitUntil(() => {
+    const excludeBtn = await waitForValue<HTMLButtonElement>(() => {
       const c = doc.getElementById("zotero-view-item");
-      if (!c) return false;
-      return Array.from(c.querySelectorAll(".zotero-evidence-buttons button"))
-        .filter(visible)
-        .some((b) => b.textContent === excludeLabel);
+      if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
+      return (
+        (
+          Array.from(
+            c.querySelectorAll(".zotero-evidence-buttons button"),
+          ) as HTMLButtonElement[]
+        )
+          .filter(visible)
+          .find((b) => b.textContent === excludeLabel) ?? null
+      );
     });
-
-    const container = doc.getElementById("zotero-view-item")!;
-    const excludeBtn = Array.from(
-      container.querySelectorAll(".zotero-evidence-buttons button"),
-    )
-      .filter(visible)
-      .find((b) => b.textContent === excludeLabel) as HTMLButtonElement;
     assert.isDefined(excludeBtn, "Exclude button should be rendered");
 
     const sectionRoot = excludeBtn.closest(

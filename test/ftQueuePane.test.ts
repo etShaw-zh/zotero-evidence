@@ -136,6 +136,29 @@ async function waitUntil(
   }
 }
 
+// Same race as above, but for assertions that need the actual matched node
+// afterward (not just a boolean): polling with waitUntil() and then
+// re-querying the DOM in a separate statement leaves a gap -- the `await`
+// inside waitUntil's own delay loop yields to the event loop at least once,
+// during which a re-render can swap out the exact node the poll just found,
+// so the follow-up query can come back empty even though the poll "passed".
+// Returning the node directly from inside the synchronous `get()` call that
+// found it closes that gap: nothing yields between "found it" and "handed
+// it back to the caller".
+async function waitForValue<T>(
+  get: () => T | null | undefined,
+  timeoutMs = 15000,
+  intervalMs = 100,
+): Promise<T> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const value = get();
+    if (value) return value;
+    await Zotero.Promise.delay(intervalMs);
+  }
+  throw new Error("waitForValue: timed out waiting for a truthy value");
+}
+
 describe("FT-Queue item-pane section", function () {
   describe("(reader)", function () {
     this.timeout(60000);
@@ -287,11 +310,12 @@ describe("FT-Queue item-pane section", function () {
       // own async content (awaited DB calls) fills that area in -- so "the
       // card exists" is true well before rendering is actually done. Poll
       // for the content area to actually have something in it instead.
-      await waitUntil(() => {
+      const card = await waitForValue(() => {
         const c = doc.getElementById("zotero-view-item");
-        const found = c ? findPaneCard(c, "zotero-evidence-ft-queue") : null;
+        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
+        const found = findPaneCard(c, "zotero-evidence-ft-queue");
         const area = found && paneContentArea(found);
-        return !!area?.textContent?.trim();
+        return area?.textContent?.trim() ? found : null;
       });
 
       const container = doc.getElementById("zotero-view-item");
@@ -300,7 +324,6 @@ describe("FT-Queue item-pane section", function () {
         container!.classList.contains("zotero-evidence-hide-native"),
         "native sections should be hidden while viewing FT-Screen Queue",
       );
-      const card = findPaneCard(container!, "zotero-evidence-ft-queue");
       assert.isNotNull(card, "custom FT-Queue card should be rendered");
 
       assert.isNull(
@@ -343,17 +366,16 @@ describe("FT-Queue item-pane section", function () {
       );
       await Zotero.Promise.delay(300);
       await ZoteroPaneGlobal.selectItem(item.id);
-      // See the earlier waitUntil in this file for why this checks the
-      // content area's text, not just the card's existence.
-      await waitUntil(() => {
+      // See the earlier waitForValue in this file for why this checks the
+      // content area's text and hide-native class, and returns the actual
+      // card node, rather than re-querying for it afterward.
+      const card = await waitForValue(() => {
         const c = doc.getElementById("zotero-view-item");
-        const found = c ? findPaneCard(c, "zotero-evidence-ft-queue") : null;
+        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
+        const found = findPaneCard(c, "zotero-evidence-ft-queue");
         const area = found && paneContentArea(found);
-        return !!area?.textContent?.trim();
+        return area?.textContent?.trim() ? found : null;
       });
-
-      const container = doc.getElementById("zotero-view-item")!;
-      const card = findPaneCard(container, "zotero-evidence-ft-queue")!;
 
       const humanLabel = await pluginString("ft-queue-history-human");
       const includeLabel = await pluginString("screen-queue-decision-include");
@@ -422,15 +444,14 @@ describe("FT-Queue item-pane section", function () {
       );
       await Zotero.Promise.delay(300);
       await ZoteroPaneGlobal.selectItem(item.id);
-      await waitUntil(() => {
+      const card = await waitForValue(() => {
         const c = doc.getElementById("zotero-view-item");
-        if (!c) return false;
+        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
         const found = findPaneCard(c, "zotero-evidence-ft-queue");
-        return !!found?.textContent?.includes("No control arm reported.");
+        return found?.textContent?.includes("No control arm reported.")
+          ? found
+          : null;
       });
-
-      const container = doc.getElementById("zotero-view-item")!;
-      const card = findPaneCard(container, "zotero-evidence-ft-queue")!;
 
       const aiLabel = await pluginString("ft-queue-history-ai");
       assert.include(card.textContent, aiLabel);
