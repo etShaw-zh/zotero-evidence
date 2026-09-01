@@ -9,8 +9,6 @@
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](LICENSE)
 
-**Zotero Evidence** turns a [Zotero](https://www.zotero.org/) library into a systematic-review workspace: import & dedup → title/abstract screening → full-text screening → evidence coding → synthesis → export, with AI assistance at every step and a human always confirming the final call.
-
 > [!WARNING]
 > Under active, high-frequency development — features, menus, and data formats can still change between releases.
 
