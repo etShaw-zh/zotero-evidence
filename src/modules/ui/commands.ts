@@ -1,4 +1,5 @@
 import { FluentMessageId } from "../../../typings/i10n";
+import { config } from "../../../package.json";
 import { getPref } from "../../utils/prefs";
 import { getString } from "../../utils/locale";
 import { runWithConcurrency } from "../../utils/concurrency";
@@ -66,61 +67,94 @@ export class EvidenceCommands {
   static registerMenus() {
     ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-new-project",
-      label: getString("menu-new-project"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceNewProject"),
+      tag: "menu",
+      id: "zotero-evidence-project-menu",
+      label: getString("menu-group-project"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-new-project",
+          label: getString("menu-new-project"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceNewProject"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-delete-project",
+          label: getString("menu-delete-project"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceDeleteProject"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-archive-project",
+          label: getString("menu-archive-project"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceArchiveProject"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-restore-archive",
+          label: getString("menu-restore-archive"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceRestoreArchive"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-progress",
+          label: getString("menu-progress"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceProgress"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-delete-project",
-      label: getString("menu-delete-project"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceDeleteProject"),
+      tag: "menu",
+      id: "zotero-evidence-import-menu",
+      label: getString("menu-group-import"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-import",
+          label: getString("menu-import"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceImport"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-import-extract",
+          label: getString("menu-import-extract"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceImportExtract"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-archive-project",
-      label: getString("menu-archive-project"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceArchiveProject"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-restore-archive",
-      label: getString("menu-restore-archive"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceRestoreArchive"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-import",
-      label: getString("menu-import"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceImport"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-import-extract",
-      label: getString("menu-import-extract"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceImportExtract"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-criteria",
-      label: getString("menu-criteria"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceCriteria"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-ft-criteria",
-      label: getString("menu-ft-criteria"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceFtCriteria"),
+      tag: "menu",
+      id: "zotero-evidence-criteria-menu",
+      label: getString("menu-group-criteria"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-criteria",
+          label: getString("menu-criteria"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceCriteria"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-ft-criteria",
+          label: getString("menu-ft-criteria"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceFtCriteria"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
       tag: "menu",
       id: "zotero-evidence-codebook-menu",
       label: getString("menu-codebook"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
       children: [
         {
           tag: "menuitem",
@@ -153,56 +187,76 @@ export class EvidenceCommands {
       ],
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-synthesis",
-      label: getString("menu-synthesis"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceSynthesis"),
-    });
-    ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-export-prisma",
-      label: getString("menu-export-prisma"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceExportPrisma"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-export-screening-log",
-      label: getString("menu-export-screening-log"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceExportScreeningLog"),
+      tag: "menu",
+      id: "zotero-evidence-synthesis-menu",
+      label: getString("menu-group-synthesis"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-synthesis",
+          label: getString("menu-synthesis"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceSynthesis"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-export-coding",
-      label: getString("menu-export-coding"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceExportCoding"),
+      tag: "menu",
+      id: "zotero-evidence-export-menu",
+      label: getString("menu-group-export"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-prisma",
+          label: getString("menu-export-prisma"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportPrisma"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-screening-log",
+          label: getString("menu-export-screening-log"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportScreeningLog"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-coding",
+          label: getString("menu-export-coding"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportCoding"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-synthesis",
+          label: getString("menu-export-synthesis"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportSynthesis"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-export-synthesis",
-      label: getString("menu-export-synthesis"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceExportSynthesis"),
-    });
-    ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-ai-provider",
-      label: getString("menu-ai-provider"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceAIProvider"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-ai-usage",
-      label: getString("menu-ai-usage"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceAIUsage"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-progress",
-      label: getString("menu-progress"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceProgress"),
+      tag: "menu",
+      id: "zotero-evidence-ai-menu",
+      label: getString("menu-group-ai"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-ai-provider",
+          label: getString("menu-ai-provider"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceAIProvider"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-ai-usage",
+          label: getString("menu-ai-usage"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceAIUsage"),
+        },
+      ],
     });
   }
 

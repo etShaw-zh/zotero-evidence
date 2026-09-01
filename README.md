@@ -11,8 +11,6 @@
 
 **Zotero Evidence** turns a [Zotero](https://www.zotero.org/) library into a systematic-review workspace: import & dedup → title/abstract screening → full-text screening → evidence coding → synthesis → export, with AI assistance at every step and a human always confirming the final call.
 
-[English](README.md) | [简体中文](doc/README-zhCN.md) | [Français](doc/README-frFR.md)
-
 > [!NOTE]
 > This plugin is scoped tightly to systematic-review workflows — feature-complete for that, not for chasing every Zotero release. Recent major-version churn hasn't meaningfully benefited this project, so there's currently no plan to track future Zotero versions beyond what's already supported.
 
@@ -38,13 +36,13 @@ Each stage moves references through a fixed set of Collections created automatic
 ## Getting started
 
 1. Install the plugin in Zotero 7, 8 or 9.
-2. **File → AI Provider Settings…** — set endpoint, model, API key.
-3. **File → New Evidence Project…**, then **Import Evidence Literature…**.
-4. **File → Configure Title/Abstract / Full-Text Screening Criteria…**.
-5. **File → Extract Codebook →** define variables (or import from CSV) before coding begins.
+2. **File → AI Settings → AI Provider Settings…** — set endpoint, model, API key.
+3. **File → Evidence Project → New Project…**, then **File → Import Literature → Import to Sources…**.
+4. **File → Screening Criteria →** configure Title/Abstract and Full-Text criteria.
+5. **File → Codebook →** define variables (or import from CSV) before coding begins.
 6. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
-7. **File → Synthesis…** and the **Export…** menu when ready to write up.
-8. **File → Archive Project…** to back up or share a project as a `.zip`; **Restore Project from Archive…** to bring it back.
+7. **File → Synthesis Analysis → Theme Mining…**, then **File → Export Data** when ready to write up.
+8. **File → Evidence Project → Archive Project…** to back up or share a project as a `.zip`; **Restore Project from Archive…** to bring it back.
 
 ## Development
 
