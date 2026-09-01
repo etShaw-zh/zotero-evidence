@@ -8,7 +8,8 @@ export type AIUsagePurpose =
   | "ta_screening"
   | "ft_screening"
   | "coding"
-  | "synthesis";
+  | "synthesis"
+  | "connection_test";
 
 export interface ParsedUsage {
   promptTokens: number;

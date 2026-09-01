@@ -4,10 +4,21 @@ import { getPref } from "../../utils/prefs";
 import { getString } from "../../utils/locale";
 import { runWithConcurrency } from "../../utils/concurrency";
 import {
+  AIProviderConfig,
+  deleteProvider,
   getActiveProvider,
+  listProviders,
+  migrateLegacyProviders,
   setActiveProviderId,
   upsertProvider,
 } from "../ai/providerConfig";
+import { callChatCompletion } from "../ai/aiClient";
+import { fetchAvailableModels } from "../ai/modelDiscovery";
+import {
+  AI_PROVIDER_PRESETS,
+  CUSTOM_PRESET_ID,
+  findPresetById,
+} from "../ai/providerPresets";
 import { getAIUsageStats } from "../ai/usageService";
 import { exportProjectArchive } from "../archive/archiveExportService";
 import { importProjectArchive } from "../archive/archiveImportService";
@@ -341,9 +352,21 @@ export class EvidenceCommands {
     },
     title: string,
     width: number,
+    // A more content-dense dialog (many rows, nested flex containers --
+    // e.g. the AI provider edit dialog) can have sizeToContent() below
+    // under-measure its true height at the 50ms/300ms marks Gecko's
+    // layout pass hasn't always settled by then, cutting off everything
+    // past whatever it measured (confirmed visually: only the first two
+    // rows rendered). Passing an explicit starting height sidesteps
+    // relying on that measurement being right -- sizeToContent() can still
+    // shrink or grow it correctly afterward, but the window is never
+    // smaller than this to begin with. Optional and omitted by every
+    // pre-existing caller, so their behavior is unchanged.
+    minHeight?: number,
   ) {
     dialog.open(title, {
       width,
+      ...(minHeight ? { height: minHeight } : {}),
       left: 60,
       top: 60,
       centerscreen: false,
@@ -351,17 +374,31 @@ export class EvidenceCommands {
       fitContent: false,
     });
     const win = dialog.window;
+    // Enforced as a floor after EVERY sizeToContent() call below, not just
+    // passed as a starting height -- if sizeToContent()'s under-measurement
+    // is deterministic for a given layout, only setting the initial height
+    // would just have the first sizeToContent() call shrink it right back
+    // down to the same too-small size a moment later.
+    const enforceMinHeight = () => {
+      if (minHeight && win && win.outerHeight < minHeight) {
+        win.resizeTo(win.outerWidth, minHeight);
+      }
+    };
     win?.setTimeout(() => {
       const doc = win.document;
       doc.querySelectorAll('vbox > hbox[flex="1"]').forEach((row: Element) => {
         row.setAttribute("flex", "0");
       });
       win.sizeToContent();
+      enforceMinHeight();
       // Some dialogs populate a row's content (e.g. a status line or a
       // rendered list) asynchronously after open, on their own ~50ms
       // delay -- resize once more, later, so the window fits that too
       // instead of sizing to what was still empty a moment earlier.
-      win.setTimeout(() => win.sizeToContent(), 250);
+      win.setTimeout(() => {
+        win.sizeToContent();
+        enforceMinHeight();
+      }, 250);
     }, 50);
   }
 
@@ -1572,25 +1609,194 @@ export class EvidenceCommands {
       .show();
   }
 
+  /**
+   * IDs used to look up elements post-open (dialog.window.document
+   * .getElementById) from listeners defined during construction -- same
+   * pattern as the file-picker button elsewhere in this file.
+   */
+  private static readonly AI_DLG = {
+    baseURL: "evidence-ai-baseurl-input",
+    model: "evidence-ai-model-input",
+    fetchModelsBtn: "evidence-ai-fetch-models-btn",
+    modelResultsStatus: "evidence-ai-model-results-status",
+    modelResults: "evidence-ai-model-results-list",
+    apiKey: "evidence-ai-apikey-input",
+    testBtn: "evidence-ai-test-btn",
+    testStatus: "evidence-ai-test-status",
+  } as const;
+
+  /** All 5 provider slots this dialog manages -- 4 named presets plus one
+   * "custom" slot for local/other OpenAI-compatible servers. Each slot has
+   * AT MOST one saved AIProviderConfig, stored under its own fixed id
+   * (the preset id, or "custom") -- there's no separate "saved
+   * configurations" concept to manage on top of this; the provider IS the
+   * config slot. This is a deliberate simplification (previous revisions
+   * of this dialog let you create/name/switch between arbitrary saved
+   * configs, which turned out both confusing to use and to depend on
+   * "change" events this dialog's window embedding doesn't reliably
+   * deliver for live cross-field updates -- see git history). */
+  private static aiProviderSlots(): { id: string; name: string }[] {
+    return [
+      ...AI_PROVIDER_PRESETS.map((p) => ({ id: p.id, name: p.name })),
+      {
+        id: CUSTOM_PRESET_ID,
+        name: getString("dialog-ai-provider-custom-option"),
+      },
+    ];
+  }
+
+  /**
+   * Step 1: pick which of the 5 provider slots to configure. Each row is a
+   * plain clickable div (not a <select>) -- click listeners are the one
+   * interaction type proven reliable in this dialog's window embedding
+   * throughout this feature's development; a live "change" listener meant
+   * to react to a dropdown pick was not. Picking a row closes this picker
+   * and opens aiProviderEditDialog() scoped to just that one provider, so
+   * there's no "switch provider mid-form" case to handle at all -- each
+   * edit dialog open is for exactly one provider from the start.
+   */
   static async aiProviderDialog() {
-    const existing = getActiveProvider();
+    migrateLegacyProviders();
+    const providers = listProviders();
+    const active = getActiveProvider();
+    const slots = EvidenceCommands.aiProviderSlots();
+
+    const dialog = new ztoolkit.Dialog(slots.length + 1, 1).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-ai-provider-picker-title") },
+    });
+
+    slots.forEach((slot, i) => {
+      const saved = providers.find((p) => p.id === slot.id);
+      const isActive = active?.id === slot.id;
+      const statusText = isActive
+        ? saved?.model
+          ? getString("dialog-ai-provider-status-active-model", {
+              args: { model: saved.model },
+            })
+          : getString("dialog-ai-provider-status-active")
+        : saved
+          ? saved.model
+            ? getString("dialog-ai-provider-status-configured-model", {
+                args: { model: saved.model },
+              })
+            : getString("dialog-ai-provider-status-configured")
+          : getString("dialog-ai-provider-status-unconfigured");
+      dialog.addCell(
+        i + 1,
+        0,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 10px",
+            cursor: "pointer",
+            borderRadius: "4px",
+            maxWidth: "100%",
+            boxSizing: "border-box",
+          },
+          children: [
+            {
+              tag: "span",
+              namespace: "html",
+              properties: { innerHTML: escapeHtml(slot.name) },
+              styles: {
+                fontWeight: isActive ? "bold" : "normal",
+                flex: "0 0 auto",
+              },
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              properties: { innerHTML: escapeHtml(statusText) },
+              attributes: { title: statusText },
+              styles: {
+                fontSize: "0.85em",
+                color: isActive ? "#2e7d32" : saved ? "#2ea8e5" : "#888",
+                flex: "1 1 auto",
+                minWidth: "0",
+                textAlign: "right",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              },
+            },
+          ],
+          listeners: [
+            {
+              type: "mouseenter",
+              listener: (ev: Event) => {
+                (ev.currentTarget as HTMLElement).style.background =
+                  "rgba(46,134,222,0.08)";
+              },
+            },
+            {
+              type: "mouseleave",
+              listener: (ev: Event) => {
+                (ev.currentTarget as HTMLElement).style.background = "";
+              },
+            },
+            {
+              type: "click",
+              listener: () => {
+                dialog.window?.close();
+                void EvidenceCommands.aiProviderEditDialog(slot.id);
+              },
+            },
+          ],
+        },
+        false,
+      );
+    });
+
+    dialog.addButton(getString("dialog-cancel"), "cancel").setDialogData({});
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-ai-provider-picker-title"),
+      380,
+      280,
+    );
+  }
+
+  /**
+   * Step 2: edit ONE provider slot's configuration. Field order is
+   * deliberate -- Base URL and API Key both come before the "fetch model
+   * list" action that depends on them, and Model comes after so a fetched
+   * result can be applied into it while it's still visible on screen.
+   */
+  private static async aiProviderEditDialog(slotId: string) {
+    const preset = findPresetById(slotId);
+    const slotName =
+      preset?.name ?? getString("dialog-ai-provider-custom-option");
+    const existing = listProviders().find((p) => p.id === slotId) ?? null;
+
     const dialogData: { [key: string]: any } = {
-      name: existing?.name ?? "Default Provider",
-      baseURL:
-        existing?.baseURL ?? "https://api.openai.com/v1/chat/completions",
+      baseURL: existing?.baseURL ?? preset?.baseURL ?? "",
       apiKey: existing?.apiKey ?? "",
-      model: existing?.model ?? "gpt-4o-mini",
+      model: existing?.model ?? "",
     };
 
-    const dialog = new ztoolkit.Dialog(5, 2)
+    const ID = EvidenceCommands.AI_DLG;
+
+    const dialog = new ztoolkit.Dialog(8, 2)
       .addCell(0, 0, {
         tag: "h1",
-        properties: { innerHTML: getString("dialog-ai-provider-title") },
+        properties: {
+          innerHTML: getString("dialog-ai-provider-edit-title", {
+            args: { name: slotName },
+          }),
+        },
       })
       .addCell(1, 0, {
         tag: "label",
         namespace: "html",
-        properties: { innerHTML: getString("dialog-ai-provider-name-label") },
+        properties: {
+          innerHTML: getString("dialog-ai-provider-baseurl-label"),
+        },
       })
       .addCell(
         1,
@@ -1598,8 +1804,9 @@ export class EvidenceCommands {
         {
           tag: "input",
           namespace: "html",
+          id: ID.baseURL,
           attributes: {
-            "data-bind": "name",
+            "data-bind": "baseURL",
             "data-prop": "value",
             type: "text",
           },
@@ -1610,7 +1817,7 @@ export class EvidenceCommands {
         tag: "label",
         namespace: "html",
         properties: {
-          innerHTML: getString("dialog-ai-provider-baseurl-label"),
+          innerHTML: getString("dialog-ai-provider-apikey-label"),
         },
       })
       .addCell(
@@ -1619,46 +1826,7 @@ export class EvidenceCommands {
         {
           tag: "input",
           namespace: "html",
-          attributes: {
-            "data-bind": "baseURL",
-            "data-prop": "value",
-            type: "text",
-          },
-        },
-        false,
-      )
-      .addCell(3, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: { innerHTML: getString("dialog-ai-provider-model-label") },
-      })
-      .addCell(
-        3,
-        1,
-        {
-          tag: "input",
-          namespace: "html",
-          attributes: {
-            "data-bind": "model",
-            "data-prop": "value",
-            type: "text",
-          },
-        },
-        false,
-      )
-      .addCell(4, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: {
-          innerHTML: getString("dialog-ai-provider-apikey-label"),
-        },
-      })
-      .addCell(
-        4,
-        1,
-        {
-          tag: "input",
-          namespace: "html",
+          id: ID.apiKey,
           attributes: {
             "data-bind": "apiKey",
             "data-prop": "value",
@@ -1667,26 +1835,339 @@ export class EvidenceCommands {
         },
         false,
       )
-      .addButton(getString("dialog-confirm"), "confirm")
+      .addCell(3, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        3,
+        1,
+        {
+          tag: "label",
+          namespace: "html",
+          styles: {
+            fontSize: "0.9em",
+            color: preset ? "#2ea8e5" : "#888",
+            cursor: preset ? "pointer" : "default",
+            textDecoration: preset ? "underline" : "none",
+          },
+          properties: {
+            innerHTML: preset
+              ? getString("dialog-ai-provider-docs-hint", {
+                  args: { name: preset.name },
+                })
+              : getString("dialog-ai-provider-docs-hint-custom"),
+          },
+          listeners: preset
+            ? [
+                {
+                  type: "click",
+                  listener: () => Zotero.launchURL(preset.docsURL),
+                },
+              ]
+            : [],
+        },
+        false,
+      )
+      .addCell(4, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-ai-provider-model-label") },
+      })
+      .addCell(
+        4,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: {
+            display: "flex",
+            gap: "6px",
+            alignItems: "center",
+            flexWrap: "wrap",
+            maxWidth: "100%",
+            minWidth: "0",
+            boxSizing: "border-box",
+          },
+          children: [
+            {
+              tag: "input",
+              namespace: "html",
+              id: ID.model,
+              attributes: {
+                "data-bind": "model",
+                "data-prop": "value",
+                type: "text",
+              },
+              styles: {
+                flex: "1 1 auto",
+                minWidth: "0",
+                maxWidth: "320px",
+                boxSizing: "border-box",
+              },
+            },
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.fetchModelsBtn,
+              attributes: { type: "button" },
+              properties: {
+                innerHTML: getString("dialog-ai-provider-fetch-models"),
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: async (ev: Event) => {
+                    const win = dialog.window;
+                    if (!win) return;
+                    const btn = ev.target as HTMLButtonElement;
+                    const baseURLEl = win.document.getElementById(
+                      ID.baseURL,
+                    ) as HTMLInputElement | null;
+                    const apiKeyEl = win.document.getElementById(
+                      ID.apiKey,
+                    ) as HTMLInputElement | null;
+                    const resultsEl = win.document.getElementById(
+                      ID.modelResults,
+                    ) as HTMLElement | null;
+                    const statusEl = win.document.getElementById(
+                      ID.modelResultsStatus,
+                    ) as HTMLElement | null;
+                    if (!baseURLEl || !resultsEl) return;
+                    btn.setAttribute("disabled", "true");
+                    const originalLabel = btn.innerHTML;
+                    btn.innerHTML = getString("dialog-ai-provider-fetching");
+                    try {
+                      const models = await fetchAvailableModels(
+                        baseURLEl.value,
+                        apiKeyEl?.value ?? "",
+                      );
+                      if (statusEl) {
+                        statusEl.textContent = getString(
+                          "dialog-ai-provider-model-results-placeholder",
+                          { args: { count: models.length } },
+                        );
+                      }
+                      // Deliberately NOT a native <select> -- both a live
+                      // "change" listener and a separate Apply button
+                      // reading a select's .value failed to reliably
+                      // reflect a real user's pick back into the form in
+                      // this dialog's window embedding. A plain clickable,
+                      // scrollable row list uses only click events, the
+                      // one interaction type proven reliable throughout
+                      // this dialog.
+                      resultsEl.innerHTML = "";
+                      for (const m of models) {
+                        const row = win.document.createElement("div");
+                        row.textContent =
+                          m.length > 60 ? `${m.slice(0, 57)}…` : m;
+                        row.title = m;
+                        row.style.padding = "4px 8px";
+                        row.style.cursor = "pointer";
+                        row.style.overflow = "hidden";
+                        row.style.textOverflow = "ellipsis";
+                        row.style.whiteSpace = "nowrap";
+                        // Absolute pixel cap, not a percentage -- this
+                        // dialog nests HTML content inside ztoolkit
+                        // Dialog's own XUL hbox/vbox grid wrappers, and a
+                        // percentage max-width only holds if every
+                        // ancestor in that chain resolves its own width
+                        // top-down first. A fixed px value needs no
+                        // ancestor cooperation to hold.
+                        row.style.maxWidth = "360px";
+                        row.style.boxSizing = "border-box";
+                        row.addEventListener("mouseenter", () => {
+                          row.style.background = "rgba(46,134,222,0.12)";
+                        });
+                        row.addEventListener("mouseleave", () => {
+                          row.style.background = "";
+                        });
+                        row.addEventListener("click", () => {
+                          const modelEl = win.document.getElementById(
+                            ID.model,
+                          ) as HTMLInputElement | null;
+                          if (modelEl) modelEl.value = m;
+                        });
+                        resultsEl.appendChild(row);
+                      }
+                      if (models.length > 0)
+                        resultsEl.removeAttribute("hidden");
+                      else resultsEl.setAttribute("hidden", "true");
+                    } catch (e: any) {
+                      ztoolkit.getGlobal("alert")(
+                        `${getString("dialog-ai-provider-fetch-models-error")}\n${e?.message ?? e}`,
+                      );
+                    } finally {
+                      btn.removeAttribute("disabled");
+                      btn.innerHTML = originalLabel;
+                    }
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        false,
+      )
+      .addCell(5, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        5,
+        1,
+        {
+          tag: "span",
+          namespace: "html",
+          id: ID.modelResultsStatus,
+          styles: { fontSize: "0.85em", color: "#888", display: "block" },
+        },
+        false,
+      )
+      .addCell(6, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        6,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          id: ID.modelResults,
+          attributes: { hidden: "true" },
+          styles: {
+            maxWidth: "380px",
+            minWidth: "0",
+            boxSizing: "border-box",
+            maxHeight: "160px",
+            overflowY: "auto",
+            overflowX: "hidden",
+            border: "1px solid rgba(0,0,0,0.15)",
+            borderRadius: "4px",
+          },
+        },
+        false,
+      )
+      .addCell(7, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        7,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: { display: "flex", gap: "8px", alignItems: "center" },
+          children: [
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.testBtn,
+              attributes: { type: "button" },
+              properties: {
+                innerHTML: getString("dialog-ai-provider-test-connection"),
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: async (ev: Event) => {
+                    const win = dialog.window;
+                    if (!win) return;
+                    const btn = ev.target as HTMLButtonElement;
+                    const statusEl = win.document.getElementById(
+                      ID.testStatus,
+                    ) as HTMLElement | null;
+                    const baseURLEl = win.document.getElementById(
+                      ID.baseURL,
+                    ) as HTMLInputElement | null;
+                    const apiKeyEl = win.document.getElementById(
+                      ID.apiKey,
+                    ) as HTMLInputElement | null;
+                    const modelEl = win.document.getElementById(
+                      ID.model,
+                    ) as HTMLInputElement | null;
+                    if (!statusEl || !baseURLEl || !modelEl) return;
+                    btn.setAttribute("disabled", "true");
+                    statusEl.style.color = "#888";
+                    statusEl.textContent = getString(
+                      "dialog-ai-provider-testing",
+                    );
+                    try {
+                      const testConfig: AIProviderConfig = {
+                        id: "connection-test",
+                        name: "connection-test",
+                        baseURL: baseURLEl.value,
+                        apiKey: apiKeyEl?.value ?? "",
+                        model: modelEl.value,
+                      };
+                      await callChatCompletion(
+                        testConfig,
+                        [{ role: "user", content: "Reply with just: OK" }],
+                        "connection_test",
+                      );
+                      statusEl.style.color = "#2e7d32";
+                      statusEl.textContent = getString(
+                        "dialog-ai-provider-test-success",
+                      );
+                    } catch (e: any) {
+                      statusEl.style.color = "#a33";
+                      statusEl.textContent = `${getString("dialog-ai-provider-test-failed")} ${e?.message ?? e}`;
+                    } finally {
+                      btn.removeAttribute("disabled");
+                    }
+                  },
+                },
+              ],
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              id: ID.testStatus,
+              styles: { fontSize: "0.9em" },
+            },
+          ],
+        },
+        false,
+      )
+      .addButton(getString("dialog-ai-provider-clear"), "clear", {
+        noClose: true,
+        callback: () => {
+          const win = dialog.window;
+          if (!win) return;
+          const confirmFn = ztoolkit.getGlobal("confirm");
+          if (!confirmFn(getString("dialog-ai-provider-clear-confirm"))) return;
+          deleteProvider(slotId);
+          win.close();
+        },
+      })
       .addButton(getString("dialog-cancel"), "cancel")
+      .addButton(getString("dialog-confirm"), "confirm")
       .setDialogData(dialogData);
+
     EvidenceCommands.openSizedDialog(
       dialog,
-      getString("dialog-ai-provider-title"),
-      600,
+      getString("dialog-ai-provider-edit-title", { args: { name: slotName } }),
+      400,
+      400,
     );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
 
     upsertProvider({
-      id: "default",
-      name: String(dialogData.name || "Default Provider"),
+      id: slotId,
+      name: slotName,
       baseURL: String(dialogData.baseURL || ""),
       apiKey: String(dialogData.apiKey || ""),
       model: String(dialogData.model || ""),
     });
-    setActiveProviderId("default");
+    setActiveProviderId(slotId);
 
     new ztoolkit.ProgressWindow(addon.data.config.addonName)
       .createLine({
@@ -1710,6 +2191,8 @@ export class EvidenceCommands {
           return getString("ai-usage-purpose-coding");
         case "synthesis":
           return getString("ai-usage-purpose-synthesis");
+        case "connection_test":
+          return getString("ai-usage-purpose-connection-test");
         default:
           return purpose;
       }

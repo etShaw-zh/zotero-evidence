@@ -31,10 +31,20 @@ export async function callChatCompletion(
       "Content-Type": "application/json",
       Authorization: `Bearer ${provider.apiKey}`,
     },
+    // No `temperature` here -- it used to be hardcoded to 0 for more
+    // deterministic screening decisions, but that's not universal across
+    // OpenAI-compatible providers: some Moonshot/Kimi models reject
+    // anything other than 1 outright ("invalid temperature: only 1 is
+    // allowed for this model"), and the plugin has no reliable way to know
+    // a given model's accepted range up front. Every AI suggestion here
+    // already requires human confirmation before it counts for anything
+    // (screening decisions, coding records, ...), so losing perfect
+    // determinism is an acceptable tradeoff for actually working across
+    // providers -- letting each provider apply its own default is safer
+    // than guessing a single fixed value that's wrong for some of them.
     body: JSON.stringify({
       model: provider.model,
       messages,
-      temperature: 0,
     }),
     responseType: "json",
     // FT-Screening and Coding send full-text prompts (up to 40k chars) that
