@@ -21,10 +21,24 @@ export interface ScreeningState {
   exclusionReason: string | null;
 }
 
+// Same criteria as full-text screening, but applied liberally here on
+// purpose (standard Cochrane/PRISMA practice): a title/abstract rarely
+// reports every detail the criteria ask about, and treating a missing
+// detail as a mismatch would wrongly exclude eligible studies before
+// full-text review ever gets a chance to check. Full-text screening
+// (ftScreeningService.ts) applies the same criteria strictly instead,
+// once the complete text is available.
 const SYSTEM_PROMPT =
   "You are assisting with title/abstract screening for a systematic literature review. " +
   "Given a research question, inclusion criteria, exclusion criteria, and a paper's title/abstract, " +
   "decide whether the paper should be included, excluded, or is unclear (needs full-text review). " +
+  "Screen liberally: title/abstract information is inherently limited, so only exclude when the " +
+  "title/abstract CLEARLY shows the paper fails to meet the criteria. A criterion simply not being " +
+  "mentioned (e.g. the abstract doesn't state participant age or a specific outcome) is missing " +
+  "information, not evidence of a mismatch -- that should be 'unclear', not 'exclude', so full-text " +
+  "review can check it properly. Reserve 'exclude' for when the abstract itself states something " +
+  "that plainly conflicts with the criteria (e.g. an explicitly wrong population, study design, or " +
+  "publication type). " +
   'Respond with ONLY a JSON object, no markdown and no extra text: {"decision": "include"|"exclude"|"unclear", "reasoning": "one or two sentences"}.';
 
 function buildPrompt(

@@ -149,9 +149,6 @@ function onDialogEvents(type: string) {
     case "evidenceCriteria":
       EvidenceCommands.criteriaDialog();
       break;
-    case "evidenceFtCriteria":
-      EvidenceCommands.criteriaDialog("ft");
-      break;
     case "evidenceAIProvider":
       EvidenceCommands.aiProviderDialog();
       break;

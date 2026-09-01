@@ -59,7 +59,6 @@ import {
   getLatestCriteria,
   saveCriteria,
   ScreeningCriteria,
-  ScreeningStage,
 } from "../screening/criteriaService";
 import {
   confirmDecision,
@@ -162,13 +161,6 @@ export class EvidenceCommands {
           id: "zotero-evidence-criteria",
           label: getString("menu-criteria"),
           commandListener: () => addon.hooks.onDialogEvents("evidenceCriteria"),
-        },
-        {
-          tag: "menuitem",
-          id: "zotero-evidence-ft-criteria",
-          label: getString("menu-ft-criteria"),
-          commandListener: () =>
-            addon.hooks.onDialogEvents("evidenceFtCriteria"),
         },
       ],
     });
@@ -1392,26 +1384,37 @@ export class EvidenceCommands {
     }
   }
 
-  static async criteriaDialog(stage: ScreeningStage = "ta") {
+  // One shared set of eligibility criteria per project now, not separate
+  // TA/FT ones -- standard Cochrane/PRISMA practice: the same criteria are
+  // screened liberally at title/abstract (limited information, so only
+  // exclude on a clear mismatch) and strictly at full-text (complete
+  // information, so apply the criteria directly and record why). Storage
+  // still keeps a 'ta' and an 'ft' screening_criteria row per project
+  // (unchanged schema, and each screening service still reads its own
+  // stage) -- this dialog just always writes the same content to both, so
+  // every other reader of getLatestCriteria(projectId, stage) keeps
+  // working unmodified.
+  static async criteriaDialog() {
+    const titleKey = "dialog-criteria-title";
     const projects = await listProjects();
     if (projects.length === 0) {
       ztoolkit.getGlobal("alert")(getString("error-no-projects"));
       return;
     }
 
-    const titleKey =
-      stage === "ft" ? "dialog-ft-criteria-title" : "dialog-criteria-title";
-
-    // Reflect whatever's already saved for a project/stage back into the
-    // form -- previously this dialog always opened blank, silently
-    // discarding the existing criteria the moment you hit Save again.
+    // Reflect whatever's already saved back into the form -- previously
+    // this dialog always opened blank, silently discarding the existing
+    // criteria the moment you hit Save again. 'ta' is read as the
+    // canonical copy to display; if a project still has divergent TA/FT
+    // criteria from before this dialog unified them, saving here
+    // overwrites both with this (the TA) content.
     const criteriaFields = (criteria: ScreeningCriteria | null) => ({
       researchQuestion: criteria?.researchQuestion ?? "",
       inclusionCriteria: (criteria?.inclusionCriteria ?? []).join("\n"),
       exclusionCriteria: (criteria?.exclusionCriteria ?? []).join("\n"),
     });
 
-    const initial = await getLatestCriteria(projects[0].id, stage);
+    const initial = await getLatestCriteria(projects[0].id, "ta");
     const dialogData: { [key: string]: any } = {
       projectId: String(projects[0].id),
       ...criteriaFields(initial?.criteria ?? null),
@@ -1528,7 +1531,7 @@ export class EvidenceCommands {
       async (value) => {
         const doc = selectEl!.ownerDocument;
         if (!doc) return;
-        const latest = await getLatestCriteria(Number(value), stage);
+        const latest = await getLatestCriteria(Number(value), "ta");
         const fields = criteriaFields(latest?.criteria ?? null);
         for (const [key, fieldValue] of Object.entries(fields)) {
           const field = doc.querySelector(`[data-bind="${key}"]`) as
@@ -1549,11 +1552,15 @@ export class EvidenceCommands {
         .map((l) => l.trim())
         .filter(Boolean);
 
-    await saveCriteria(Number(dialogData.projectId), stage, {
+    const criteria = {
       researchQuestion: String(dialogData.researchQuestion || "").trim(),
       inclusionCriteria: toLines(dialogData.inclusionCriteria),
       exclusionCriteria: toLines(dialogData.exclusionCriteria),
-    });
+    };
+    const projectId = Number(dialogData.projectId);
+    // Same criteria for both stages -- see this method's doc comment.
+    await saveCriteria(projectId, "ta", criteria);
+    await saveCriteria(projectId, "ft", criteria);
 
     new ztoolkit.ProgressWindow(addon.data.config.addonName)
       .createLine({

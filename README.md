@@ -14,11 +14,14 @@
 > [!NOTE]
 > This plugin is scoped tightly to systematic-review workflows — feature-complete for that, not for chasing every Zotero release. Recent major-version churn hasn't meaningfully benefited this project, so there's currently no plan to track future Zotero versions beyond what's already supported.
 
+> [!WARNING]
+> Under active, high-frequency development — features, menus, and data formats can still change between releases.
+
 ## Features
 
 - **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators.
-- **Title/Abstract screening** — AI suggests Include/Exclude/Unclear with its reasoning.
-- **Full-text screening** — AI picks a verbatim exclusion reason from your criteria and locates supporting quotes as highlights.
+- **Title/Abstract screening** — one set of eligibility criteria, applied liberally here (only a clear mismatch excludes); AI suggests Include/Exclude/Unclear with its reasoning.
+- **Full-text screening** — the same criteria applied strictly; AI picks a verbatim exclusion reason and locates supporting quotes as highlights.
 - **Extract coding** — define a Codebook (categorical/numeric/text variables), AI proposes `variable = value` mappings backed by quotes and auto-located highlights.
 - **Synthesis** — one click groups confirmed evidence for any variable into AI-generated themes.
 - **Consistency** — Cohen's Kappa (overall and per-category) between AI and human screening decisions, with a disagreement list to review; also a guided, resumable human-vs-human workflow _(beta)_ — sample, dual-screen, reconcile, repeat.
@@ -30,7 +33,7 @@
 1. Install the plugin in Zotero 7, 8 or 9.
 2. **File → AI Settings → AI Provider Settings…** — set endpoint, model, API key.
 3. **File → Evidence Project → New Project…**, then **File → Import Literature → Import to Sources…**.
-4. **File → Screening Criteria →** configure Title/Abstract and Full-Text criteria.
+4. **File → Screening Criteria →** define one set of inclusion/exclusion criteria — screened liberally at Title/Abstract and strictly at Full-Text.
 5. **File → Codebook →** define variables (or import from CSV) before coding begins.
 6. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
 7. **File → Consistency Calculation → Human-AI Screening Consistency…** (optional) — check Cohen's Kappa between AI and human decisions for either screening stage.
