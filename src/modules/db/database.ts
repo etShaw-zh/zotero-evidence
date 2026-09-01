@@ -14,6 +14,27 @@ class DatabaseService {
     return this.initPromise;
   }
 
+  /**
+   * Must be called on both addon shutdown (disable/uninstall/upgrade) and
+   * on Zotero's own shutdown -- this connection is opened via Sqlite.sys.mjs
+   * (see Zotero.DBConnection), which registers its own AsyncShutdown
+   * barrier independent of this addon's lifecycle. Leaving it open stalls
+   * Zotero's shutdown sequence until that barrier times out, which is felt
+   * as the app freezing/hanging on quit. Resets init state so a later
+   * init() (e.g. the addon being re-enabled within the same running
+   * session) reopens a fresh connection rather than reusing a closed one.
+   */
+  async closeDatabase(): Promise<void> {
+    if (this.conn) {
+      // Not permanent: the addon can be re-enabled within the same running
+      // Zotero session, and init() must be able to reopen a fresh
+      // connection then rather than this throwing on next use.
+      await this.conn.closeDatabase(false);
+      this.conn = undefined;
+    }
+    this.initPromise = undefined;
+  }
+
   private async _init(): Promise<void> {
     this.conn = new Zotero.DBConnection("zoteroEvidence");
     await this.conn.executeTransaction(async () => {

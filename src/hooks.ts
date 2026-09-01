@@ -18,6 +18,15 @@ async function onStartup() {
   initLocale();
 
   await databaseService.init();
+  // addon/bootstrap.js's shutdown() intentionally skips calling onShutdown()
+  // below when reason === APP_SHUTDOWN (the whole app is exiting, so a
+  // plugin normally doesn't need to tear anything down) -- but this
+  // addon's separate SQLite connection is tracked by Gecko's own shutdown
+  // sequence regardless, and left open it stalls Zotero's exit. Zotero.
+  // addShutdownListener fires on Zotero's own shutdown (app quit or not),
+  // independent of that bootstrap.js reason check, so it's the one place
+  // that reliably covers the real app-quit case.
+  Zotero.addShutdownListener(() => databaseService.closeDatabase());
   await refreshProjectPaneContextCache();
   // Exposed on the shared Zotero[addonInstance] object (reachable across
   // sandbox boundaries, unlike a plain module import) so other contexts --
@@ -70,7 +79,12 @@ async function onMainWindowUnload(win: Window): Promise<void> {
   addon.data.dialog?.window?.close();
 }
 
-function onShutdown(): void {
+async function onShutdown(): Promise<void> {
+  // Covers addon disable/uninstall/upgrade -- bootstrap.js already skips
+  // this whole hook on a real app quit (reason === APP_SHUTDOWN), which is
+  // why closeDatabase() is *also* registered via Zotero.addShutdownListener
+  // in onStartup() above; that's the path that actually covers app quit.
+  await databaseService.closeDatabase();
   ztoolkit.unregisterAll();
   addon.data.dialog?.window?.close();
   // Remove addon object
