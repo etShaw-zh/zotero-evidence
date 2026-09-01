@@ -356,7 +356,21 @@ describe("Coding item-pane section", function () {
         await ZoteroPaneGlobal.collectionsView.selectCollection(
           collections.codingId,
         );
-        await Zotero.Promise.delay(300);
+        // selectCollection()'s promise can resolve before
+        // ZoteroPane.getSelectedCollection() actually reflects the change
+        // (a CI-only race: confirmed via a diagnostic dump that on GitHub
+        // Actions, resolveContextSync's synchronous getSelectedCollection()
+        // read was still returning the OLD/no collection at the moment
+        // selectItem() fired below, so onItemChange decided this wasn't an
+        // Evidence collection and never hid native sections -- no amount of
+        // polling the DOM afterward fixes that, since nothing re-triggers
+        // onItemChange once it's made that one-time decision). Poll for the
+        // actual selection to be visible before selecting the item.
+        await waitUntil(
+          () =>
+            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            collections.codingId,
+        );
         await ZoteroPaneGlobal.selectItem(item.id);
         const confirmedList = await waitForValue(() => {
           const c = doc.getElementById("zotero-view-item");
@@ -420,7 +434,14 @@ describe("Coding item-pane section", function () {
         await ZoteroPaneGlobal.collectionsView.selectCollection(
           collections.codingId,
         );
-        await Zotero.Promise.delay(300);
+        // See the first (library tab summary) test in this file for why:
+        // a CI-only race between selectCollection()'s promise resolving
+        // and ZoteroPane.getSelectedCollection() actually reflecting it.
+        await waitUntil(
+          () =>
+            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            collections.codingId,
+        );
         await ZoteroPaneGlobal.selectItem(item.id);
         // renderCardHeader adds the .zotero-evidence-card class and the
         // empty .zotero-evidence-judgment-area div SYNCHRONOUSLY, before
