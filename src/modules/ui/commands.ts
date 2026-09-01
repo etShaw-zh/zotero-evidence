@@ -62,6 +62,11 @@ import {
   runAIJudgment,
 } from "../screening/taScreeningService";
 import { markUnavailable } from "../screening/ftScreeningService";
+import {
+  getScreeningConsistency,
+  ScreeningConsistencyResult,
+  ScreeningConsistencyStage,
+} from "../screening/consistencyService";
 
 export class EvidenceCommands {
   static registerMenus() {
@@ -198,6 +203,21 @@ export class EvidenceCommands {
           label: getString("menu-synthesis"),
           commandListener: () =>
             addon.hooks.onDialogEvents("evidenceSynthesis"),
+        },
+      ],
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menu",
+      id: "zotero-evidence-consistency-menu",
+      label: getString("menu-group-consistency"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-consistency",
+          label: getString("menu-consistency"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceConsistency"),
         },
       ],
     });
@@ -3157,6 +3177,337 @@ export class EvidenceCommands {
           runBtn.removeAttribute("disabled");
         }
       });
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      return;
+    }
+  }
+
+  private static consistencyDecisionLabel(raw: string): string {
+    const keys: { [k: string]: FluentMessageId } = {
+      include: "screen-queue-decision-include",
+      exclude: "screen-queue-decision-exclude",
+      unclear: "screen-queue-decision-unclear",
+      unavailable: "screen-queue-decision-unavailable",
+    };
+    const key = keys[raw];
+    return key ? getString(key) : raw;
+  }
+
+  private static consistencyKappaLevelLabel(kappa: number): string {
+    const levels: [number, FluentMessageId][] = [
+      [0.8, "consistency-kappa-level-almost-perfect"],
+      [0.6, "consistency-kappa-level-substantial"],
+      [0.4, "consistency-kappa-level-moderate"],
+      [0.2, "consistency-kappa-level-fair"],
+      [0, "consistency-kappa-level-slight"],
+    ];
+    for (const [threshold, key] of levels) {
+      if (kappa >= threshold) return getString(key);
+    }
+    return getString("consistency-kappa-level-poor");
+  }
+
+  static async consistencyDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    let projectId = projects[0].id;
+    const MAX_DISAGREEMENT_ROWS = 150;
+
+    while (true) {
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        stage: "ta_screening",
+      };
+
+      const dialog = new ztoolkit.Dialog(6, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: { innerHTML: getString("dialog-consistency-title") },
+        })
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-consistency-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-consistency-stage-label"),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-consistency-stage",
+            attributes: { "data-bind": "stage", "data-prop": "value" },
+            children: [
+              {
+                tag: "option",
+                namespace: "html",
+                properties: {
+                  value: "ta_screening",
+                  innerHTML: escapeHtml(getString("consistency-stage-ta")),
+                },
+              },
+              {
+                tag: "option",
+                namespace: "html",
+                properties: {
+                  value: "ft_screening",
+                  innerHTML: escapeHtml(getString("consistency-stage-ft")),
+                },
+              },
+            ],
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "div",
+          namespace: "html",
+          id: "evidence-consistency-results",
+          styles: { maxHeight: "440px", overflow: "auto", marginTop: "6px" },
+        })
+        .addCell(
+          4,
+          0,
+          {
+            tag: "button",
+            namespace: "html",
+            id: "evidence-consistency-run",
+            attributes: { type: "button" },
+            properties: { innerHTML: getString("consistency-run-button") },
+          },
+          false,
+        )
+        .addCell(
+          4,
+          1,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-consistency-status",
+          },
+          false,
+        )
+        .addButton(getString("dialog-close"), "close")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-consistency-title"),
+        720,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const stageSelectEl = doc?.getElementById(
+        "evidence-consistency-stage",
+      ) as HTMLSelectElement | undefined;
+      const resultsContainer = doc?.getElementById(
+        "evidence-consistency-results",
+      );
+      const runBtn = doc?.getElementById("evidence-consistency-run") as
+        | HTMLButtonElement
+        | undefined;
+      const statusEl = doc?.getElementById("evidence-consistency-status");
+
+      const renderResults = (result: ScreeningConsistencyResult) => {
+        if (!resultsContainer) return;
+        resultsContainer.innerHTML = "";
+        if (result.n === 0) {
+          resultsContainer.appendChild(
+            doc!.createElementNS(HTML_NS, "p") as HTMLElement,
+          ).textContent = getString("consistency-no-records");
+          return;
+        }
+
+        const summary = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        summary.style.cssText = "margin-bottom:8px;";
+        const kappaValueText =
+          result.kappa === null
+            ? getString("consistency-kappa-na")
+            : `${result.kappa.toFixed(2)} (${EvidenceCommands.consistencyKappaLevelLabel(result.kappa)})`;
+        for (const line of [
+          getString("consistency-summary-n", { args: { n: result.n } }),
+          getString("consistency-summary-agreement", {
+            args: {
+              pct: ((result.observedAgreement ?? 0) * 100).toFixed(1),
+            },
+          }),
+          `${getString("consistency-summary-kappa-label")}: ${kappaValueText}`,
+        ]) {
+          const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          p.style.cssText = "margin:2px 0;";
+          p.textContent = line;
+          summary.appendChild(p);
+        }
+        resultsContainer.appendChild(summary);
+
+        const buildTable = (
+          headers: string[],
+          rowsData: [string, number][][],
+        ) => {
+          const table = doc!.createElementNS(
+            HTML_NS,
+            "table",
+          ) as HTMLTableElement;
+          table.style.cssText =
+            "width:100%;border-collapse:collapse;margin-bottom:10px;";
+          const headRow = doc!.createElementNS(HTML_NS, "tr");
+          for (const label of headers) {
+            const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+            th.textContent = label;
+            th.style.cssText =
+              "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+            headRow.appendChild(th);
+          }
+          table.appendChild(headRow);
+          for (const cells of rowsData) {
+            const tr = doc!.createElementNS(HTML_NS, "tr");
+            for (const [text, max] of cells) {
+              const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+              td.textContent = quotePreview(text, max);
+              if (text) td.title = text;
+              td.style.cssText =
+                "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
+              tr.appendChild(td);
+            }
+            table.appendChild(tr);
+          }
+          return table;
+        };
+
+        resultsContainer.appendChild(
+          buildTable(
+            [
+              getString("consistency-col-category"),
+              getString("consistency-col-agreement"),
+              getString("consistency-col-kappa"),
+            ],
+            result.byCategory.map((c) => [
+              [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
+              [`${(c.observedAgreement * 100).toFixed(1)}%`, 12],
+              [c.kappa === null ? "—" : c.kappa.toFixed(2), 8],
+            ]),
+          ),
+        );
+
+        if (result.disagreements.length > 0) {
+          const h2 = doc!.createElementNS(HTML_NS, "h2") as HTMLElement;
+          h2.textContent = getString("consistency-disagreements-title");
+          h2.style.cssText = "font-size:1em;margin:8px 0 4px;";
+          resultsContainer.appendChild(h2);
+          const shown = result.disagreements.slice(0, MAX_DISAGREEMENT_ROWS);
+          resultsContainer.appendChild(
+            buildTable(
+              [
+                getString("consistency-col-title"),
+                getString("consistency-col-ai"),
+                getString("consistency-col-human"),
+              ],
+              shown.map((d) => [
+                [d.title, 50],
+                [EvidenceCommands.consistencyDecisionLabel(d.aiDecision), 16],
+                [
+                  EvidenceCommands.consistencyDecisionLabel(d.humanDecision),
+                  16,
+                ],
+              ]),
+            ),
+          );
+          if (result.disagreements.length > shown.length) {
+            const note = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+            note.style.cssText = "color:#888;font-size:0.85em;";
+            note.textContent = getString("synthesis-truncated", {
+              args: {
+                shown: shown.length,
+                total: result.disagreements.length,
+              },
+            });
+            resultsContainer.appendChild(note);
+          }
+        }
+      };
+
+      const refresh = async () => {
+        runBtn?.setAttribute("disabled", "true");
+        if (statusEl) statusEl.textContent = getString("consistency-loading");
+        try {
+          const result = await getScreeningConsistency(
+            Number(dialogData.projectId),
+            dialogData.stage as ScreeningConsistencyStage,
+          );
+          renderResults(result);
+          if (statusEl) statusEl.textContent = "";
+        } catch (e: any) {
+          if (statusEl) statusEl.textContent = getString("consistency-error");
+          ztoolkit.getGlobal("alert")(
+            `${getString("consistency-error")}\n${e?.message ?? e}`,
+          );
+        } finally {
+          runBtn?.removeAttribute("disabled");
+        }
+      };
+
+      await refresh();
+
+      const projectSelectEl = doc?.getElementById(
+        "evidence-consistency-project",
+      ) as HTMLSelectElement | undefined;
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        stageSelectEl,
+        async (value) => {
+          dialogData.stage = value;
+          await refresh();
+        },
+      );
+
+      runBtn?.addEventListener("click", () => void refresh());
 
       await dialogData.unloadLock.promise;
 

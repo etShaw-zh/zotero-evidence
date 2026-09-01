@@ -171,6 +171,9 @@ function onDialogEvents(type: string) {
     case "evidenceSynthesis":
       EvidenceCommands.synthesisDialog();
       break;
+    case "evidenceConsistency":
+      EvidenceCommands.consistencyDialog();
+      break;
     case "evidenceExportPrisma":
       EvidenceCommands.exportPrismaDialog();
       break;
