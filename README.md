@@ -16,17 +16,16 @@
 
 ## Workflow
 
-Each stage moves references through a fixed set of Collections created automatically per project, so status is always visible in the Zotero library pane. Synthesis and Export then work across the whole project's coded data rather than moving items further:
+Each stage moves references through a fixed set of Collections created automatically per project, so status is always visible in the Zotero library pane. Synthesis, Consistency Calculation and Export then work across the whole project's coded data:
 
 ```
 1. Sources → 2. TA-Screen Queue → 3. TA-Screening Results
   → 4. FT-Screen Queue → 5. FT-Screening Results → 6. Extract Coding
-  → 7. Synthesis → 8. Export
+  → 7. Synthesis → 8. Consistency Calculation → 9. Export
 ```
 
 ## Features
 
-- **Personal or Group Library** — create an Evidence project in your personal library or in a shared Group Library.
 - **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators.
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear with its reasoning.
 - **Full-text screening** — AI picks a verbatim exclusion reason from your criteria and locates supporting quotes as highlights.
@@ -40,7 +39,7 @@ Each stage moves references through a fixed set of Collections created automatic
 
 1. Install the plugin in Zotero 7, 8 or 9.
 2. **File → AI Settings → AI Provider Settings…** — set endpoint, model, API key.
-3. **File → Evidence Project → New Project…** (pick a library — personal or a shared Group Library — if you have more than one), then **File → Import Literature → Import to Sources…**.
+3. **File → Evidence Project → New Project…**, then **File → Import Literature → Import to Sources…**.
 4. **File → Screening Criteria →** configure Title/Abstract and Full-Text criteria.
 5. **File → Codebook →** define variables (or import from CSV) before coding begins.
 6. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
