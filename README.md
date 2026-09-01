@@ -14,16 +14,6 @@
 > [!NOTE]
 > This plugin is scoped tightly to systematic-review workflows — feature-complete for that, not for chasing every Zotero release. Recent major-version churn hasn't meaningfully benefited this project, so there's currently no plan to track future Zotero versions beyond what's already supported.
 
-## Workflow
-
-Each stage moves references through a fixed set of Collections created automatically per project, so status is always visible in the Zotero library pane. Synthesis, Consistency Calculation and Export then work across the whole project's coded data:
-
-```
-1. Sources → 2. TA-Screen Queue → 3. TA-Screening Results
-  → 4. FT-Screen Queue → 5. FT-Screening Results → 6. Extract Coding
-  → 7. Synthesis → 8. Consistency Calculation → 9. Export
-```
-
 ## Features
 
 - **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators.
@@ -31,7 +21,7 @@ Each stage moves references through a fixed set of Collections created automatic
 - **Full-text screening** — AI picks a verbatim exclusion reason from your criteria and locates supporting quotes as highlights.
 - **Extract coding** — define a Codebook (categorical/numeric/text variables), AI proposes `variable = value` mappings backed by quotes and auto-located highlights.
 - **Synthesis** — one click groups confirmed evidence for any variable into AI-generated themes.
-- **Consistency** — Cohen's Kappa (overall and per-category) between AI and human screening decisions, with a disagreement list to review.
+- **Consistency** — Cohen's Kappa (overall and per-category) between AI and human screening decisions, with a disagreement list to review; also a guided, resumable human-vs-human workflow _(beta)_ — sample, dual-screen, reconcile, repeat.
 - **Export** — PRISMA flow data, screening decision log, coding data, and synthesis data, all ready for write-up.
 - **Archive & share** — export an entire project (items, PDFs, annotations, and all coded/screened data) to a single `.zip` for backup or peer review, and restore it as a new project in any library.
 
@@ -71,7 +61,7 @@ src/
 |   |-- project/    # project + Collection structure
 |   |-- import/     # Zotero.Translate.Import wrapper
 |   |-- dedup/      # DOI-first / title+author+year dedup
-|   |-- screening/  # TA/FT: AI judgment, criteria, decisions, Human-AI consistency (Kappa)
+|   |-- screening/  # TA/FT: AI judgment, criteria, decisions, Human-AI & human-human consistency (Kappa)
 |   |-- coding/     # Codebook + Extract Coding services
 |   |-- pdf/        # text extraction, quote location, highlights
 |   |-- ai/         # AI provider config, chat completions, usage tracking
