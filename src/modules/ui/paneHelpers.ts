@@ -95,6 +95,18 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * Identifies who made a screening decision, for decided_by/fulltext_ready_by
+ * -- Zotero's own numeric account ID when the user is signed into Zotero
+ * sync (stable across devices/renames, unlike a display name), falling back
+ * to the generic "user" label used everywhere before this existed when no
+ * account is configured (Zotero.Users.getCurrentUserID() returns 0 then).
+ */
+export function currentDeciderId(): string {
+  const userID = Zotero.Users.getCurrentUserID();
+  return userID ? String(userID) : "user";
+}
+
 /** Shared "key: preview text" option label for annotation-picker dropdowns
  * (Coding's per-record linker and FT-Screening's evidence linker). */
 export function annotationOptionLabel(annotation: Zotero.Item): string {

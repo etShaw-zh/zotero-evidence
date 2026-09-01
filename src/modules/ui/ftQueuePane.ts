@@ -16,6 +16,7 @@ import {
 } from "../screening/ftScreeningService";
 import {
   annotationOptionLabel,
+  currentDeciderId,
   decisionLabel,
   el,
   escapeHtml,
@@ -386,7 +387,7 @@ async function renderFtContent(
           item,
           ctx.collections,
           decision,
-          "user",
+          currentDeciderId(),
           reason,
         );
         new ztoolkit.ProgressWindow(config.addonName)
@@ -478,7 +479,7 @@ async function renderFtContent(
               ctx.project.id,
               item,
               ctx.collections,
-              "user",
+              currentDeciderId(),
             );
             new ztoolkit.ProgressWindow(config.addonName)
               .createLine({
@@ -610,7 +611,7 @@ async function renderFtArea(
   // requiring the click; runAIJudgment still gates on this DB flag, so it
   // must actually get set, not just skipped in the UI.
   if (!state?.fulltextReady) {
-    await markFulltextReady(ctx.project.id, item, "user");
+    await markFulltextReady(ctx.project.id, item, currentDeciderId());
     state = await getScreeningState(ctx.project.id, item.key);
   }
   const attachment = await resolveAttachment(item);

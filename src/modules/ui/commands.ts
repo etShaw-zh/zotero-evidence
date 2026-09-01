@@ -34,7 +34,12 @@ import {
   importDirectToCoding,
   importLiteratureFile,
 } from "../import/importService";
-import { escapeHtml, quotePreview, resolveAttachment } from "./paneHelpers";
+import {
+  currentDeciderId,
+  escapeHtml,
+  quotePreview,
+  resolveAttachment,
+} from "./paneHelpers";
 import {
   resolveProjectCollections,
   SOURCE_DATABASE_LABELS,
@@ -1911,7 +1916,7 @@ export class EvidenceCommands {
           ctx.collections,
           state.id,
           state.aiDecision,
-          "user",
+          currentDeciderId(),
         );
         confirmed++;
       } else {
@@ -1964,7 +1969,12 @@ export class EvidenceCommands {
         skipped++;
         continue;
       }
-      await markUnavailable(ctx.project.id, item, ctx.collections, "user");
+      await markUnavailable(
+        ctx.project.id,
+        item,
+        ctx.collections,
+        currentDeciderId(),
+      );
       marked++;
     }
 

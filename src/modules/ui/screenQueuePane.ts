@@ -12,6 +12,7 @@ import {
   undoDecision,
 } from "../screening/taScreeningService";
 import {
+  currentDeciderId,
   decisionLabel,
   el,
   escapeHtml,
@@ -118,7 +119,7 @@ async function renderJudgmentContent(
         ctx.collections,
         state.id,
         decision,
-        "user",
+        currentDeciderId(),
         reason,
       );
       new ztoolkit.ProgressWindow(config.addonName)
