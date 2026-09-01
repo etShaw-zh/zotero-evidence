@@ -159,6 +159,37 @@ async function waitForValue<T>(
   throw new Error("waitForValue: timed out waiting for a truthy value");
 }
 
+// This suite passes consistently locally but has failed on GitHub Actions
+// CI (Linux + a virtual display) even after the waitForValue fix above --
+// and the CI reporter shows the failing assertion's message as literally
+// "undefined" rather than the real error, because Error.prototype.message
+// is non-enumerable and gets dropped by whatever naive JSON-stringifies
+// exceptions crossing the Node<->Zotero process boundary in
+// zotero-plugin-scaffold's reporter (chai's AssertionError sets message as
+// an own/enumerable property, which is why plain `assert.x()` failures
+// display fine but a thrown Error's `.message` doesn't). Funneling any
+// failure through assert.fail() with a hand-built string sidesteps that:
+// the diagnostic actually reaches the CI log instead of being silently
+// dropped, which is what's needed to root-cause this without guessing
+// again.
+function dumpPaneDiagnostics(win: Window, doc: Document): string {
+  const container = doc.getElementById("zotero-view-item");
+  const parts: string[] = [
+    `innerWidth=${(win as any).innerWidth} innerHeight=${(win as any).innerHeight}`,
+    `doc.hasFocus()=${doc.hasFocus()}`,
+    `visibilityState=${(doc as any).visibilityState}`,
+    `container=${container ? "found" : "MISSING"}`,
+  ];
+  if (container) {
+    parts.push(`container.className=${container.className}`);
+    parts.push(`container.childElementCount=${container.childElementCount}`);
+    parts.push(
+      `container.outerHTML(trunc1500)=${container.outerHTML.slice(0, 1500)}`,
+    );
+  }
+  return parts.join(" | ");
+}
+
 describe("FT-Queue item-pane section", function () {
   describe("(reader)", function () {
     this.timeout(60000);
@@ -300,41 +331,47 @@ describe("FT-Queue item-pane section", function () {
       const win = Zotero.getMainWindow();
       const doc = win.document;
       const ZoteroPaneGlobal = (win as any).ZoteroPane;
-      await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.ftQueueId,
-      );
-      await Zotero.Promise.delay(300);
-      await ZoteroPaneGlobal.selectItem(item.id);
-      // renderCardHeader adds the .zotero-evidence-card class and the empty
-      // .zotero-evidence-judgment-area div SYNCHRONOUSLY, before the pane's
-      // own async content (awaited DB calls) fills that area in -- so "the
-      // card exists" is true well before rendering is actually done. Poll
-      // for the content area to actually have something in it instead.
-      const card = await waitForValue(() => {
-        const c = doc.getElementById("zotero-view-item");
-        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
-        const found = findPaneCard(c, "zotero-evidence-ft-queue");
-        const area = found && paneContentArea(found);
-        return area?.textContent?.trim() ? found : null;
-      });
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.ftQueueId,
+        );
+        await Zotero.Promise.delay(300);
+        await ZoteroPaneGlobal.selectItem(item.id);
+        // renderCardHeader adds the .zotero-evidence-card class and the
+        // empty .zotero-evidence-judgment-area div SYNCHRONOUSLY, before
+        // the pane's own async content (awaited DB calls) fills that area
+        // in -- so "the card exists" is true well before rendering is
+        // actually done. Poll for the content area to actually have
+        // something in it instead.
+        const card = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          const found = findPaneCard(c, "zotero-evidence-ft-queue");
+          const area = found && paneContentArea(found);
+          return area?.textContent?.trim() ? found : null;
+        });
 
-      const container = doc.getElementById("zotero-view-item");
-      assert.isNotNull(container, "#zotero-view-item should exist");
-      assert.isTrue(
-        container!.classList.contains("zotero-evidence-hide-native"),
-        "native sections should be hidden while viewing FT-Screen Queue",
-      );
-      assert.isNotNull(card, "custom FT-Queue card should be rendered");
+        const container = doc.getElementById("zotero-view-item");
+        assert.isNotNull(container, "#zotero-view-item should exist");
+        assert.isTrue(
+          container!.classList.contains("zotero-evidence-hide-native"),
+          "native sections should be hidden while viewing FT-Screen Queue",
+        );
+        assert.isNotNull(card, "custom FT-Queue card should be rendered");
 
-      assert.isNull(
-        paneContentArea(card!)!.querySelector("button"),
-        "no screening record yet -- no Undo (or any other) button should render",
-      );
-      assert.include(
-        card!.textContent,
-        await pluginString("ft-queue-history-none"),
-        "should show the 'no screening record yet' message",
-      );
+        assert.isNull(
+          paneContentArea(card!)!.querySelector("button"),
+          "no screening record yet -- no Undo (or any other) button should render",
+        );
+        assert.include(
+          card!.textContent,
+          await pluginString("ft-queue-history-none"),
+          "should show the 'no screening record yet' message",
+        );
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
     });
 
     it("shows the human decision with a working Undo button for an FT-Include item", async function () {
@@ -361,44 +398,54 @@ describe("FT-Queue item-pane section", function () {
       const win = Zotero.getMainWindow();
       const doc = win.document;
       const ZoteroPaneGlobal = (win as any).ZoteroPane;
-      await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.ftIncludeId,
-      );
-      await Zotero.Promise.delay(300);
-      await ZoteroPaneGlobal.selectItem(item.id);
-      // See the earlier waitForValue in this file for why this checks the
-      // content area's text and hide-native class, and returns the actual
-      // card node, rather than re-querying for it afterward.
-      const card = await waitForValue(() => {
-        const c = doc.getElementById("zotero-view-item");
-        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
-        const found = findPaneCard(c, "zotero-evidence-ft-queue");
-        const area = found && paneContentArea(found);
-        return area?.textContent?.trim() ? found : null;
-      });
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.ftIncludeId,
+        );
+        await Zotero.Promise.delay(300);
+        await ZoteroPaneGlobal.selectItem(item.id);
+        // See the earlier waitForValue in this file for why this checks
+        // the content area's text and hide-native class, and returns the
+        // actual card node, rather than re-querying for it afterward.
+        const card = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          const found = findPaneCard(c, "zotero-evidence-ft-queue");
+          const area = found && paneContentArea(found);
+          return area?.textContent?.trim() ? found : null;
+        });
 
-      const humanLabel = await pluginString("ft-queue-history-human");
-      const includeLabel = await pluginString("screen-queue-decision-include");
-      assert.include(card.textContent, humanLabel);
-      assert.include(card.textContent, includeLabel);
+        const humanLabel = await pluginString("ft-queue-history-human");
+        const includeLabel = await pluginString(
+          "screen-queue-decision-include",
+        );
+        assert.include(card.textContent, humanLabel);
+        assert.include(card.textContent, includeLabel);
 
-      const undoBtn = paneContentArea(card)!.querySelector(
-        "button",
-      ) as HTMLButtonElement | null;
-      assert.isNotNull(
-        undoBtn,
-        "library-tab summary should still offer Undo -- reversing a decision " +
-          "doesn't require the PDF the way making it does",
-      );
-      assert.include(undoBtn!.textContent, await pluginString("ft-queue-undo"));
+        const undoBtn = paneContentArea(card)!.querySelector(
+          "button",
+        ) as HTMLButtonElement | null;
+        assert.isNotNull(
+          undoBtn,
+          "library-tab summary should still offer Undo -- reversing a decision " +
+            "doesn't require the PDF the way making it does",
+        );
+        assert.include(
+          undoBtn!.textContent,
+          await pluginString("ft-queue-undo"),
+        );
 
-      undoBtn!.click();
-      await Zotero.Promise.delay(1500);
-      assert.isFalse(
-        item.inCollection(collections.ftIncludeId),
-        "clicking Undo from the library tab should actually revert the decision",
-      );
-      assert.isTrue(item.inCollection(collections.ftQueueId));
+        undoBtn!.click();
+        await Zotero.Promise.delay(1500);
+        assert.isFalse(
+          item.inCollection(collections.ftIncludeId),
+          "clicking Undo from the library tab should actually revert the decision",
+        );
+        assert.isTrue(item.inCollection(collections.ftQueueId));
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
     });
 
     it("shows the AI-picked exclude reason as read-only text with no interactive controls for an FT-Screen Queue item", async function () {
@@ -439,33 +486,38 @@ describe("FT-Queue item-pane section", function () {
       const win = Zotero.getMainWindow();
       const doc = win.document;
       const ZoteroPaneGlobal = (win as any).ZoteroPane;
-      await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.ftQueueId,
-      );
-      await Zotero.Promise.delay(300);
-      await ZoteroPaneGlobal.selectItem(item.id);
-      const card = await waitForValue(() => {
-        const c = doc.getElementById("zotero-view-item");
-        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
-        const found = findPaneCard(c, "zotero-evidence-ft-queue");
-        return found?.textContent?.includes("No control arm reported.")
-          ? found
-          : null;
-      });
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.ftQueueId,
+        );
+        await Zotero.Promise.delay(300);
+        await ZoteroPaneGlobal.selectItem(item.id);
+        const card = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          const found = findPaneCard(c, "zotero-evidence-ft-queue");
+          return found?.textContent?.includes("No control arm reported.")
+            ? found
+            : null;
+        });
 
-      const aiLabel = await pluginString("ft-queue-history-ai");
-      assert.include(card.textContent, aiLabel);
-      assert.include(card.textContent, "No control arm reported.");
+        const aiLabel = await pluginString("ft-queue-history-ai");
+        assert.include(card.textContent, aiLabel);
+        assert.include(card.textContent, "No control arm reported.");
 
-      assert.isNull(
-        card.querySelector("select"),
-        "library-tab summary should never show the manual-link/reason picker",
-      );
-      assert.isNull(
-        paneContentArea(card)!.querySelector("button"),
-        "AI suggested exclude but no human decision was confirmed yet -- no " +
-          "Confirm/Exclude buttons (reader-only) and no Undo (nothing to undo)",
-      );
+        assert.isNull(
+          card.querySelector("select"),
+          "library-tab summary should never show the manual-link/reason picker",
+        );
+        assert.isNull(
+          paneContentArea(card)!.querySelector("button"),
+          "AI suggested exclude but no human decision was confirmed yet -- no " +
+            "Confirm/Exclude buttons (reader-only) and no Undo (nothing to undo)",
+        );
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
     });
   });
 });

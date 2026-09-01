@@ -131,6 +131,37 @@ async function waitForValue<T>(
   throw new Error("waitForValue: timed out waiting for a truthy value");
 }
 
+// This suite passes consistently locally but has failed on GitHub Actions
+// CI (Linux + a virtual display) even after the waitForValue fix above --
+// and the CI reporter shows the failing assertion's message as literally
+// "undefined" rather than the real error, because Error.prototype.message
+// is non-enumerable and gets dropped by whatever naive JSON-stringifies
+// exceptions crossing the Node<->Zotero process boundary in
+// zotero-plugin-scaffold's reporter (chai's AssertionError sets message as
+// an own/enumerable property, which is why plain `assert.x()` failures
+// display fine but a thrown Error's `.message` doesn't). Funneling any
+// failure through assert.fail() with a hand-built string sidesteps that:
+// the diagnostic actually reaches the CI log instead of being silently
+// dropped, which is what's needed to root-cause this without guessing
+// again.
+function dumpPaneDiagnostics(win: Window, doc: Document): string {
+  const container = doc.getElementById("zotero-view-item");
+  const parts: string[] = [
+    `innerWidth=${(win as any).innerWidth} innerHeight=${(win as any).innerHeight}`,
+    `doc.hasFocus()=${doc.hasFocus()}`,
+    `visibilityState=${(doc as any).visibilityState}`,
+    `container=${container ? "found" : "MISSING"}`,
+  ];
+  if (container) {
+    parts.push(`container.className=${container.className}`);
+    parts.push(`container.childElementCount=${container.childElementCount}`);
+    parts.push(
+      `container.outerHTML(trunc1500)=${container.outerHTML.slice(0, 1500)}`,
+    );
+  }
+  return parts.join(" | ");
+}
+
 describe("Coding item-pane section", function () {
   describe("(reader)", function () {
     this.timeout(60000);
@@ -321,40 +352,45 @@ describe("Coding item-pane section", function () {
       const win = Zotero.getMainWindow();
       const doc = win.document;
       const ZoteroPaneGlobal = (win as any).ZoteroPane;
-      await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.codingId,
-      );
-      await Zotero.Promise.delay(300);
-      await ZoteroPaneGlobal.selectItem(item.id);
-      const confirmedList = await waitForValue(() => {
-        const c = doc.getElementById("zotero-view-item");
-        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
-        return c.querySelector(".zotero-evidence-confirmed-list");
-      });
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.codingId,
+        );
+        await Zotero.Promise.delay(300);
+        await ZoteroPaneGlobal.selectItem(item.id);
+        const confirmedList = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          return c.querySelector(".zotero-evidence-confirmed-list");
+        });
 
-      const container = doc.getElementById("zotero-view-item");
-      assert.isNotNull(container, "#zotero-view-item should exist");
-      assert.isTrue(
-        container!.classList.contains("zotero-evidence-hide-native"),
-        "native sections should be hidden while viewing a Coding-collection item",
-      );
-      assert.isNotNull(
-        confirmedList,
-        "confirmed-evidence list should be rendered",
-      );
+        const container = doc.getElementById("zotero-view-item");
+        assert.isNotNull(container, "#zotero-view-item should exist");
+        assert.isTrue(
+          container!.classList.contains("zotero-evidence-hide-native"),
+          "native sections should be hidden while viewing a Coding-collection item",
+        );
+        assert.isNotNull(
+          confirmedList,
+          "confirmed-evidence list should be rendered",
+        );
 
-      const rowLabel = container!.querySelector(
-        ".zotero-evidence-coding-row-label",
-      );
-      assert.isNotNull(rowLabel);
-      assert.include(rowLabel!.textContent, "population");
-      assert.include(rowLabel!.textContent, "Adults 18-65");
+        const rowLabel = container!.querySelector(
+          ".zotero-evidence-coding-row-label",
+        );
+        assert.isNotNull(rowLabel);
+        assert.include(rowLabel!.textContent, "population");
+        assert.include(rowLabel!.textContent, "Adults 18-65");
 
-      // The whole point: no Undo/modify action in this read-only summary.
-      assert.isNull(
-        container!.querySelector(".zotero-evidence-coding-row-actions"),
-        "the library-tab summary must not show the Undo/modify button",
-      );
+        // The whole point: no Undo/modify action in this read-only summary.
+        assert.isNull(
+          container!.querySelector(".zotero-evidence-coding-row-actions"),
+          "the library-tab summary must not show the Undo/modify button",
+        );
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
     });
 
     it("shows an empty-state message for a Coding-collection item with no confirmed evidence yet", async function () {
@@ -380,34 +416,39 @@ describe("Coding item-pane section", function () {
       const win = Zotero.getMainWindow();
       const doc = win.document;
       const ZoteroPaneGlobal = (win as any).ZoteroPane;
-      await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.codingId,
-      );
-      await Zotero.Promise.delay(300);
-      await ZoteroPaneGlobal.selectItem(item.id);
-      // renderCardHeader adds the .zotero-evidence-card class and the empty
-      // .zotero-evidence-judgment-area div SYNCHRONOUSLY, before the pane's
-      // own async content (awaited DB calls) fills that area in -- so
-      // "the card exists" is true well before rendering is actually done.
-      // Poll for the content area to actually have something in it instead,
-      // and hand back the card node itself rather than re-querying for it
-      // afterward (see waitForValue's doc comment for why that re-query is
-      // a race).
-      const card = await waitForValue(() => {
-        const c = doc.getElementById("zotero-view-item");
-        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
-        const found = findPaneCard(c, "zotero-evidence-coding");
-        const area = found?.querySelector(".zotero-evidence-judgment-area");
-        return area?.textContent?.trim() ? found : null;
-      });
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.codingId,
+        );
+        await Zotero.Promise.delay(300);
+        await ZoteroPaneGlobal.selectItem(item.id);
+        // renderCardHeader adds the .zotero-evidence-card class and the
+        // empty .zotero-evidence-judgment-area div SYNCHRONOUSLY, before
+        // the pane's own async content (awaited DB calls) fills that area
+        // in -- so "the card exists" is true well before rendering is
+        // actually done. Poll for the content area to actually have
+        // something in it instead, and hand back the card node itself
+        // rather than re-querying for it afterward (see waitForValue's doc
+        // comment for why that re-query is a race).
+        const card = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          const found = findPaneCard(c, "zotero-evidence-coding");
+          const area = found?.querySelector(".zotero-evidence-judgment-area");
+          return area?.textContent?.trim() ? found : null;
+        });
 
-      const container = doc.getElementById("zotero-view-item")!;
-      assert.isNull(
-        container.querySelector(".zotero-evidence-confirmed-list"),
-        "no confirmed-evidence list should render when there's nothing confirmed yet",
-      );
-      const emptyMessage = await pluginString("coding-summary-empty");
-      assert.include(card!.textContent, emptyMessage);
+        const container = doc.getElementById("zotero-view-item")!;
+        assert.isNull(
+          container.querySelector(".zotero-evidence-confirmed-list"),
+          "no confirmed-evidence list should render when there's nothing confirmed yet",
+        );
+        const emptyMessage = await pluginString("coding-summary-empty");
+        assert.include(card!.textContent, emptyMessage);
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
     });
   });
 });
