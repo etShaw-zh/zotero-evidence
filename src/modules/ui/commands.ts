@@ -73,6 +73,17 @@ import {
   ScreeningConsistencyStage,
   ScreeningConsistencyStats,
 } from "../screening/consistencyService";
+import {
+  applyReconciliation,
+  computeRoundConsistency,
+  ConsistencyResolution,
+  ConsistencyRound,
+  getActiveRound,
+  HumanConsistencyResult,
+  recordCollectedCsv,
+  startFullRound,
+  startPilotRound,
+} from "../screening/humanConsistencyService";
 
 export class EvidenceCommands {
   static registerMenus() {
@@ -224,6 +235,13 @@ export class EvidenceCommands {
           label: getString("menu-consistency"),
           commandListener: () =>
             addon.hooks.onDialogEvents("evidenceConsistency"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-human-consistency",
+          label: getString("menu-human-consistency"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceHumanConsistency"),
         },
       ],
     });
@@ -3562,6 +3580,548 @@ export class EvidenceCommands {
       );
 
       runBtn?.addEventListener("click", () => void refresh());
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      return;
+    }
+  }
+
+  static async humanConsistencyDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    let projectId = projects[0].id;
+
+    while (true) {
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        stage: "ta_screening",
+      };
+
+      const dialog = new ztoolkit.Dialog(5, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: {
+            innerHTML: getString("dialog-human-consistency-title"),
+          },
+        })
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-human-consistency-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-consistency-stage-label"),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-human-consistency-stage",
+            attributes: { "data-bind": "stage", "data-prop": "value" },
+            children: [
+              {
+                tag: "option",
+                namespace: "html",
+                properties: {
+                  value: "ta_screening",
+                  innerHTML: escapeHtml(getString("consistency-stage-ta")),
+                },
+              },
+              {
+                tag: "option",
+                namespace: "html",
+                properties: {
+                  value: "ft_screening",
+                  innerHTML: escapeHtml(getString("consistency-stage-ft")),
+                },
+              },
+            ],
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "div",
+          namespace: "html",
+          id: "evidence-human-consistency-content",
+          styles: { maxHeight: "460px", overflow: "auto", marginTop: "6px" },
+        })
+        .addCell(
+          4,
+          0,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-human-consistency-status",
+          },
+          false,
+        )
+        .addButton(getString("dialog-close"), "close")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-human-consistency-title"),
+        820,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const stageSelectEl = doc?.getElementById(
+        "evidence-human-consistency-stage",
+      ) as HTMLSelectElement | undefined;
+      const contentEl = doc?.getElementById(
+        "evidence-human-consistency-content",
+      );
+      const statusEl = doc?.getElementById("evidence-human-consistency-status");
+
+      const setStatus = (text: string) => {
+        if (statusEl) statusEl.textContent = text;
+      };
+      const setError = (e: any) => {
+        setStatus(
+          `${getString("human-consistency-error")}: ${e?.message ?? e}`,
+        );
+      };
+
+      const currentProjectName = () =>
+        projects.find((p) => p.id === Number(dialogData.projectId))?.name ?? "";
+
+      const chooseArchiveSavePath = async (
+        suffix: string,
+      ): Promise<string | null> => {
+        const path = await new ztoolkit.FilePicker(
+          getString("human-consistency-archive-save-title"),
+          "save",
+          [["Zip Archive (*.zip)", "*.zip"]],
+          `${currentProjectName()}-${suffix}.zip`,
+        ).open();
+        return path && typeof path === "string" ? path : null;
+      };
+
+      const renderStartForm = () => {
+        if (!contentEl) return;
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.textContent = getString("human-consistency-intro");
+        contentEl.appendChild(p);
+
+        const row = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        row.style.cssText = "margin:6px 0;";
+        const label = doc!.createElementNS(HTML_NS, "label") as HTMLElement;
+        label.textContent = getString("human-consistency-percent-label");
+        row.appendChild(label);
+        const percentInput = doc!.createElementNS(
+          HTML_NS,
+          "input",
+        ) as HTMLInputElement;
+        percentInput.type = "number";
+        percentInput.min = "1";
+        percentInput.max = "100";
+        percentInput.value = "20";
+        percentInput.style.cssText = "width:60px;margin-left:8px;";
+        row.appendChild(percentInput);
+        contentEl.appendChild(row);
+
+        const startBtn = doc!.createElementNS(
+          HTML_NS,
+          "button",
+        ) as HTMLButtonElement;
+        startBtn.setAttribute("type", "button");
+        startBtn.textContent = getString(
+          "human-consistency-start-pilot-button",
+        );
+        contentEl.appendChild(startBtn);
+
+        startBtn.addEventListener("click", async () => {
+          const zipPath = await chooseArchiveSavePath("pilot-sample");
+          if (!zipPath) return;
+          startBtn.setAttribute("disabled", "true");
+          setStatus(getString("consistency-loading"));
+          try {
+            await startPilotRound(
+              Number(dialogData.projectId),
+              dialogData.stage as ScreeningConsistencyStage,
+              Number(percentInput.value) || 20,
+              zipPath,
+            );
+            setStatus("");
+            await renderState();
+          } catch (e: any) {
+            setError(e);
+          } finally {
+            startBtn.removeAttribute("disabled");
+          }
+        });
+      };
+
+      const renderCollectForm = (round: ConsistencyRound) => {
+        if (!contentEl) return;
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.textContent = getString("human-consistency-waiting-note", {
+          args: { n: round.itemKeys.length },
+        });
+        contentEl.appendChild(p);
+
+        const makeImportRow = (which: "a" | "b", collected: string | null) => {
+          const row = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+          row.style.cssText = "margin:6px 0;";
+          const btn = doc!.createElementNS(
+            HTML_NS,
+            "button",
+          ) as HTMLButtonElement;
+          btn.setAttribute("type", "button");
+          btn.textContent = collected
+            ? getString(
+                which === "a"
+                  ? "human-consistency-reviewer-a-done"
+                  : "human-consistency-reviewer-b-done",
+              )
+            : getString(
+                which === "a"
+                  ? "human-consistency-import-a-button"
+                  : "human-consistency-import-b-button",
+              );
+          if (collected) btn.setAttribute("disabled", "true");
+          row.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const path = await new ztoolkit.FilePicker(
+              getString("human-consistency-import-csv-title"),
+              "open",
+              [["CSV (*.csv)", "*.csv"]],
+            ).open();
+            if (!path || typeof path !== "string") return;
+            setStatus(getString("consistency-loading"));
+            try {
+              await recordCollectedCsv(round.id, which, path);
+              setStatus("");
+              await renderState();
+            } catch (e: any) {
+              setError(e);
+            }
+          });
+          return row;
+        };
+        contentEl.appendChild(makeImportRow("a", round.reviewerACsvPath));
+        contentEl.appendChild(makeImportRow("b", round.reviewerBCsvPath));
+      };
+
+      const buildStatsTable = (
+        headers: string[],
+        rowsData: [string, number][][],
+      ) => {
+        const table = doc!.createElementNS(
+          HTML_NS,
+          "table",
+        ) as HTMLTableElement;
+        table.style.cssText =
+          "width:100%;border-collapse:collapse;margin:8px 0;";
+        const headRow = doc!.createElementNS(HTML_NS, "tr");
+        for (const label of headers) {
+          const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+          th.textContent = label;
+          th.style.cssText =
+            "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+          headRow.appendChild(th);
+        }
+        table.appendChild(headRow);
+        for (const cells of rowsData) {
+          const tr = doc!.createElementNS(HTML_NS, "tr");
+          for (const [text, max] of cells) {
+            const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+            td.textContent = quotePreview(text, max);
+            if (text) td.title = text;
+            td.style.cssText =
+              "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+        return table;
+      };
+
+      const renderReconcileForm = async (round: ConsistencyRound) => {
+        if (!contentEl) return;
+        setStatus(getString("consistency-loading"));
+        let result: HumanConsistencyResult;
+        try {
+          result = await computeRoundConsistency(round);
+        } catch (e: any) {
+          setError(e);
+          return;
+        }
+        setStatus("");
+
+        const summary = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        const kappaText =
+          result.kappa === null
+            ? getString("consistency-kappa-na")
+            : `${result.kappa.toFixed(2)} (${EvidenceCommands.consistencyKappaLevelLabel(result.kappa)})`;
+        for (const line of [
+          `${getString("human-consistency-reviewers-label")}: ${result.reviewerA || "?"} / ${result.reviewerB || "?"}`,
+          getString("consistency-summary-n", { args: { n: result.n } }),
+          getString("consistency-summary-agreement", {
+            args: { pct: ((result.observedAgreement ?? 0) * 100).toFixed(1) },
+          }),
+          `${getString("consistency-summary-kappa-label")}: ${kappaText}`,
+        ]) {
+          const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          p.style.cssText = "margin:2px 0;";
+          p.textContent = line;
+          summary.appendChild(p);
+        }
+        contentEl.appendChild(summary);
+
+        contentEl.appendChild(
+          buildStatsTable(
+            [
+              getString("consistency-col-category"),
+              getString("consistency-col-agreement"),
+              getString("consistency-col-kappa"),
+            ],
+            result.byCategory.map((c) => [
+              [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
+              [`${(c.observedAgreement * 100).toFixed(1)}%`, 12],
+              [c.kappa === null ? "—" : c.kappa.toFixed(2), 8],
+            ]),
+          ),
+        );
+
+        const table = doc!.createElementNS(
+          HTML_NS,
+          "table",
+        ) as HTMLTableElement;
+        table.style.cssText =
+          "width:100%;border-collapse:collapse;margin-top:6px;";
+        const headRow = doc!.createElementNS(HTML_NS, "tr");
+        for (const label of [
+          getString("consistency-col-title"),
+          getString("human-consistency-col-a"),
+          getString("human-consistency-col-b"),
+          getString("human-consistency-col-final"),
+        ]) {
+          const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+          th.textContent = label;
+          th.style.cssText =
+            "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+          headRow.appendChild(th);
+        }
+        table.appendChild(headRow);
+
+        const decisionOptions =
+          round.stage === "ta_screening"
+            ? ["include", "exclude", "unclear"]
+            : ["include", "exclude", "unavailable"];
+        const selectByItemKey = new Map<string, HTMLSelectElement>();
+
+        for (const it of result.items) {
+          const tr = doc!.createElementNS(HTML_NS, "tr");
+          const disagree =
+            it.aDecision !== null &&
+            it.bDecision !== null &&
+            it.aDecision !== it.bDecision;
+          if (disagree) tr.setAttribute("style", "background:#fff4e5;");
+
+          const titleTd = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+          titleTd.textContent = quotePreview(it.title, 46);
+          if (it.title) titleTd.title = it.title;
+          titleTd.style.cssText =
+            "white-space:nowrap;overflow:hidden;max-width:260px;border-bottom:1px solid #eee;padding:5px 8px;";
+          tr.appendChild(titleTd);
+
+          for (const val of [it.aDecision, it.bDecision]) {
+            const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+            td.textContent = val
+              ? EvidenceCommands.consistencyDecisionLabel(val)
+              : "—";
+            td.style.cssText =
+              "white-space:nowrap;border-bottom:1px solid #eee;padding:5px 8px;";
+            tr.appendChild(td);
+          }
+
+          const finalTd = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+          const select = doc!.createElementNS(
+            HTML_NS,
+            "select",
+          ) as HTMLSelectElement;
+          const blankOpt = doc!.createElementNS(
+            HTML_NS,
+            "option",
+          ) as HTMLOptionElement;
+          blankOpt.value = "";
+          blankOpt.textContent = getString("human-consistency-final-unset");
+          select.appendChild(blankOpt);
+          for (const opt of decisionOptions) {
+            const o = doc!.createElementNS(
+              HTML_NS,
+              "option",
+            ) as HTMLOptionElement;
+            o.value = opt;
+            o.textContent = EvidenceCommands.consistencyDecisionLabel(opt);
+            select.appendChild(o);
+          }
+          // Agreed items default to that agreed value; disagreements are
+          // left blank so the coordinator has to make an explicit call.
+          if (!disagree && it.aDecision) select.value = it.aDecision;
+          finalTd.appendChild(select);
+          finalTd.style.cssText =
+            "border-bottom:1px solid #eee;padding:5px 8px;";
+          tr.appendChild(finalTd);
+          table.appendChild(tr);
+
+          selectByItemKey.set(it.itemKey, select);
+        }
+        contentEl.appendChild(table);
+
+        const applyBtn = doc!.createElementNS(
+          HTML_NS,
+          "button",
+        ) as HTMLButtonElement;
+        applyBtn.setAttribute("type", "button");
+        applyBtn.textContent = getString("human-consistency-apply-button");
+        applyBtn.style.cssText = "display:block;margin-top:10px;";
+        contentEl.appendChild(applyBtn);
+
+        applyBtn.addEventListener("click", async () => {
+          const resolutions: ConsistencyResolution[] = [];
+          for (const [itemKey, select] of selectByItemKey) {
+            if (select.value)
+              resolutions.push({ itemKey, decision: select.value });
+          }
+          applyBtn.setAttribute("disabled", "true");
+          setStatus(getString("consistency-loading"));
+          try {
+            await applyReconciliation(round, resolutions);
+            setStatus("");
+            await renderState();
+          } catch (e: any) {
+            setError(e);
+          } finally {
+            applyBtn.removeAttribute("disabled");
+          }
+        });
+      };
+
+      const renderPilotDoneForm = () => {
+        if (!contentEl) return;
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.textContent = getString("human-consistency-pilot-done-note");
+        contentEl.appendChild(p);
+
+        const btn = doc!.createElementNS(
+          HTML_NS,
+          "button",
+        ) as HTMLButtonElement;
+        btn.setAttribute("type", "button");
+        btn.textContent = getString("human-consistency-start-full-button");
+        contentEl.appendChild(btn);
+
+        btn.addEventListener("click", async () => {
+          const zipPath = await chooseArchiveSavePath("full-round");
+          if (!zipPath) return;
+          btn.setAttribute("disabled", "true");
+          setStatus(getString("consistency-loading"));
+          try {
+            await startFullRound(
+              Number(dialogData.projectId),
+              dialogData.stage as ScreeningConsistencyStage,
+              zipPath,
+            );
+            setStatus("");
+            await renderState();
+          } catch (e: any) {
+            setError(e);
+          } finally {
+            btn.removeAttribute("disabled");
+          }
+        });
+      };
+
+      const renderFullDoneForm = () => {
+        if (!contentEl) return;
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.textContent = getString("human-consistency-full-done-note");
+        contentEl.appendChild(p);
+        renderStartForm();
+      };
+
+      const renderState = async () => {
+        if (!contentEl) return;
+        contentEl.innerHTML = "";
+        setStatus("");
+        const round = await getActiveRound(
+          Number(dialogData.projectId),
+          dialogData.stage as ScreeningConsistencyStage,
+        );
+        if (!round) {
+          renderStartForm();
+        } else if (round.status === "sampled") {
+          renderCollectForm(round);
+        } else if (round.status === "collected") {
+          await renderReconcileForm(round);
+        } else if (round.phase === "pilot") {
+          renderPilotDoneForm();
+        } else {
+          renderFullDoneForm();
+        }
+      };
+
+      await renderState();
+
+      const projectSelectEl = doc?.getElementById(
+        "evidence-human-consistency-project",
+      ) as HTMLSelectElement | undefined;
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        stageSelectEl,
+        async (value) => {
+          dialogData.stage = value;
+          await renderState();
+        },
+      );
 
       await dialogData.unloadLock.promise;
 

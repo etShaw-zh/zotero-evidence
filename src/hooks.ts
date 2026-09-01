@@ -174,6 +174,9 @@ function onDialogEvents(type: string) {
     case "evidenceConsistency":
       EvidenceCommands.consistencyDialog();
       break;
+    case "evidenceHumanConsistency":
+      EvidenceCommands.humanConsistencyDialog();
+      break;
     case "evidenceExportPrisma":
       EvidenceCommands.exportPrismaDialog();
       break;

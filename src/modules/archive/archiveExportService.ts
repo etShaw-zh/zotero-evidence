@@ -51,6 +51,7 @@ async function ensureDir(dir: any): Promise<void> {
 async function buildItems(
   collections: ProjectCollectionMap,
   stagingDir: any,
+  itemKeys: Set<string> | null,
 ): Promise<ArchiveItem[]> {
   const root = Zotero.Collections.get(collections.rootId) as Zotero.Collection;
   const roles = roleMap(collections);
@@ -71,6 +72,7 @@ async function buildItems(
   for (const [itemId, itemRoles] of rolesByItemId) {
     const item = Zotero.Items.get(itemId) as Zotero.Item;
     if (!item || item.deleted) continue;
+    if (itemKeys && !itemKeys.has(item.key)) continue;
 
     const attachments: ArchiveAttachment[] = [];
     for (const attId of item.getAttachments(false)) {
@@ -120,7 +122,10 @@ async function buildItems(
   return items;
 }
 
-async function buildScreeningTables(projectId: number): Promise<{
+async function buildScreeningTables(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<{
   criteria: ArchiveScreeningCriteria[];
   records: ArchiveScreeningRecord[];
 }> {
@@ -131,6 +136,8 @@ async function buildScreeningTables(projectId: number): Promise<{
   const criteriaVersionById = new Map<number, number>();
   for (const row of criteriaRows) criteriaVersionById.set(row.id, row.version);
 
+  // Criteria aren't per-item, so they're never filtered -- a reviewer needs
+  // the full criteria regardless of which subset of items they were sent.
   const criteria: ArchiveScreeningCriteria[] = criteriaRows.map((row) => ({
     stage: row.stage,
     version: row.version,
@@ -138,10 +145,13 @@ async function buildScreeningTables(projectId: number): Promise<{
     createdAt: row.created_at,
   }));
 
-  const recordRows = (await databaseService.queryAsync(
+  const allRecordRows = (await databaseService.queryAsync(
     `SELECT * FROM screening_records WHERE project_id = ?`,
     [projectId],
   )) as any[];
+  const recordRows = itemKeys
+    ? allRecordRows.filter((row) => itemKeys.has(row.item_key))
+    : allRecordRows;
   const records: ArchiveScreeningRecord[] = recordRows.map((row) => ({
     itemKey: row.item_key,
     stage: row.stage,
@@ -167,7 +177,10 @@ async function buildScreeningTables(projectId: number): Promise<{
   return { criteria, records };
 }
 
-async function buildCodingTables(projectId: number): Promise<{
+async function buildCodingTables(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<{
   codebooks: ArchiveCodebook[];
   codingRecords: ArchiveCodingRecord[];
   synthesisThemes: ArchiveSynthesisTheme[];
@@ -179,6 +192,8 @@ async function buildCodingTables(projectId: number): Promise<{
   const codebookVersionById = new Map<number, number>();
   for (const row of codebookRows) codebookVersionById.set(row.id, row.version);
 
+  // Codebooks aren't per-item either, so also never filtered -- same
+  // reasoning as screening criteria above.
   const codebooks: ArchiveCodebook[] = codebookRows.map((row) => ({
     version: row.version,
     locked: row.locked,
@@ -187,10 +202,13 @@ async function buildCodingTables(projectId: number): Promise<{
     updatedAt: row.updated_at,
   }));
 
-  const codingRows = (await databaseService.queryAsync(
+  const allCodingRows = (await databaseService.queryAsync(
     `SELECT * FROM coding_records WHERE project_id = ? ORDER BY id`,
     [projectId],
   )) as any[];
+  const codingRows = itemKeys
+    ? allCodingRows.filter((row) => itemKeys.has(row.item_key))
+    : allCodingRows;
   const codingRecordIndexById = new Map<number, number>();
   const codingRecords: ArchiveCodingRecord[] = codingRows.map((row, i) => {
     codingRecordIndexById.set(row.id, i);
@@ -236,10 +254,17 @@ async function buildCodingTables(projectId: number): Promise<{
  * plugin's own screening/coding/synthesis data for it. See archiveTypes.ts
  * for why cross-references use archive-local keys rather than live database
  * ids.
+ *
+ * `itemKeys`, when given, restricts the archive to just those items (and
+ * only the screening/coding rows that reference them) -- used by
+ * humanConsistencyService.ts to hand out a sampled subset for a pilot
+ * round instead of the whole project. Omitted/undefined archives
+ * everything, same as before this parameter existed.
  */
 export async function exportProjectArchive(
   projectId: number,
   outputZipPath: string,
+  itemKeys?: string[],
 ): Promise<void> {
   await databaseService.init();
   const project = await getProjectById(projectId);
@@ -251,16 +276,20 @@ export async function exportProjectArchive(
     throw new Error(`Root collection not found for project "${project.name}"`);
   }
   const collections = resolveProjectCollections(rootId);
+  const itemKeySet = itemKeys ? new Set(itemKeys) : null;
 
   const stagingDir = Zotero.getTempDirectory() as any;
   stagingDir.append(`evidence-archive-${Date.now()}`);
   await ensureDir(stagingDir);
 
   try {
-    const items = await buildItems(collections, stagingDir);
-    const { criteria, records } = await buildScreeningTables(projectId);
+    const items = await buildItems(collections, stagingDir, itemKeySet);
+    const { criteria, records } = await buildScreeningTables(
+      projectId,
+      itemKeySet,
+    );
     const { codebooks, codingRecords, synthesisThemes } =
-      await buildCodingTables(projectId);
+      await buildCodingTables(projectId, itemKeySet);
 
     const manifest: ArchiveManifest = {
       formatVersion: 1,

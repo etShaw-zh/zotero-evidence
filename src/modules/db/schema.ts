@@ -113,6 +113,28 @@ export const SCHEMA_STATEMENTS: string[] = [
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens INTEGER NOT NULL DEFAULT 0
   )`,
+  // One row per human-human consistency round (humanConsistencyService.ts).
+  // `phase` is 'pilot' (a sampled subset, drawn from the stage's queue
+  // collection) or 'full' (the remaining not-yet-decided items once the
+  // pilot round is reconciled); `status` walks 'sampled' -> 'collected' ->
+  // 'reconciled' as the two reviewers' CSVs come back and get resolved.
+  // `item_keys` is a JSON array frozen at round-start time, so items added
+  // to the project afterward don't retroactively change what this round
+  // covers. Kept (not deleted) once reconciled, as a history of past
+  // rounds -- the "active" round for a project/stage is just the latest.
+  `CREATE TABLE IF NOT EXISTS consistency_rounds (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    status TEXT NOT NULL,
+    item_keys TEXT NOT NULL,
+    reviewer_a_csv_path TEXT,
+    reviewer_b_csv_path TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on
