@@ -21,6 +21,7 @@ import { addManualRecord } from "../src/modules/coding/codingService";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
+import { getSelectedCollectionIdCompat } from "../src/modules/ui/paneHelpers";
 
 // getString() can't be imported directly here -- see ftQueuePane.test.ts's
 // pluginString for why; same cross-sandbox bridge technique.
@@ -368,7 +369,7 @@ describe("Coding item-pane section", function () {
         // actual selection to be visible before selecting the item.
         await waitUntil(
           () =>
-            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
             collections.codingId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);
@@ -439,7 +440,7 @@ describe("Coding item-pane section", function () {
         // and ZoteroPane.getSelectedCollection() actually reflecting it.
         await waitUntil(
           () =>
-            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
             collections.codingId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);

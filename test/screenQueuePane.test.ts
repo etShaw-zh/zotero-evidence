@@ -13,6 +13,7 @@ import { createProject } from "../src/modules/project/projectManager";
 import { databaseService } from "../src/modules/db/database";
 import { saveCriteria } from "../src/modules/screening/criteriaService";
 import { getScreeningState } from "../src/modules/screening/taScreeningService";
+import { getSelectedCollectionIdCompat } from "../src/modules/ui/paneHelpers";
 
 // getString() can't be imported directly here -- see ftQueuePane.test.ts for
 // why (it reads the real plugin bundle's `addon` global).
@@ -158,7 +159,7 @@ describe("Screen Queue item-pane section", function () {
       // actual selection to be visible before selecting the item.
       await waitUntil(
         () =>
-          ZoteroPaneGlobal.getSelectedCollection(true) ===
+          getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
           collections.screenQueueId,
       );
       await ZoteroPaneGlobal.selectItem(item.id);
@@ -237,7 +238,7 @@ describe("Screen Queue item-pane section", function () {
       // ZoteroPane.getSelectedCollection() actually reflecting it.
       await waitUntil(
         () =>
-          ZoteroPaneGlobal.getSelectedCollection(true) ===
+          getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
           collections.screenQueueId,
       );
       await ZoteroPaneGlobal.selectItem(item.id);

@@ -37,6 +37,7 @@ import {
 import {
   currentDeciderId,
   escapeHtml,
+  getSelectedCollectionIdCompat,
   quotePreview,
   resolveAttachment,
 } from "./paneHelpers";
@@ -1865,7 +1866,7 @@ export class EvidenceCommands {
 
   private static async resolveScreenQueueBatchContext() {
     const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
-    const collectionId = ZoteroPaneGlobal.getSelectedCollection(true);
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
     const ctx = await findProjectPaneContext(collectionId ?? null);
     if (!ctx || ctx.role !== "screen_queue") {
       ztoolkit.getGlobal("alert")(getString("error-not-screen-queue"));
@@ -1962,7 +1963,7 @@ export class EvidenceCommands {
 
   private static async resolveFtQueueBatchContext() {
     const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
-    const collectionId = ZoteroPaneGlobal.getSelectedCollection(true);
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
     const ctx = await findProjectPaneContext(collectionId ?? null);
     if (!ctx || ctx.role !== "ft_queue") {
       ztoolkit.getGlobal("alert")(getString("error-not-ft-queue"));

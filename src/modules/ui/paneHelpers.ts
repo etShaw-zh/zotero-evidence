@@ -43,6 +43,29 @@ export function setNativeSectionsHidden(doc: Document, hidden: boolean) {
 }
 
 /**
+ * Zotero 10 removed `ZoteroPane.getSelectedCollection()` -- it now throws
+ * "was removed -- use ZoteroPane.getSelectedCollections()" unconditionally
+ * (confirmed against the real Zotero 10.0.1 source: chrome/content/zotero/
+ * zoteroPane.js). The new plural method (multi-selection support) doesn't
+ * exist on Zotero 7-9, so this feature-detects rather than try/catching a
+ * call that's guaranteed to throw on 10+: prefer the new array-returning
+ * method when present (10+), taking the first selected id (this plugin's
+ * whole role model is "which ONE collection is selected", so a multi-
+ * selection resolves to its first row, same as picking none when nothing
+ * is selected); fall back to the legacy singular getter on 7-9, where the
+ * plural method was never added.
+ */
+export function getSelectedCollectionIdCompat(
+  ZoteroPaneGlobal: any,
+): number | null {
+  if (typeof ZoteroPaneGlobal.getSelectedCollections === "function") {
+    const ids = ZoteroPaneGlobal.getSelectedCollections(true);
+    return Array.isArray(ids) && ids.length > 0 ? ids[0] : null;
+  }
+  return ZoteroPaneGlobal.getSelectedCollection(true) ?? null;
+}
+
+/**
  * Synchronous collection -> project/role lookup, safe to call from
  * onItemChange (see projectContext.ts for why this must stay synchronous).
  * Shared by every pane section (Screen Queue, FT-Queue, ...).
@@ -52,7 +75,7 @@ export function resolveContextSync(
 ): ProjectPaneContext | null {
   if (!item || !item.isRegularItem()) return null;
   const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
-  const collectionId = ZoteroPaneGlobal.getSelectedCollection(true);
+  const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
   return findProjectPaneContextSync(collectionId ?? null);
 }
 

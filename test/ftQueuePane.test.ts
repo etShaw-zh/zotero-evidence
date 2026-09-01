@@ -27,6 +27,7 @@ import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
 import { databaseService } from "../src/modules/db/database";
 import { saveCriteria } from "../src/modules/screening/criteriaService";
+import { getSelectedCollectionIdCompat } from "../src/modules/ui/paneHelpers";
 import {
   confirmDecision,
   markFulltextReady,
@@ -340,7 +341,7 @@ describe("FT-Queue item-pane section", function () {
         // actual selection to be visible before selecting the item.
         await waitUntil(
           () =>
-            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
             collections.ftQueueId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);
@@ -413,7 +414,7 @@ describe("FT-Queue item-pane section", function () {
         );
         await waitUntil(
           () =>
-            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
             collections.ftQueueId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);
@@ -480,7 +481,7 @@ describe("FT-Queue item-pane section", function () {
         // and ZoteroPane.getSelectedCollection() actually reflecting it.
         await waitUntil(
           () =>
-            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
             collections.ftIncludeId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);
@@ -577,7 +578,7 @@ describe("FT-Queue item-pane section", function () {
         );
         await waitUntil(
           () =>
-            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
             collections.ftExcludeId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);

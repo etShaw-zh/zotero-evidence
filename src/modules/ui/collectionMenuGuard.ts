@@ -1,4 +1,5 @@
 import { isProjectOwnedCollectionSync } from "../project/projectContext";
+import { getSelectedCollectionIdCompat } from "./paneHelpers";
 
 // Zotero.getString ids buildCollectionContextMenu() (zoteroPane.js) assigns
 // to `#zotero-collectionmenu`'s <menuitem> elements, fresh on every
@@ -39,8 +40,8 @@ export function registerCollectionMenuGuard(win: _ZoteroTypes.MainWindow) {
     // the outer collection menu itself.
     if (event.target !== menu) return;
     const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
-    const collectionId = ZoteroPaneGlobal.getSelectedCollection(true);
-    if (!isProjectOwnedCollectionSync(collectionId ?? null)) return;
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
+    if (!isProjectOwnedCollectionSync(collectionId)) return;
     for (const id of GUARDED_MENU_ITEM_IDS) {
       doc.getElementById(id)?.setAttribute("hidden", "true");
     }
