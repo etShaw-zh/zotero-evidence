@@ -20,13 +20,13 @@
 ## Features
 
 - **Import & dedup** — import RIS/BibTeX/MEDLINE/PubMed XML; duplicates removed automatically.
-- **Title/Abstract screening** — AI suggests Include/Exclude/Unclear against one shared criteria set; human decides.
-- **Full-text screening** — AI checks each criterion individually with highlighted evidence; human confirms and finalizes.
-- **Extract coding** — AI proposes Codebook variable values backed by highlighted quotes; human confirms.
-- **Synthesis** — one click groups confirmed evidence into AI-generated themes.
-- **Consistency** — Cohen's Kappa between AI and human decisions, plus a guided dual-reviewer pilot _(beta)_.
+- **Title/Abstract screening** — AI suggests Include/Exclude/Unclear for each paper with reasoning; you confirm.
+- **Full-text screening** — AI checks the paper against each eligibility criterion with highlighted evidence; you confirm.
+- **Extract coding** — AI extracts data into your Codebook, backed by highlighted quotes; you confirm.
+- **Synthesis** — AI groups confirmed evidence into themes with one click.
+- **Consistency** — measure AI-vs-human agreement (Cohen's Kappa), or run a guided dual-reviewer pilot _(beta)_.
 - **Export** — PRISMA data, screening log, coding data, and synthesis output.
-- **Archive & share** — export a project to a `.zip`; restore it as a new project anywhere.
+- **Archive & share** — export a project as a `.zip` to back up or share; restore it anywhere.
 
 ## Getting started
 
