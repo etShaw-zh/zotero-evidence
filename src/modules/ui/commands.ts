@@ -3620,15 +3620,30 @@ export class EvidenceCommands {
     return projects.find((p) => p.id === Number(dialogData.projectId)) ?? null;
   }
 
+  private static readableTimestamp(): string {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  }
+
   private static async saveExportFile(
     suggestedName: string,
     content: string,
   ): Promise<void> {
+    // Stamp who exported this and when, right before the extension --
+    // exports get shared/emailed around, so the filename itself should say
+    // who pulled it and when without needing to open the file.
+    const dotIndex = suggestedName.lastIndexOf(".");
+    const base =
+      dotIndex === -1 ? suggestedName : suggestedName.slice(0, dotIndex);
+    const ext = dotIndex === -1 ? "" : suggestedName.slice(dotIndex);
+    const stampedName = `${base}-${currentDeciderId()}-${EvidenceCommands.readableTimestamp()}${ext}`;
+
     const path = await new ztoolkit.FilePicker(
       getString("export-choose-destination"),
       "save",
       [["CSV (*.csv)", "*.csv"]],
-      suggestedName,
+      stampedName,
     ).open();
     if (!path || typeof path !== "string") return;
 
