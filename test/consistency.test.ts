@@ -51,6 +51,72 @@ describe("Screening Consistency: getScreeningConsistency (project + DB)", functi
     assert.isTrue(byName.has("include"));
     assert.isTrue(byName.has("exclude"));
     assert.isTrue(byName.has("unclear"));
+
+    // None of these rows recorded an ai_model, so everything falls into a
+    // single "unknown model" group identical to the overall figures.
+    assert.equal(result.byModel.length, 1);
+    assert.isNull(result.byModel[0].aiModel);
+    assert.equal(result.byModel[0].n, 4);
+  });
+
+  it("splits the breakdown by ai_model, sorted by most-compared model first", async function () {
+    const project = await createProject(`Consistency Model Test ${Date.now()}`);
+    await databaseService.init();
+    const items = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => makeTestItem(`Model Item ${i}`)),
+    );
+    const rows: {
+      key: string;
+      ai: string;
+      human: string;
+      model: string | null;
+    }[] = [
+      {
+        key: items[0].key,
+        ai: "include",
+        human: "include",
+        model: "gpt-4o-mini",
+      },
+      {
+        key: items[1].key,
+        ai: "include",
+        human: "include",
+        model: "gpt-4o-mini",
+      },
+      {
+        key: items[2].key,
+        ai: "exclude",
+        human: "include",
+        model: "gpt-4o-mini",
+      }, // disagreement
+      { key: items[3].key, ai: "include", human: "exclude", model: "claude-3" }, // disagreement
+      { key: items[4].key, ai: "include", human: "include", model: null }, // legacy row, no model recorded
+    ];
+    for (const r of rows) {
+      await databaseService.queryAsync(
+        `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision, ai_model)
+         VALUES (?, ?, 'ta_screening', ?, ?, ?)`,
+        [project.id, r.key, r.ai, r.human, r.model],
+      );
+    }
+
+    const result = await getScreeningConsistency(project.id, "ta_screening");
+    assert.equal(result.n, 5);
+    assert.equal(result.byModel.length, 3);
+
+    // Sorted by n descending: gpt-4o-mini (3) is unambiguously first.
+    assert.equal(result.byModel[0].aiModel, "gpt-4o-mini");
+    assert.equal(result.byModel[0].n, 3);
+    assert.equal(result.byModel[0].disagreements.length, 1);
+
+    const claude = result.byModel.find((m) => m.aiModel === "claude-3")!;
+    assert.equal(claude.n, 1);
+    assert.equal(claude.disagreements.length, 1);
+    assert.equal(claude.observedAgreement, 0);
+
+    const unknown = result.byModel.find((m) => m.aiModel === null)!;
+    assert.equal(unknown.n, 1);
+    assert.equal(unknown.disagreements.length, 0);
   });
 
   it("ignores rows where either side hasn't decided yet, returning n=0 with no crash", async function () {
@@ -69,6 +135,7 @@ describe("Screening Consistency: getScreeningConsistency (project + DB)", functi
     assert.isNull(result.kappa);
     assert.deepEqual(result.byCategory, []);
     assert.deepEqual(result.disagreements, []);
+    assert.deepEqual(result.byModel, []);
   });
 
   it("keeps TA and FT stages independent even within the same project", async function () {

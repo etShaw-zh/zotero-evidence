@@ -291,13 +291,14 @@ export async function runAIJudgment(
   const id = await getOrCreateRecordId(projectId, item.key);
   await databaseService.queryAsync(
     `UPDATE screening_records
-     SET criteria_id = ?, ai_decision = ?, ai_reasoning = ?, exclusion_reason = ?
+     SET criteria_id = ?, ai_decision = ?, ai_reasoning = ?, exclusion_reason = ?, ai_model = ?
      WHERE id = ?`,
     [
       criteriaRow.id,
       judgment.decision,
       judgment.reasoning,
       matchedExclusionReason,
+      provider.model,
       id,
     ],
   );

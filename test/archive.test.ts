@@ -102,8 +102,8 @@ describe("Archive & Share (export/restore round trip)", function () {
     });
     await databaseService.queryAsync(
       `INSERT INTO screening_records
-        (project_id, item_key, stage, criteria_id, decision, annotation_key, decided_at)
-       VALUES (?, ?, 'ta_screening', ?, 'include', ?, ?)`,
+        (project_id, item_key, stage, criteria_id, decision, annotation_key, decided_at, ai_decision, ai_model)
+       VALUES (?, ?, 'ta_screening', ?, 'include', ?, ?, 'include', 'gpt-4o-mini')`,
       [
         project.id,
         item.key,
@@ -204,6 +204,8 @@ describe("Archive & Share (export/restore round trip)", function () {
     assert.equal(screeningRows[0].item_key, restoredItem.key);
     assert.equal(screeningRows[0].decision, "include");
     assert.equal(screeningRows[0].annotation_key, restoredAnnotation.key);
+    assert.equal(screeningRows[0].ai_decision, "include");
+    assert.equal(screeningRows[0].ai_model, "gpt-4o-mini");
 
     const codingRows = (await databaseService.queryAsync(
       `SELECT * FROM coding_records WHERE project_id = ?`,

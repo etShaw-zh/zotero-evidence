@@ -311,4 +311,7 @@ consistency-disagreements-title = Disagreements
 consistency-col-title = Title
 consistency-col-ai = AI Decision
 consistency-col-human = Human Decision
+consistency-overall-heading = All Models Combined
+consistency-by-model-title = By AI Model
+consistency-model-unknown = Unknown model
 consistency-error = Failed to compute consistency.

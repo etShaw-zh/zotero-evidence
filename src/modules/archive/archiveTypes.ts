@@ -74,6 +74,7 @@ export interface ArchiveScreeningRecord {
   pendingPosition: string | null;
   aiDecision: string | null;
   aiReasoning: string | null;
+  aiModel: string | null;
   humanDecision: string | null;
   humanReasoning: string | null;
   decidedBy: string | null;

@@ -66,6 +66,7 @@ import {
   getScreeningConsistency,
   ScreeningConsistencyResult,
   ScreeningConsistencyStage,
+  ScreeningConsistencyStats,
 } from "../screening/consistencyService";
 
 export class EvidenceCommands {
@@ -3344,27 +3345,68 @@ export class EvidenceCommands {
         | undefined;
       const statusEl = doc?.getElementById("evidence-consistency-status");
 
-      const renderResults = (result: ScreeningConsistencyResult) => {
-        if (!resultsContainer) return;
-        resultsContainer.innerHTML = "";
-        if (result.n === 0) {
-          resultsContainer.appendChild(
-            doc!.createElementNS(HTML_NS, "p") as HTMLElement,
-          ).textContent = getString("consistency-no-records");
-          return;
+      const buildTable = (
+        headers: string[],
+        rowsData: [string, number][][],
+      ) => {
+        const table = doc!.createElementNS(
+          HTML_NS,
+          "table",
+        ) as HTMLTableElement;
+        table.style.cssText =
+          "width:100%;border-collapse:collapse;margin-bottom:10px;";
+        const headRow = doc!.createElementNS(HTML_NS, "tr");
+        for (const label of headers) {
+          const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+          th.textContent = label;
+          th.style.cssText =
+            "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+          headRow.appendChild(th);
+        }
+        table.appendChild(headRow);
+        for (const cells of rowsData) {
+          const tr = doc!.createElementNS(HTML_NS, "tr");
+          for (const [text, max] of cells) {
+            const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+            td.textContent = quotePreview(text, max);
+            if (text) td.title = text;
+            td.style.cssText =
+              "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+        return table;
+      };
+
+      // Renders one stats block (summary + per-category table + a
+      // disagreements table) into `container` -- shared by the overall
+      // figures and by each per-model breakdown below them, so a heading is
+      // the only thing that varies between calls.
+      const renderStatsBlock = (
+        container: Element,
+        stats: ScreeningConsistencyStats,
+        heading?: string,
+      ) => {
+        if (heading) {
+          const h2 = doc!.createElementNS(HTML_NS, "h2") as HTMLElement;
+          h2.textContent = heading;
+          h2.style.cssText =
+            "font-size:1em;margin:10px 0 4px;border-top:1px solid #ddd;padding-top:8px;";
+          container.appendChild(h2);
         }
 
         const summary = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
         summary.style.cssText = "margin-bottom:8px;";
         const kappaValueText =
-          result.kappa === null
+          stats.kappa === null
             ? getString("consistency-kappa-na")
-            : `${result.kappa.toFixed(2)} (${EvidenceCommands.consistencyKappaLevelLabel(result.kappa)})`;
+            : `${stats.kappa.toFixed(2)} (${EvidenceCommands.consistencyKappaLevelLabel(stats.kappa)})`;
         for (const line of [
-          getString("consistency-summary-n", { args: { n: result.n } }),
+          getString("consistency-summary-n", { args: { n: stats.n } }),
           getString("consistency-summary-agreement", {
             args: {
-              pct: ((result.observedAgreement ?? 0) * 100).toFixed(1),
+              pct: ((stats.observedAgreement ?? 0) * 100).toFixed(1),
             },
           }),
           `${getString("consistency-summary-kappa-label")}: ${kappaValueText}`,
@@ -3374,50 +3416,16 @@ export class EvidenceCommands {
           p.textContent = line;
           summary.appendChild(p);
         }
-        resultsContainer.appendChild(summary);
+        container.appendChild(summary);
 
-        const buildTable = (
-          headers: string[],
-          rowsData: [string, number][][],
-        ) => {
-          const table = doc!.createElementNS(
-            HTML_NS,
-            "table",
-          ) as HTMLTableElement;
-          table.style.cssText =
-            "width:100%;border-collapse:collapse;margin-bottom:10px;";
-          const headRow = doc!.createElementNS(HTML_NS, "tr");
-          for (const label of headers) {
-            const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
-            th.textContent = label;
-            th.style.cssText =
-              "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
-            headRow.appendChild(th);
-          }
-          table.appendChild(headRow);
-          for (const cells of rowsData) {
-            const tr = doc!.createElementNS(HTML_NS, "tr");
-            for (const [text, max] of cells) {
-              const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
-              td.textContent = quotePreview(text, max);
-              if (text) td.title = text;
-              td.style.cssText =
-                "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
-              tr.appendChild(td);
-            }
-            table.appendChild(tr);
-          }
-          return table;
-        };
-
-        resultsContainer.appendChild(
+        container.appendChild(
           buildTable(
             [
               getString("consistency-col-category"),
               getString("consistency-col-agreement"),
               getString("consistency-col-kappa"),
             ],
-            result.byCategory.map((c) => [
+            stats.byCategory.map((c) => [
               [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
               [`${(c.observedAgreement * 100).toFixed(1)}%`, 12],
               [c.kappa === null ? "—" : c.kappa.toFixed(2), 8],
@@ -3425,13 +3433,13 @@ export class EvidenceCommands {
           ),
         );
 
-        if (result.disagreements.length > 0) {
-          const h2 = doc!.createElementNS(HTML_NS, "h2") as HTMLElement;
-          h2.textContent = getString("consistency-disagreements-title");
-          h2.style.cssText = "font-size:1em;margin:8px 0 4px;";
-          resultsContainer.appendChild(h2);
-          const shown = result.disagreements.slice(0, MAX_DISAGREEMENT_ROWS);
-          resultsContainer.appendChild(
+        if (stats.disagreements.length > 0) {
+          const h3 = doc!.createElementNS(HTML_NS, "h3") as HTMLElement;
+          h3.textContent = getString("consistency-disagreements-title");
+          h3.style.cssText = "font-size:0.95em;margin:6px 0 4px;";
+          container.appendChild(h3);
+          const shown = stats.disagreements.slice(0, MAX_DISAGREEMENT_ROWS);
+          container.appendChild(
             buildTable(
               [
                 getString("consistency-col-title"),
@@ -3448,16 +3456,52 @@ export class EvidenceCommands {
               ]),
             ),
           );
-          if (result.disagreements.length > shown.length) {
+          if (stats.disagreements.length > shown.length) {
             const note = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
             note.style.cssText = "color:#888;font-size:0.85em;";
             note.textContent = getString("synthesis-truncated", {
               args: {
                 shown: shown.length,
-                total: result.disagreements.length,
+                total: stats.disagreements.length,
               },
             });
-            resultsContainer.appendChild(note);
+            container.appendChild(note);
+          }
+        }
+      };
+
+      const renderResults = (result: ScreeningConsistencyResult) => {
+        if (!resultsContainer) return;
+        resultsContainer.innerHTML = "";
+        if (result.n === 0) {
+          resultsContainer.appendChild(
+            doc!.createElementNS(HTML_NS, "p") as HTMLElement,
+          ).textContent = getString("consistency-no-records");
+          return;
+        }
+
+        // Only worth splitting out a "by model" section once there's more
+        // than one distinct model to compare -- with a single model it
+        // would just repeat the overall numbers a second time.
+        const showByModel = result.byModel.length > 1;
+        renderStatsBlock(
+          resultsContainer,
+          result,
+          showByModel ? getString("consistency-overall-heading") : undefined,
+        );
+
+        if (showByModel) {
+          const h2 = doc!.createElementNS(HTML_NS, "h2") as HTMLElement;
+          h2.textContent = getString("consistency-by-model-title");
+          h2.style.cssText =
+            "font-size:1.05em;margin:14px 0 0;border-top:2px solid #ccc;padding-top:10px;";
+          resultsContainer.appendChild(h2);
+          for (const model of result.byModel) {
+            renderStatsBlock(
+              resultsContainer,
+              model,
+              model.aiModel ?? getString("consistency-model-unknown"),
+            );
           }
         }
       };

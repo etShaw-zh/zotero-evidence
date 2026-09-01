@@ -311,4 +311,7 @@ consistency-disagreements-title = 分歧条目
 consistency-col-title = 标题
 consistency-col-ai = AI 判断
 consistency-col-human = 人工判断
+consistency-overall-heading = 全部模型汇总
+consistency-by-model-title = 按 AI 模型细分
+consistency-model-unknown = 未知模型
 consistency-error = 一致性计算失败。

@@ -157,6 +157,7 @@ async function buildScreeningTables(projectId: number): Promise<{
     pendingPosition: row.pending_position,
     aiDecision: row.ai_decision,
     aiReasoning: row.ai_reasoning,
+    aiModel: row.ai_model,
     humanDecision: row.human_decision,
     humanReasoning: row.human_reasoning,
     decidedBy: row.decided_by,

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { databaseService } from "../src/modules/db/database";
 import { processImportedItems } from "../src/modules/dedup/dedupService";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
@@ -216,6 +217,38 @@ describe("Phase 6: screeningExport", function () {
     const lines = csv.split("\n");
     assert.equal(lines.length, 3); // header + ta_screening row + ft_screening row
     assert.include(lines[0], "exclusion_reason");
+    assert.include(lines[0], "ai_model");
     assert.isTrue(lines.some((l) => l.includes("No control group")));
+  });
+
+  it("exportScreeningLog includes the AI model that produced each ai_decision", async function () {
+    const project = await createProject(
+      `Screening Log Model Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeImportCandidateItem(
+      "AI-Judged Paper",
+      "Roe",
+      "2024",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      item,
+    ]);
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, ai_reasoning, ai_model)
+       VALUES (?, ?, 'ta_screening', 'include', 'fits the criteria', 'gpt-4o-mini')`,
+      [project.id, item.key],
+    );
+
+    const csv = await exportScreeningLog(project.id);
+    const lines = csv.split("\n");
+    const header = lines[0].split(",");
+    const modelColumn = header.indexOf("ai_model");
+    assert.isAbove(modelColumn, -1);
+    const dataRow = lines[1].split(",");
+    assert.equal(dataRow[modelColumn], "gpt-4o-mini");
   });
 });

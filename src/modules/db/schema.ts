@@ -157,4 +157,11 @@ export const COLUMN_MIGRATIONS: {
   // (projectManager.ts's rowToProject) treats a NULL here as
   // Zotero.Libraries.userLibraryID rather than needing a data migration.
   { table: "evidence_projects", column: "library_id", definition: "INTEGER" },
+  // Snapshotted at judgment time (same reasoning as ai_usage_log's
+  // provider/model columns in schema.ts above): the active provider's
+  // model can be renamed or switched later without rewriting history, so
+  // this must be captured when ai_decision is written, not looked up live.
+  // Nullable/not backfilled -- rows written before this column existed
+  // simply have no recorded model.
+  { table: "screening_records", column: "ai_model", definition: "TEXT" },
 ];

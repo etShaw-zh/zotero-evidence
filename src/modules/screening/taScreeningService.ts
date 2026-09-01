@@ -102,14 +102,15 @@ export async function runAIJudgment(
 
   await databaseService.init();
   await databaseService.queryAsync(
-    `INSERT INTO screening_records (project_id, item_key, stage, criteria_id, ai_decision, ai_reasoning)
-     VALUES (?, ?, 'ta_screening', ?, ?, ?)`,
+    `INSERT INTO screening_records (project_id, item_key, stage, criteria_id, ai_decision, ai_reasoning, ai_model)
+     VALUES (?, ?, 'ta_screening', ?, ?, ?, ?)`,
     [
       projectId,
       item.key,
       criteriaRow.id,
       judgment.decision,
       judgment.reasoning,
+      provider.model,
     ],
   );
   const screeningRecordId = await databaseService.getLastInsertId();

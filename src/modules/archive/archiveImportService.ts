@@ -200,8 +200,8 @@ export async function importProjectArchive(
         `INSERT INTO screening_records
           (project_id, item_key, stage, criteria_id, fulltext_ready, fulltext_ready_at,
            fulltext_ready_by, decision, exclusion_reason, annotation_key, pending_position,
-           ai_decision, ai_reasoning, human_decision, human_reasoning, decided_by, decided_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ai_decision, ai_reasoning, ai_model, human_decision, human_reasoning, decided_by, decided_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           project.id,
           newItemKey,
@@ -218,6 +218,7 @@ export async function importProjectArchive(
           r.pendingPosition,
           r.aiDecision,
           r.aiReasoning,
+          r.aiModel,
           r.humanDecision,
           r.humanReasoning,
           r.decidedBy,

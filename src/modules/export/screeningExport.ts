@@ -168,7 +168,7 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
   const project = await getProjectById(projectId);
   const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
   const rows = (await databaseService.queryAsync(
-    `SELECT item_key, stage, ai_decision, ai_reasoning, human_decision, exclusion_reason, decided_by, decided_at, fulltext_ready
+    `SELECT item_key, stage, ai_decision, ai_reasoning, ai_model, human_decision, exclusion_reason, decided_by, decided_at, fulltext_ready
      FROM screening_records WHERE project_id = ? ORDER BY item_key, stage, id`,
     [projectId],
   )) as
@@ -177,6 +177,7 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
         stage: string;
         ai_decision: string | null;
         ai_reasoning: string | null;
+        ai_model: string | null;
         human_decision: string | null;
         exclusion_reason: string | null;
         decided_by: string | null;
@@ -193,6 +194,7 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
       "stage",
       "ai_decision",
       "ai_reasoning",
+      "ai_model",
       "human_decision",
       "exclusion_reason",
       "decided_by",
@@ -210,6 +212,7 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
         row.stage,
         row.ai_decision ?? "",
         row.ai_reasoning ?? "",
+        row.ai_model ?? "",
         row.human_decision ?? "",
         row.exclusion_reason ?? "",
         row.decided_by ?? "",

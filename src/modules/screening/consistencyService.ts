@@ -12,7 +12,7 @@ export interface ScreeningDisagreement {
   humanDecision: string;
 }
 
-export interface ScreeningConsistencyResult {
+export interface ScreeningConsistencyStats {
   n: number;
   observedAgreement: number | null;
   kappa: number | null;
@@ -20,37 +20,37 @@ export interface ScreeningConsistencyResult {
   disagreements: ScreeningDisagreement[];
 }
 
-/**
- * Compares each screening_records row's ai_decision against the human's
- * final human_decision for one project/stage -- advisory only, same as the
- * rest of this feature: nothing here changes any decision, it's purely for
- * the reviewer to judge how much to trust the AI's suggestions going
- * forward (or which specific category to double-check).
- */
-export async function getScreeningConsistency(
-  projectId: number,
-  stage: ScreeningConsistencyStage,
-): Promise<ScreeningConsistencyResult> {
-  await databaseService.init();
-  const project = await getProjectById(projectId);
-  const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
+export interface ScreeningConsistencyByModel extends ScreeningConsistencyStats {
+  // null groups rows with no recorded AI model -- screening_records written
+  // before the ai_model column existed.
+  aiModel: string | null;
+}
 
-  const rows = (await databaseService.queryAsync(
-    `SELECT item_key, ai_decision, human_decision FROM screening_records
-     WHERE project_id = ? AND stage = ? AND ai_decision IS NOT NULL AND human_decision IS NOT NULL
-     ORDER BY item_key`,
-    [projectId, stage],
-  )) as
-    | { item_key: string; ai_decision: string; human_decision: string }[]
-    | undefined;
+export interface ScreeningConsistencyResult extends ScreeningConsistencyStats {
+  // Same stats as above, computed once per distinct ai_model that made a
+  // decision at this stage -- lumping different models' decisions into one
+  // Kappa would hide a model swap mid-project instead of surfacing it.
+  byModel: ScreeningConsistencyByModel[];
+}
 
-  const pairs: [string, string][] = (rows || []).map((r) => [
+interface ScreeningRow {
+  item_key: string;
+  ai_decision: string;
+  human_decision: string;
+  ai_model: string | null;
+}
+
+function buildStats(
+  rows: ScreeningRow[],
+  libraryID: number,
+): ScreeningConsistencyStats {
+  const pairs: [string, string][] = rows.map((r) => [
     r.ai_decision,
     r.human_decision,
   ]);
 
   const disagreements: ScreeningDisagreement[] = [];
-  for (const r of rows || []) {
+  for (const r of rows) {
     if (r.ai_decision === r.human_decision) continue;
     const item = Zotero.Items.getByLibraryAndKey(libraryID, r.item_key);
     disagreements.push({
@@ -71,4 +71,46 @@ export async function getScreeningConsistency(
     byCategory: cohenKappaByCategory(pairs),
     disagreements,
   };
+}
+
+/**
+ * Compares each screening_records row's ai_decision against the human's
+ * final human_decision for one project/stage -- advisory only, same as the
+ * rest of this feature: nothing here changes any decision, it's purely for
+ * the reviewer to judge how much to trust the AI's suggestions going
+ * forward (or which specific category/model to double-check).
+ */
+export async function getScreeningConsistency(
+  projectId: number,
+  stage: ScreeningConsistencyStage,
+): Promise<ScreeningConsistencyResult> {
+  await databaseService.init();
+  const project = await getProjectById(projectId);
+  const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
+
+  const rows = ((await databaseService.queryAsync(
+    `SELECT item_key, ai_decision, human_decision, ai_model FROM screening_records
+     WHERE project_id = ? AND stage = ? AND ai_decision IS NOT NULL AND human_decision IS NOT NULL
+     ORDER BY item_key`,
+    [projectId, stage],
+  )) || []) as ScreeningRow[];
+
+  const rowsByModel = new Map<string | null, ScreeningRow[]>();
+  for (const r of rows) {
+    const list = rowsByModel.get(r.ai_model) ?? [];
+    list.push(r);
+    rowsByModel.set(r.ai_model, list);
+  }
+  // Models with more compared decisions first -- the model actually driving
+  // the project matters more than one that only ran on a handful of items.
+  const byModel: ScreeningConsistencyByModel[] = Array.from(
+    rowsByModel.entries(),
+  )
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([aiModel, modelRows]) => ({
+      aiModel,
+      ...buildStats(modelRows, libraryID),
+    }));
+
+  return { ...buildStats(rows, libraryID), byModel };
 }
