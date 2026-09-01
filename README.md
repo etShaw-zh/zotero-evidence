@@ -19,14 +19,14 @@
 
 ## Features
 
-- **Import & dedup** — import RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators, with duplicates across sources removed automatically.
-- **Title/Abstract screening** — one set of eligibility criteria, applied liberally; AI suggests Include/Exclude/Unclear with reasoning, human decides.
-- **Full-text screening** — AI checks the paper against each criterion individually, with a highlighted quote as evidence; human confirms each check, then the final Include/Exclude.
-- **Extract coding** — define a Codebook of variables; AI proposes `variable = value` mappings backed by highlighted quotes, confirmed one by one.
-- **Synthesis** — one click groups confirmed evidence for a variable into AI-generated themes.
-- **Consistency** — Cohen's Kappa between AI and human decisions, plus a guided dual-reviewer pilot workflow _(beta)_.
-- **Export** — PRISMA flow data, screening decision log, coding data, and synthesis output.
-- **Archive & share** — export a project to a `.zip`, restore it as a new project in any library.
+- **Import & dedup** — import RIS/BibTeX/MEDLINE/PubMed XML; duplicates removed automatically.
+- **Title/Abstract screening** — AI suggests Include/Exclude/Unclear against one shared criteria set; human decides.
+- **Full-text screening** — AI checks each criterion individually with highlighted evidence; human confirms and finalizes.
+- **Extract coding** — AI proposes Codebook variable values backed by highlighted quotes; human confirms.
+- **Synthesis** — one click groups confirmed evidence into AI-generated themes.
+- **Consistency** — Cohen's Kappa between AI and human decisions, plus a guided dual-reviewer pilot _(beta)_.
+- **Export** — PRISMA data, screening log, coding data, and synthesis output.
+- **Archive & share** — export a project to a `.zip`; restore it as a new project anywhere.
 
 ## Getting started
 
