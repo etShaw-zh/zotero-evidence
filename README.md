@@ -21,7 +21,7 @@
 
 - **Import & dedup** — import RIS/BibTeX/MEDLINE/PubMed XML; duplicates removed automatically.
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear for each paper with reasoning; you confirm.
-- **Full-text screening** — AI checks the paper against each eligibility criterion with highlighted evidence; you confirm.
+- **Full-text screening** — AI checks each paper against every criterion with highlighted evidence; you confirm.
 - **Extract coding** — AI extracts data into your Codebook, backed by highlighted quotes; you confirm.
 - **Synthesis** — AI groups confirmed evidence into themes with one click.
 - **Consistency** — measure AI-vs-human agreement (Cohen's Kappa), or run a guided dual-reviewer pilot _(beta)_.
@@ -59,21 +59,23 @@ npm install
 
 ```
 src/
-|-- hooks.ts        # lifecycle hooks, File-menu dispatch
+|-- hooks.ts          # lifecycle hooks, File-menu dispatch
 |-- modules/
-|   |-- project/    # project + Collection structure
-|   |-- import/     # Zotero.Translate.Import wrapper
-|   |-- dedup/      # DOI-first / title+author+year dedup
-|   |-- screening/  # TA judgment, FT per-criterion checklist, criteria, decisions, Human-AI & human-human consistency (Kappa)
-|   |-- coding/     # Codebook + Extract Coding services
-|   |-- pdf/        # text extraction, quote location, highlights
-|   |-- ai/         # AI provider config, chat completions, usage tracking
-|   |-- export/     # PRISMA / screening log / coding export
-|   |-- archive/    # project archive export/restore (.zip)
-|   |-- db/         # SQLite schema and migrations
-|   `-- ui/         # item-pane sections and dialogs
-addon/              # manifest, locales, static content
-test/               # Mocha suite, run inside Zotero via `npm test`
+|   |-- project/      # project + Collection structure
+|   |-- import/       # Zotero.Translate.Import wrapper
+|   |-- dedup/        # DOI-first / title+author+year dedup
+|   |-- screening/    # TA judgment, FT per-criterion checklist, criteria, decisions
+|   |-- consistency/  # Human-AI & human-human screening consistency (Kappa)
+|   |-- coding/       # Codebook + Extract Coding services
+|   |-- synthesis/    # theme mining over confirmed coding evidence
+|   |-- pdf/          # text extraction, quote location, highlights
+|   |-- ai/           # AI provider config, chat completions, usage tracking
+|   |-- export/       # PRISMA / screening log / coding export
+|   |-- archive/      # project archive export/restore (.zip)
+|   |-- db/           # SQLite schema and migrations
+|   `-- ui/           # item-pane sections and dialogs
+addon/                # manifest, locales, static content
+test/                 # Mocha suite, run inside Zotero via `npm test`
 ```
 
 ## License

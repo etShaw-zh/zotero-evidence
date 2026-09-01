@@ -12,7 +12,7 @@ import {
   getSynthesisRows,
   parseThemes,
   runSynthesis,
-} from "../src/modules/coding/synthesisService";
+} from "../src/modules/synthesis/synthesisService";
 import { databaseService } from "../src/modules/db/database";
 import { createProject } from "../src/modules/project/projectManager";
 

@@ -2,7 +2,7 @@ import { assert } from "chai";
 import {
   cohenKappa,
   cohenKappaByCategory,
-} from "../src/modules/screening/kappa";
+} from "../src/modules/consistency/kappa";
 
 describe("Screening Consistency: Kappa statistics (pure functions)", function () {
   describe("cohenKappa", function () {

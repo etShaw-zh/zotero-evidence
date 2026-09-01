@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { databaseService } from "../src/modules/db/database";
 import { createProject } from "../src/modules/project/projectManager";
-import { getScreeningConsistency } from "../src/modules/screening/consistencyService";
+import { getScreeningConsistency } from "../src/modules/consistency/consistencyService";
 
 async function makeTestItem(title: string): Promise<Zotero.Item> {
   const item = new Zotero.Item("journalArticle");

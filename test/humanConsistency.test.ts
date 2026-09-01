@@ -11,7 +11,7 @@ import {
   sampleRandom,
   startFullRound,
   startPilotRound,
-} from "../src/modules/screening/humanConsistencyService";
+} from "../src/modules/consistency/humanConsistencyService";
 
 async function makeTestItem(title: string): Promise<Zotero.Item> {
   const item = new Zotero.Item("journalArticle");

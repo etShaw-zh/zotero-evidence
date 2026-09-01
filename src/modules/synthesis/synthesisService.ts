@@ -4,11 +4,11 @@ import { databaseService } from "../db/database";
 import { getProjectById } from "../project/projectManager";
 import { sanitizeDbText } from "../../utils/sanitize";
 import { safeGetField } from "../../utils/zoteroItem";
-import { getLatestCodebook } from "./codebookService";
+import { getLatestCodebook } from "../coding/codebookService";
 import {
   normalizeVariableName,
   resolveCanonicalVariableName,
-} from "./codingService";
+} from "../coding/codingService";
 
 export interface SynthesisRow {
   id: number;

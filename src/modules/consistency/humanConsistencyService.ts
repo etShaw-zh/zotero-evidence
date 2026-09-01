@@ -13,12 +13,12 @@ import {
   confirmDecision as confirmFtDecision,
   FTDecision,
   markUnavailable,
-} from "./ftScreeningService";
+} from "../screening/ftScreeningService";
 import { CategoryKappa, cohenKappa, cohenKappaByCategory } from "./kappa";
 import {
   confirmDecision as confirmTaDecision,
   TADecision,
-} from "./taScreeningService";
+} from "../screening/taScreeningService";
 
 export type ConsistencyRoundPhase = "pilot" | "full";
 export type ConsistencyRoundStatus = "sampled" | "collected" | "reconciled";

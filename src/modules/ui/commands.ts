@@ -22,7 +22,7 @@ import {
   getSynthesisRows,
   runSynthesis,
   SynthesisRow,
-} from "../coding/synthesisService";
+} from "../synthesis/synthesisService";
 import { exportCodingData } from "../export/codingExport";
 import { exportSynthesisData } from "../export/synthesisExport";
 import {
@@ -71,7 +71,7 @@ import {
   ScreeningConsistencyResult,
   ScreeningConsistencyStage,
   ScreeningConsistencyStats,
-} from "../screening/consistencyService";
+} from "../consistency/consistencyService";
 import {
   applyReconciliation,
   computeRoundConsistency,
@@ -82,7 +82,7 @@ import {
   recordCollectedCsv,
   startFullRound,
   startPilotRound,
-} from "../screening/humanConsistencyService";
+} from "../consistency/humanConsistencyService";
 
 export class EvidenceCommands {
   static registerMenus() {
