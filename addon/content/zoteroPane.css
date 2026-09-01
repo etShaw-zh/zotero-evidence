@@ -140,6 +140,7 @@ item-pane-sidenav .inherit-flex {
 
 .zotero-evidence-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 8px 0;
 }
@@ -147,6 +148,59 @@ item-pane-sidenav .inherit-flex {
 .zotero-evidence-buttons button.selected {
   font-weight: bold;
   outline: 2px solid #2ea8e5;
+}
+
+/* The final Include/Exclude call (FT-Screening's reader-tab checklist) is
+   THE decision this whole pane exists to support -- every other button
+   here (run/refresh/confirm/flip/reject) is a step toward it, so it gets
+   visibly bigger and bolder rather than blending in at the same size. */
+.zotero-evidence-ft-finalize-row {
+  margin-top: 12px;
+}
+
+/* flex: 1 1 auto (not "1 1 0") is the actual fix here -- a flex-basis of 0
+   makes the browser size the button's box from the flex algorithm alone,
+   but a native <button>'s internal label doesn't always get re-measured to
+   match a computed width smaller than its own text, so the label painted
+   past the button's own border. Starting the basis from the button's real
+   content size (auto) and letting it grow from there avoids that mismatch
+   while still splitting the row evenly between two same-length labels. */
+.zotero-evidence-ft-finalize-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: 1.05em;
+  font-weight: bold;
+  border-radius: 6px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+}
+
+.zotero-evidence-ft-finalize-button.include {
+  color: #2e7d32;
+  border-color: rgba(46, 125, 50, 0.4);
+}
+
+.zotero-evidence-ft-finalize-button.include:hover {
+  background: rgba(46, 125, 50, 0.08);
+}
+
+.zotero-evidence-ft-finalize-button.exclude {
+  color: #a33;
+  border-color: rgba(170, 51, 51, 0.4);
+}
+
+.zotero-evidence-ft-finalize-button.exclude:hover {
+  background: rgba(170, 51, 51, 0.08);
+}
+
+.zotero-evidence-ft-finalize-button.selected.include {
+  background: rgba(46, 125, 50, 0.15);
+  outline: 2px solid #2e7d32;
+}
+
+.zotero-evidence-ft-finalize-button.selected.exclude {
+  background: rgba(170, 51, 51, 0.15);
+  outline: 2px solid #a33;
 }
 
 .zotero-evidence-attachment-status {
@@ -164,13 +218,6 @@ item-pane-sidenav .inherit-flex {
 
 .zotero-evidence-exclude-reason.open {
   display: flex;
-}
-
-.zotero-evidence-ft-annotation {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin: 8px 0;
 }
 
 .zotero-evidence-unavailable-button {
@@ -383,4 +430,14 @@ item-pane-sidenav .inherit-flex {
 
 .zotero-evidence-coding-form button {
   flex: 0 0 auto;
+}
+
+/* FT-Screening criterion checklist (ftQueuePane.ts) -- rows reuse Coding's
+   compact suggestion/confirmed-row and card/badge classes directly (see
+   .zotero-evidence-coding-suggestion-row etc. above) so the two AI-assisted
+   checklists (Coding's variables, FT's eligibility criteria) read as the
+   same kind of UI. Only the manual-add form's outer wrapper margin is
+   FT-specific -- the form itself reuses .zotero-evidence-coding-form. */
+.zotero-evidence-ft-manual-check {
+  margin: 10px 0;
 }

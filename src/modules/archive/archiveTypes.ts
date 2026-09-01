@@ -81,6 +81,23 @@ export interface ArchiveScreeningRecord {
   decidedAt: string | null;
 }
 
+export interface ArchiveFtCriterionCheck {
+  itemKey: string;
+  criterionType: string;
+  criterionText: string;
+  verdict: string;
+  reasoning: string | null;
+  quote: string | null;
+  // Original annotation key -- remapped to the newly recreated annotation,
+  // same as ArchiveScreeningRecord.annotationKey.
+  annotationKey: string | null;
+  pendingPosition: string | null;
+  source: string;
+  confirmed: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ArchiveCodebook {
   version: number;
   locked: number;
@@ -123,6 +140,9 @@ export interface ArchiveManifest {
   items: ArchiveItem[];
   screeningCriteria: ArchiveScreeningCriteria[];
   screeningRecords: ArchiveScreeningRecord[];
+  // Optional: absent in archives written before this table existed --
+  // importProjectArchive treats a missing array as empty, not an error.
+  ftCriterionChecks?: ArchiveFtCriterionCheck[];
   codebooks: ArchiveCodebook[];
   codingRecords: ArchiveCodingRecord[];
   synthesisThemes: ArchiveSynthesisTheme[];

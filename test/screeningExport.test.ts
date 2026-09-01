@@ -149,15 +149,25 @@ describe("Phase 6: screeningExport", function () {
       "test",
     );
 
-    // FT-Screening: item2 exclude, item4 include, item5 unavailable
-    await ftConfirmDecision(
-      project.id,
-      item2,
-      collections,
-      "exclude",
-      "test",
-      "Sample size < 30",
+    // FT-Screening: item2 exclude, item4 include, item5 unavailable.
+    // PRISMA's reasons breakdown now reads confirmed ft_criterion_checks
+    // rows rather than a single exclusion_reason string -- seed one
+    // directly, matching what confirmCheck would have written.
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `INSERT INTO ft_criterion_checks
+        (project_id, item_key, criterion_type, criterion_text, verdict, source, confirmed, created_at, updated_at)
+       VALUES (?, ?, 'exclusion', 'Sample size < 30', 'exclude', 'human', 1, ?, ?)`,
+      [
+        project.id,
+        item2.key,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
     );
+    await ftConfirmDecision(project.id, item2, collections, "exclude", "test", [
+      "Sample size < 30",
+    ]);
     await ftConfirmDecision(project.id, item4, collections, "include", "test");
     await markUnavailable(project.id, item5, collections, "test");
 
@@ -204,14 +214,9 @@ describe("Phase 6: screeningExport", function () {
       "include",
       "test",
     );
-    await ftConfirmDecision(
-      project.id,
-      item,
-      collections,
-      "exclude",
-      "test",
+    await ftConfirmDecision(project.id, item, collections, "exclude", "test", [
       "No control group",
-    );
+    ]);
 
     const csv = await exportScreeningLog(project.id);
     const lines = csv.split("\n");

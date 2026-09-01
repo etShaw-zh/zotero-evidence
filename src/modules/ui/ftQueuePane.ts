@@ -2,16 +2,32 @@ import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
 import { refreshProjectPaneContextCache } from "../project/projectContext";
 import { ProjectPaneContext } from "../project/projectContext";
-import { getLatestCriteria } from "../screening/criteriaService";
+import {
+  getLatestCriteria,
+  ScreeningCriteria,
+} from "../screening/criteriaService";
+import {
+  addManualCheck,
+  computeRollup,
+  confirmCheck,
+  CriterionCheck,
+  CriterionType,
+  CriterionVerdict,
+  deleteCheck,
+  getConfirmedExclusionReasons,
+  getCriterionChecks,
+  getUnconfirmedExcludeChecks,
+  linkAnnotationToCheck,
+  runCriterionChecks,
+  unconfirmCheck,
+  updateCheck,
+} from "../screening/ftCriterionCheckService";
 import {
   confirmDecision,
   FTDecision,
   getScreeningState,
-  linkFtAnnotation,
   markFulltextReady,
   markUnavailable,
-  runAIJudgment,
-  ScreeningState,
   undoDecision,
 } from "../screening/ftScreeningService";
 import {
@@ -20,6 +36,7 @@ import {
   decisionLabel,
   el,
   escapeHtml,
+  quotePreview,
   renderCardHeader,
   renderPaneError,
   resolveAttachment,
@@ -30,114 +47,131 @@ import {
 const PANE_ID = "zotero-evidence-ft-queue";
 
 /**
- * FTS-06's evidence-linking widget: shows the currently-linked highlight (if
- * any) with a jump button, or a picker to claim one of the PDF's existing
- * highlights as the decision's supporting evidence. linkFtAnnotation forces
- * it to the fixed orange color -- AI can't create the highlight itself (no
- * official text-to-PDF-coordinates API, see ftScreeningService.ts), so this
- * is the human-highlights-then-claims workflow already established for
- * Coding (COD-04).
+ * Per-CRITERION verdict wording, distinct from decisionLabel's paper-level
+ * "Include"/"Exclude" -- reusing the paper-level wording here reads as if
+ * each row were itself deciding to include/exclude the paper, when it's
+ * really just recording whether one specific criterion was met. The
+ * overall Include/Exclude call (rollup line, finalize buttons, history) is
+ * a genuinely different question and keeps decisionLabel.
+ *
+ * "verdict" itself means "does this row count toward excluding the paper"
+ * (exclude) vs "toward including it" (include) -- NOT "is the criterion
+ * satisfied" in a type-neutral sense, and those two readings only agree
+ * for INCLUSION criteria. An exclusion criterion is only ever recorded
+ * with verdict='exclude' when it actually applies to the paper (see
+ * runCriterionChecks's "skip any exclusion criterion that does not apply"
+ * rule) -- so for an exclusion criterion, verdict='exclude' means the
+ * criterion WAS satisfied/triggered (bad news for the paper), the reverse
+ * of what verdict='exclude' means for an inclusion criterion. Wording
+ * must therefore branch on criterionType, not just verdict.
  */
-function renderFtEvidenceLinker(
+function criterionVerdictLabel(
+  criterionType: CriterionType,
+  verdict: CriterionVerdict,
+): string {
+  if (criterionType === "exclusion") {
+    return getString(
+      verdict === "exclude"
+        ? "ft-queue-verdict-triggered"
+        : "ft-queue-verdict-not-triggered",
+    );
+  }
+  return getString(
+    verdict === "include"
+      ? "ft-queue-verdict-satisfied"
+      : "ft-queue-verdict-not-satisfied",
+  );
+}
+
+/**
+ * Located-position helper shared by renderFtCheckRow's click handler and
+ * renderFtLinkPicker's fallback -- parses a check's pendingPosition JSON,
+ * tolerating a malformed/missing value the same way every other consumer
+ * of this column does.
+ */
+function parseLocated(
+  pendingPosition: string | null,
+): { pageIndex: number; rects: number[][] } | null {
+  if (!pendingPosition) return null;
+  try {
+    return JSON.parse(pendingPosition);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves a Reader Location for a confirmed check's real annotation,
+ * same reasoning as codingPane.ts's locationForAnnotation: annotationKey
+ * alone can fail to navigate for an annotation materialized this render
+ * cycle, so the annotation's own stored position is resolved and passed
+ * alongside it as a hedge. */
+function locationForCheckAnnotation(
+  annotationKey: string,
+  annotations: Zotero.Item[],
+): _ZoteroTypes.Reader.Location {
+  const location: _ZoteroTypes.Reader.Location = { annotationKey };
+  const annotation = annotations.find((a) => a.key === annotationKey);
+  if (annotation) {
+    try {
+      const pos = JSON.parse(
+        annotation.annotationPosition as unknown as string,
+      );
+      if (typeof pos.pageIndex === "number") {
+        location.pageIndex = pos.pageIndex;
+        location.position = { pageIndex: pos.pageIndex, rects: pos.rects };
+      }
+    } catch {
+      // fall through -- annotationKey-only navigation still runs
+    }
+  }
+  return location;
+}
+
+/**
+ * Compact inline "choose one of the PDF's existing highlights, link it"
+ * picker -- shown on demand (toggled by clicking a check row that has
+ * neither a real annotation nor an auto-located pending position) instead
+ * of always taking up space, same pattern as codingPane.ts's
+ * renderInlineLinkPicker. Also surfaces the AI's supporting quote (if any)
+ * since a human scanning existing highlights has nothing else to go on
+ * once auto-locate has already failed.
+ */
+function renderFtLinkPicker(
   doc: Document,
   ctx: ProjectPaneContext,
   item: Zotero.Item,
-  attachment: Zotero.Item,
-  state: ScreeningState,
+  attachment: Zotero.Item | null,
+  check: CriterionCheck,
   onChanged: () => void,
 ): HTMLElement {
-  const container = el(doc, "div", {
-    classList: ["zotero-evidence-ft-annotation"],
+  const pickerRow = el(doc, "div", {
+    classList: ["zotero-evidence-coding-link-picker"],
   }) as HTMLElement;
 
-  if (state.annotationKey) {
-    container.appendChild(
-      el(doc, "button", {
-        attributes: { type: "button" },
-        properties: { innerHTML: getString("ft-queue-jump-to-annotation") },
-        listeners: [
-          {
-            type: "click",
-            listener: async () => {
-              // annotationKey alone can fail to navigate for an annotation
-              // that was just materialized this render cycle -- the
-              // reader's own live annotation index may not have caught up
-              // yet even though Zotero's data layer already has it (the
-              // same resolve gap "预览位置" avoids by using position
-              // directly). Resolving the annotation's own stored position
-              // here and passing it alongside annotationKey makes
-              // navigation as reliable as the preview button in that case.
-              const location: _ZoteroTypes.Reader.Location = {
-                annotationKey: state.annotationKey!,
-              };
-              const annotation = attachment
-                .getAnnotations()
-                .find((a) => a.key === state.annotationKey);
-              if (annotation) {
-                try {
-                  const pos = JSON.parse(
-                    annotation.annotationPosition as unknown as string,
-                  );
-                  if (typeof pos.pageIndex === "number") {
-                    location.pageIndex = pos.pageIndex;
-                    location.position = {
-                      pageIndex: pos.pageIndex,
-                      rects: pos.rects,
-                    };
-                  }
-                } catch {
-                  // fall through -- annotationKey-only navigation still runs
-                }
-              }
-              await Zotero.Reader.open(attachment.id, location);
-            },
-          },
-        ],
+  pickerRow.appendChild(
+    el(doc, "p", {
+      classList: ["zotero-evidence-coding-ai-quote"],
+      properties: {
+        innerHTML: check.quote
+          ? `<strong>${getString("coding-ai-quote-label")}</strong> "${escapeHtml(quotePreview(check.quote, 120))}"`
+          : getString("coding-ai-quote-none"),
+      },
+    }),
+  );
+
+  if (!attachment) {
+    pickerRow.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("ft-queue-check-no-evidence") },
       }),
     );
-    container.appendChild(
-      el(doc, "span", {
-        classList: ["zotero-evidence-coding-confirmed"],
-        properties: { innerHTML: getString("ft-queue-evidence-linked") },
-      }),
-    );
-    return container;
+    return pickerRow;
   }
 
-  if (state.pendingPosition) {
-    // Auto-located but not yet confirmed (FTS-06): preview jumps to and
-    // flashes the location via Zotero's native position-based navigation
-    // WITHOUT creating anything -- the real highlight only gets created
-    // once the human clicks Include/Exclude (see confirmDecision).
-    container.appendChild(
-      el(doc, "button", {
-        attributes: { type: "button" },
-        properties: { innerHTML: getString("ft-queue-preview-location") },
-        listeners: [
-          {
-            type: "click",
-            listener: async () => {
-              const located = JSON.parse(state.pendingPosition!);
-              await Zotero.Reader.open(attachment.id, {
-                pageIndex: located.pageIndex,
-                position: {
-                  pageIndex: located.pageIndex,
-                  rects: located.rects,
-                },
-              });
-            },
-          },
-        ],
-      }),
-    );
-    container.appendChild(
-      el(doc, "span", {
-        classList: ["zotero-evidence-coding-pending"],
-        properties: { innerHTML: getString("ft-queue-pending-confirmation") },
-      }),
-    );
-    return container;
-  }
+  const pickerControls = el(doc, "div", {
+    classList: ["zotero-evidence-coding-link-picker-controls"],
+  }) as HTMLElement;
+  pickerRow.appendChild(pickerControls);
 
   const annotations = attachment.getAnnotations();
   const select = el(doc, "select", {
@@ -157,16 +191,17 @@ function renderFtEvidenceLinker(
       })),
     ],
   }) as HTMLSelectElement;
-  container.appendChild(select);
+  pickerControls.appendChild(select);
 
-  container.appendChild(
+  pickerControls.appendChild(
     el(doc, "button", {
       attributes: { type: "button" },
       properties: { innerHTML: getString("ft-queue-link-annotation") },
       listeners: [
         {
           type: "click",
-          listener: async () => {
+          listener: async (ev: Event) => {
+            ev.stopPropagation();
             const key = select.value;
             if (!key) {
               ztoolkit.getGlobal("alert")(
@@ -175,7 +210,13 @@ function renderFtEvidenceLinker(
               return;
             }
             try {
-              await linkFtAnnotation(ctx.project.id, item, key);
+              await linkAnnotationToCheck(
+                check.id,
+                item.libraryID,
+                key,
+                ctx.project.id,
+                item.key,
+              );
               onChanged();
             } catch (e: any) {
               ztoolkit.getGlobal("alert")(
@@ -188,72 +229,599 @@ function renderFtEvidenceLinker(
     }),
   );
 
-  return container;
+  return pickerRow;
 }
 
 /**
- * Read-only "review before confirming Exclude" row for FT-Screening. Unlike
- * TA-Screening (which drops the reason entirely) and unlike this same row's
- * former shape (a manual `<select>` of exclusion criteria), the reason here
- * is chosen by the AI itself as part of the same judgment call -- the human
- * only reviews and confirms, so this just displays whatever
- * `state.exclusionReason` already holds (persisted by runAIJudgment) rather
- * than collecting a choice. Hidden by default; the caller's Exclude button
- * toggles the "open" class to reveal it instead of confirming immediately.
+ * One compact row for a single criterion check -- styled after
+ * codingPane.ts's renderSuggestionRow/renderConfirmedList (a colored
+ * verdict badge, a truncated one-line label, a status column, and small
+ * icon actions) instead of the old full-height card, so a checklist of a
+ * dozen+ criteria doesn't turn the sidebar into a long scroll. Full
+ * criterion text and AI reasoning are still available via the row's title
+ * tooltip rather than always-rendered paragraphs.
+ *
+ * Passing `onChanged` renders the row interactively (flip/confirm-or-undo/
+ * reject, and a click toggles the manual link picker when there's no
+ * evidence yet); omitting it renders a read-only row for the decided-item
+ * history view, matching the confirmed-vs-summary distinction Coding's
+ * renderConfirmedList already draws.
  */
-function renderFtExcludeConfirm(
+function renderFtCheckRow(
   doc: Document,
-  reason: string | null,
-  onConfirm: () => void | Promise<void>,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+  attachment: Zotero.Item | null,
+  check: CriterionCheck,
+  onChanged?: () => void,
 ): HTMLElement {
+  const wrap = el(doc, "div", {}) as HTMLElement;
   const row = el(doc, "div", {
-    classList: ["zotero-evidence-exclude-reason"],
+    classList: [
+      check.confirmed
+        ? "zotero-evidence-confirmed-row"
+        : "zotero-evidence-coding-suggestion-row",
+    ],
   }) as HTMLElement;
 
+  const symbol = check.verdict === "include" ? "✓" : "✕";
+  const color = check.verdict === "include" ? "#2e7d32" : "#a33";
   row.appendChild(
-    el(doc, "label", {
-      properties: { innerHTML: getString("exclude-reason-label") },
-    }),
-  );
-  row.appendChild(
-    el(doc, "p", {
-      properties: {
-        innerHTML: reason
-          ? escapeHtml(reason)
-          : getString("exclude-reason-none"),
+    el(doc, "span", {
+      classList: ["zotero-evidence-coding-badge"],
+      attributes: {
+        title: criterionVerdictLabel(check.criterionType, check.verdict),
+      },
+      properties: { innerHTML: symbol },
+      styles: {
+        color,
+        borderColor: color,
+        backgroundColor: `${color}26`,
       },
     }),
   );
-  row.appendChild(
-    el(doc, "button", {
-      attributes: { type: "button" },
-      properties: { innerHTML: getString("exclude-reason-confirm") },
-      listeners: [{ type: "click", listener: () => void onConfirm() }],
-    }),
+
+  const typeLabel = getString(
+    check.criterionType === "inclusion"
+      ? "ft-queue-criterion-type-inclusion"
+      : "ft-queue-criterion-type-exclusion",
   );
+  const titleText = check.reasoning
+    ? `${check.criterionText}\n\n${check.reasoning}`
+    : check.criterionText;
   row.appendChild(
-    el(doc, "button", {
-      attributes: { type: "button" },
-      properties: { innerHTML: getString("exclude-reason-cancel") },
-      listeners: [
-        { type: "click", listener: () => row.classList.remove("open") },
-      ],
+    el(doc, "span", {
+      classList: ["zotero-evidence-coding-row-label"],
+      attributes: { title: titleText },
+      properties: {
+        innerHTML: `<strong>[${escapeHtml(typeLabel)}]</strong> ${escapeHtml(quotePreview(check.criterionText, 60))}`,
+      },
     }),
   );
 
-  return row;
+  const located = parseLocated(check.pendingPosition);
+  let statusText = getString("coding-needs-manual-link");
+  if (check.annotationKey) {
+    const annotation = attachment
+      ?.getAnnotations()
+      .find((a) => a.key === check.annotationKey);
+    let pageLabel = "";
+    if (annotation) {
+      try {
+        const pos = JSON.parse(
+          annotation.annotationPosition as unknown as string,
+        );
+        if (typeof pos.pageIndex === "number") {
+          pageLabel = getString("coding-page-label", {
+            args: { page: pos.pageIndex + 1 },
+          });
+        }
+      } catch {
+        // no page info available -- status stays blank
+      }
+    }
+    statusText = pageLabel;
+  } else if (located) {
+    statusText = getString("coding-page-label", {
+      args: { page: located.pageIndex + 1 },
+    });
+  }
+  row.appendChild(
+    el(doc, "span", {
+      classList: ["zotero-evidence-coding-row-status"],
+      properties: { innerHTML: statusText },
+    }),
+  );
+
+  if (onChanged) {
+    const actions = el(doc, "div", {
+      classList: ["zotero-evidence-coding-row-actions"],
+    }) as HTMLElement;
+
+    actions.appendChild(
+      el(doc, "button", {
+        attributes: {
+          type: "button",
+          title: criterionVerdictLabel(
+            check.criterionType,
+            check.verdict === "include" ? "exclude" : "include",
+          ),
+        },
+        properties: { innerHTML: "⇄" },
+        listeners: [
+          {
+            type: "click",
+            listener: async (ev: Event) => {
+              ev.stopPropagation();
+              const next: CriterionVerdict =
+                check.verdict === "include" ? "exclude" : "include";
+              await updateCheck(
+                check.id,
+                next,
+                check.reasoning,
+                ctx.project.id,
+                item.key,
+              );
+              onChanged();
+            },
+          },
+        ],
+      }),
+    );
+
+    if (!check.confirmed) {
+      actions.appendChild(
+        el(doc, "button", {
+          attributes: {
+            type: "button",
+            title: getString("ft-queue-check-confirm"),
+          },
+          properties: { innerHTML: "✓" },
+          listeners: [
+            {
+              type: "click",
+              listener: async (ev: Event) => {
+                ev.stopPropagation();
+                await confirmCheck(check.id, item, ctx.project.id);
+                onChanged();
+              },
+            },
+          ],
+        }),
+      );
+      actions.appendChild(
+        el(doc, "button", {
+          attributes: { type: "button", title: getString("coding-reject-one") },
+          properties: { innerHTML: "✕" },
+          listeners: [
+            {
+              type: "click",
+              listener: async (ev: Event) => {
+                ev.stopPropagation();
+                try {
+                  await deleteCheck(check.id, ctx.project.id, item.key);
+                  onChanged();
+                } catch (e: any) {
+                  ztoolkit.getGlobal("alert")(
+                    `${getString("ft-queue-checks-error")}\n${e?.message ?? e}`,
+                  );
+                }
+              },
+            },
+          ],
+        }),
+      );
+    } else {
+      actions.appendChild(
+        el(doc, "button", {
+          attributes: {
+            type: "button",
+            title: getString("coding-undo-confirm"),
+          },
+          properties: { innerHTML: "↺" },
+          listeners: [
+            {
+              type: "click",
+              listener: async (ev: Event) => {
+                ev.stopPropagation();
+                await unconfirmCheck(check.id, ctx.project.id, item.key);
+                onChanged();
+              },
+            },
+          ],
+        }),
+      );
+    }
+    row.appendChild(actions);
+  }
+
+  row.addEventListener("click", () => {
+    if (check.annotationKey) {
+      if (!attachment) return;
+      void Zotero.Reader.open(
+        attachment.id,
+        locationForCheckAnnotation(
+          check.annotationKey,
+          attachment.getAnnotations(),
+        ),
+      );
+      return;
+    }
+    if (located) {
+      if (!attachment) return;
+      void Zotero.Reader.open(attachment.id, {
+        pageIndex: located.pageIndex,
+        position: { pageIndex: located.pageIndex, rects: located.rects },
+      });
+      return;
+    }
+    if (!onChanged) return; // read-only history view: nothing to link
+    const existing = wrap.querySelector(".zotero-evidence-coding-link-picker");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    wrap.appendChild(
+      renderFtLinkPicker(doc, ctx, item, attachment, check, onChanged),
+    );
+  });
+
+  wrap.appendChild(row);
+  return wrap;
 }
 
-async function renderFtContent(
+/**
+ * Group card for every not-yet-confirmed check (mirrors codingPane.ts's
+ * renderPendingSuggestionsCard almost exactly): a count header, one compact
+ * row per check, and Reject All / Accept All batch actions in the footer.
+ */
+function renderFtPendingCard(
   container: HTMLElement,
   doc: Document,
   ctx: ProjectPaneContext,
   item: Zotero.Item,
   attachment: Zotero.Item | null,
-  state: ScreeningState | null,
-  hasCriteria: boolean,
+  checks: CriterionCheck[],
+  onChanged: () => void,
+): void {
+  const pending = checks.filter((c) => !c.confirmed);
+  if (pending.length === 0) return;
+
+  const card = el(doc, "div", {
+    classList: ["zotero-evidence-coding-card"],
+  }) as HTMLElement;
+
+  card.appendChild(
+    el(doc, "div", {
+      classList: ["zotero-evidence-coding-card-header"],
+      properties: {
+        innerHTML: getString("coding-pending-title", {
+          args: { count: pending.length },
+        }),
+      },
+    }),
+  );
+
+  for (const check of pending) {
+    card.appendChild(
+      renderFtCheckRow(doc, ctx, item, attachment, check, onChanged),
+    );
+  }
+
+  const footer = el(doc, "div", {
+    classList: ["zotero-evidence-coding-card-footer"],
+  }) as HTMLElement;
+
+  footer.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("coding-reject-all") },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            const confirmFn = ztoolkit.getGlobal("confirm");
+            if (
+              !confirmFn(
+                getString("coding-reject-all-confirm", {
+                  args: { count: pending.length },
+                }),
+              )
+            ) {
+              return;
+            }
+            for (const c of pending) {
+              try {
+                await deleteCheck(c.id, ctx.project.id, item.key);
+              } catch (e) {
+                ztoolkit.log(
+                  "FT-Screening reject-all failed for check",
+                  c.id,
+                  e,
+                );
+              }
+            }
+            onChanged();
+          },
+        },
+      ],
+    }),
+  );
+
+  footer.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("coding-accept-all") },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            // Only accepts checks that were successfully auto-located --
+            // one that wasn't still needs a human to manually link an
+            // annotation, same fallback confirmCheck already applies
+            // per-check today, just batched here.
+            let accepted = 0;
+            let failed = 0;
+            for (const c of pending.filter((x) => x.pendingPosition)) {
+              try {
+                await confirmCheck(c.id, item, ctx.project.id);
+                accepted++;
+              } catch (e) {
+                failed++;
+                ztoolkit.log(
+                  "FT-Screening accept-all failed for check",
+                  c.id,
+                  e,
+                );
+              }
+            }
+            ztoolkit.getGlobal("alert")(
+              getString("coding-accept-all-done", {
+                args: { accepted, failed },
+              }),
+            );
+            onChanged();
+          },
+        },
+      ],
+    }),
+  );
+
+  card.appendChild(footer);
+  container.appendChild(card);
+}
+
+/** Compact, already-confirmed checks -- each row gets an Undo action that
+ * sends it back to the pending card (see unconfirmCheck). */
+function renderFtConfirmedList(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+  attachment: Zotero.Item | null,
+  checks: CriterionCheck[],
+  onChanged?: () => void,
+): void {
+  const confirmed = checks.filter((c) => c.confirmed);
+  if (confirmed.length === 0) return;
+
+  container.appendChild(
+    el(doc, "h3", {
+      properties: { innerHTML: getString("coding-confirmed-title") },
+    }),
+  );
+
+  const list = el(doc, "div", {
+    classList: ["zotero-evidence-confirmed-list"],
+  }) as HTMLElement;
+  for (const check of confirmed) {
+    list.appendChild(
+      renderFtCheckRow(doc, ctx, item, attachment, check, onChanged),
+    );
+  }
+  container.appendChild(list);
+}
+
+/**
+ * Inline "add a check by hand" form, collapsed behind a toggle button until
+ * clicked -- for a criterion the AI missed or got wrong entirely. Mirrors
+ * codingPane.ts's renderManualAddForm: the criterion is picked from the
+ * project's own pre-entered inclusion/exclusion criteria via a dropdown
+ * (never freehand-typed, since the standards are already fixed once
+ * screening criteria are configured), with an optional annotation picker
+ * alongside it -- both in one compact row instead of separate label/field
+ * pairs.
+ */
+function renderFtManualCheckForm(
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+  criteria: ScreeningCriteria,
+  attachment: Zotero.Item | null,
+  onAdded: () => void,
+): HTMLElement {
+  const container = el(doc, "div", {
+    classList: ["zotero-evidence-ft-manual-check"],
+  }) as HTMLElement;
+
+  const options: { type: CriterionType; index: number; text: string }[] = [
+    ...criteria.inclusionCriteria.map((text, index) => ({
+      type: "inclusion" as CriterionType,
+      index,
+      text,
+    })),
+    ...criteria.exclusionCriteria.map((text, index) => ({
+      type: "exclusion" as CriterionType,
+      index,
+      text,
+    })),
+  ];
+  if (options.length === 0) return container;
+
+  const toggleBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: { innerHTML: getString("ft-queue-add-manual-check") },
+  }) as HTMLButtonElement;
+
+  const form = el(doc, "div", {
+    classList: ["zotero-evidence-coding-form"],
+  }) as HTMLElement;
+  form.style.display = "none";
+
+  const criterionSelect = el(doc, "select", {
+    children: options.map((o) => ({
+      tag: "option",
+      namespace: "html",
+      properties: {
+        value: `${o.type}:${o.index}`,
+        innerHTML: `[${escapeHtml(
+          getString(
+            o.type === "inclusion"
+              ? "ft-queue-criterion-type-inclusion"
+              : "ft-queue-criterion-type-exclusion",
+          ),
+        )}] ${escapeHtml(quotePreview(o.text, 50))}`,
+      },
+    })),
+  }) as HTMLSelectElement;
+  form.appendChild(criterionSelect);
+
+  const verdictSelect = el(doc, "select", {
+    children: [
+      { tag: "option", namespace: "html", properties: { value: "include" } },
+      { tag: "option", namespace: "html", properties: { value: "exclude" } },
+    ],
+  }) as HTMLSelectElement;
+  form.appendChild(verdictSelect);
+
+  // Verdict wording depends on the selected criterion's TYPE, not just the
+  // include/exclude value (see criterionVerdictLabel) -- an inclusion
+  // criterion's options read "Satisfied"/"Not satisfied", an exclusion
+  // criterion's read "Triggered"/"Not triggered". Re-labels both options
+  // and resets the default whenever the criterion selection changes,
+  // without hard-locking the value -- a human overriding the default is
+  // still a deliberate, informed choice.
+  const syncVerdictForType = () => {
+    const [type] = criterionSelect.value.split(":") as [CriterionType, string];
+    for (const opt of Array.from(
+      verdictSelect.options,
+    ) as HTMLOptionElement[]) {
+      opt.textContent = criterionVerdictLabel(
+        type,
+        opt.value as CriterionVerdict,
+      );
+    }
+    verdictSelect.value = type === "exclusion" ? "exclude" : "include";
+  };
+  criterionSelect.addEventListener("change", syncVerdictForType);
+  syncVerdictForType();
+
+  const annotations = attachment ? attachment.getAnnotations() : [];
+  const annotationSelect = el(doc, "select", {
+    children: [
+      {
+        tag: "option",
+        namespace: "html",
+        properties: {
+          value: "",
+          innerHTML: getString("ft-queue-choose-annotation-optional"),
+        },
+      },
+      ...annotations.map((a) => ({
+        tag: "option",
+        namespace: "html",
+        properties: { value: a.key, innerHTML: annotationOptionLabel(a) },
+      })),
+    ],
+  }) as HTMLSelectElement;
+  form.appendChild(annotationSelect);
+
+  form.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("coding-add-manual") },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            const [type, indexStr] = criterionSelect.value.split(":");
+            const list =
+              type === "inclusion"
+                ? criteria.inclusionCriteria
+                : criteria.exclusionCriteria;
+            const text = list[Number(indexStr)];
+            if (!text) {
+              ztoolkit.getGlobal("alert")(
+                getString("ft-queue-manual-check-error-incomplete"),
+              );
+              return;
+            }
+            try {
+              await addManualCheck(
+                ctx.project.id,
+                item,
+                type as CriterionType,
+                text,
+                verdictSelect.value as CriterionVerdict,
+                annotationSelect.value || null,
+              );
+              onAdded();
+            } catch (e: any) {
+              ztoolkit.getGlobal("alert")(
+                `${getString("coding-error-manual-add")}\n${e?.message ?? e}`,
+              );
+            }
+          },
+        },
+      ],
+    }),
+  );
+  form.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("ft-queue-manual-check-cancel") },
+      listeners: [
+        {
+          type: "click",
+          listener: () => {
+            form.style.display = "none";
+            toggleBtn.style.display = "";
+          },
+        },
+      ],
+    }),
+  );
+
+  toggleBtn.addEventListener("click", () => {
+    form.style.display = "";
+    toggleBtn.style.display = "none";
+  });
+
+  container.appendChild(toggleBtn);
+  container.appendChild(form);
+  return container;
+}
+
+/**
+ * Library tab, FT-Screen Queue role (not yet decided): the pre-screening
+ * step -- PDF detection status plus explicit "mark full text available/
+ * unavailable" buttons. This used to be silently auto-confirmed the moment
+ * the reader tab rendered; now it's an explicit human action taken BEFORE
+ * opening the reader, same reasoning as everything else in this rewrite --
+ * nothing gets treated as confirmed without an actual human click.
+ */
+async function renderFtPreScreenArea(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
 ) {
   container.innerHTML = "";
+  const [state, attachment, checks] = await Promise.all([
+    getScreeningState(ctx.project.id, item.key),
+    resolveAttachment(item),
+    getCriterionChecks(ctx.project.id, item.key),
+  ]);
 
   container.appendChild(
     el(doc, "p", {
@@ -266,249 +834,311 @@ async function renderFtContent(
     }),
   );
 
-  const rerender = async () => {
-    // Re-resolve the attachment too, not just the screening state -- this
-    // closure's `attachment` param is frozen at whatever it was on the
-    // render that created this rerender() (i.e. whenever the item was
-    // first selected/onAsyncRender last ran from scratch). Reusing it here
-    // meant a PDF attached *after* that -- while the user kept the item
-    // selected and just clicked a button in this pane -- would never be
-    // detected until they deselected and reselected the item to force a
-    // fully fresh render.
-    const [newState, newAttachment] = await Promise.all([
-      getScreeningState(ctx.project.id, item.key),
-      resolveAttachment(item),
-    ]);
-    await renderFtContent(
-      container,
-      doc,
-      ctx,
-      item,
-      newAttachment,
-      newState,
-      hasCriteria,
-    );
-  };
+  const rerender = () => void renderFtPreScreenArea(container, doc, ctx, item);
 
-  // fulltext_ready is always true by the time this renders -- renderFtArea
-  // (the only caller) auto-confirms it before calling in here, since
-  // simply having the PDF open already proves full text is available.
-  // `state` itself is guaranteed non-null too (that same auto-confirm call
-  // creates the screening_records row via getOrCreateRecordId) -- the
-  // `!state` branch below is purely a type-narrowing formality.
-  if (!hasCriteria) {
+  if (state?.fulltextReady) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("ft-queue-ready-note") },
+      }),
+    );
+    if (checks.length > 0) {
+      container.appendChild(
+        el(doc, "p", {
+          properties: {
+            innerHTML: getString("ft-queue-checks-in-progress-note", {
+              args: { n: checks.length },
+            }),
+          },
+        }),
+      );
+    }
+  } else if (attachment) {
+    container.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        properties: { innerHTML: getString("ft-queue-mark-ready") },
+        listeners: [
+          {
+            type: "click",
+            listener: async () => {
+              await markFulltextReady(ctx.project.id, item, currentDeciderId());
+              rerender();
+            },
+          },
+        ],
+      }),
+    );
+  }
+
+  container.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      classList: ["zotero-evidence-unavailable-button"],
+      properties: { innerHTML: getString("ft-queue-mark-unavailable") },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            try {
+              await markUnavailable(
+                ctx.project.id,
+                item,
+                ctx.collections,
+                currentDeciderId(),
+              );
+              new ztoolkit.ProgressWindow(config.addonName)
+                .createLine({
+                  text: getString("ft-queue-marked-unavailable"),
+                  type: "success",
+                  progress: 100,
+                })
+                .show();
+            } catch (e: any) {
+              ztoolkit.getGlobal("alert")(
+                `${getString("ft-queue-error-unavailable")}\n${e?.message ?? e}`,
+              );
+            }
+          },
+        },
+      ],
+    }),
+  );
+}
+
+/**
+ * Reader tab, FT-Screen Queue role: the full checklist workflow. Runs the
+ * AI checklist, lets the human review/confirm/override each criterion
+ * check, shows the AI's roll-up suggestion, and finalizes the item's
+ * overall Include/Exclude decision from whichever checks are actually
+ * confirmed by then (see confirmDecision in ftScreeningService.ts and this
+ * function's Exclude handler below for what happens when some aren't).
+ */
+async function renderFtChecklistArea(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+) {
+  container.innerHTML = "";
+  const criteriaRow = await getLatestCriteria(ctx.project.id, "ft");
+  if (!criteriaRow) {
     container.appendChild(
       el(doc, "p", {
         properties: { innerHTML: getString("ft-queue-no-criteria") },
         styles: { color: "var(--fill-secondary, #a33)" },
       }),
     );
-  } else if (!state) {
+    return;
+  }
+
+  const state = await getScreeningState(ctx.project.id, item.key);
+  if (!state?.fulltextReady) {
+    // Safety net for opening the PDF directly (bypassing the library tab's
+    // button) -- still requires an explicit click, never silently assumed.
     container.appendChild(
-      el(doc, "p", {
-        properties: { innerHTML: getString("ft-queue-history-none") },
-      }),
-    );
-  } else {
-    const runAI = async () => {
-      runBtn.setAttribute("disabled", "true");
-      runBtn.textContent = getString("ft-queue-loading");
-      try {
-        await runAIJudgment(ctx.project.id, item);
-        await rerender();
-      } catch (e: any) {
-        ztoolkit.getGlobal("alert")(
-          `${getString("ft-queue-error-run-ai")}\n${e?.message ?? e}`,
-        );
-        runBtn.removeAttribute("disabled");
-        runBtn.textContent = getString("ft-queue-run-ai");
-      }
-    };
-
-    const runBtn = el(doc, "button", {
-      attributes: { type: "button" },
-      properties: {
-        innerHTML: getString(
-          state.aiDecision || state.aiReasoning
-            ? "ft-queue-rerun-ai"
-            : "ft-queue-run-ai",
-        ),
-      },
-      listeners: [{ type: "click", listener: () => void runAI() }],
-    }) as HTMLButtonElement;
-
-    if (state.aiDecision) {
-      container.appendChild(
-        el(doc, "div", {
-          classList: ["zotero-evidence-judgment"],
-          children: [
-            {
-              tag: "strong",
-              namespace: "html",
-              properties: {
-                innerHTML: `${getString("ft-queue-ai-suggestion")} ${decisionLabel(state.aiDecision)}`,
-              },
-            },
-            {
-              tag: "p",
-              namespace: "html",
-              properties: { innerHTML: escapeHtml(state.aiReasoning || "") },
-            },
-          ],
-        }),
-      );
-    } else if (state.aiReasoning) {
-      // AI ran but the response couldn't be parsed into a decision --
-      // surface the raw text so a human can decide directly (no synthesized
-      // third state at the FT stage, see ftScreeningService.ts).
-      container.appendChild(
-        el(doc, "div", {
-          classList: ["zotero-evidence-judgment"],
-          children: [
-            {
-              tag: "strong",
-              namespace: "html",
-              properties: { innerHTML: getString("ft-queue-ai-unparseable") },
-            },
-            {
-              tag: "p",
-              namespace: "html",
-              properties: { innerHTML: escapeHtml(state.aiReasoning) },
-            },
-          ],
-        }),
-      );
-    }
-
-    const doConfirm = async (decision: FTDecision, reason: string | null) => {
-      try {
-        await confirmDecision(
-          ctx.project.id,
-          item,
-          ctx.collections,
-          decision,
-          currentDeciderId(),
-          reason,
-        );
-        new ztoolkit.ProgressWindow(config.addonName)
-          .createLine({
-            text: getString("ft-queue-confirmed"),
-            type: "success",
-            progress: 100,
-          })
-          .show();
-      } catch (e: any) {
-        ztoolkit.getGlobal("alert")(
-          `${getString("ft-queue-error-confirm")}\n${e?.message ?? e}`,
-        );
-      }
-    };
-
-    const excludeReasonRow = renderFtExcludeConfirm(
-      doc,
-      state.exclusionReason,
-      () => doConfirm("exclude", state.exclusionReason),
-    );
-
-    const buttonRow = el(doc, "div", {
-      classList: ["zotero-evidence-buttons"],
-    });
-    const decisions: FTDecision[] = ["include", "exclude"];
-    for (const decision of decisions) {
-      const isCurrent =
-        state.decision === decision ||
-        (!state.decision && state.aiDecision === decision);
-      const btn = el(doc, "button", {
+      el(doc, "button", {
         attributes: { type: "button" },
-        properties: { innerHTML: decisionLabel(decision) },
-        classList: isCurrent ? ["selected"] : [],
+        properties: { innerHTML: getString("ft-queue-mark-ready") },
         listeners: [
           {
             type: "click",
-            listener: () => {
+            listener: async () => {
+              await markFulltextReady(ctx.project.id, item, currentDeciderId());
+              await renderFtChecklistArea(container, doc, ctx, item);
+            },
+          },
+        ],
+      }),
+    );
+    return;
+  }
+
+  const rerender = async () => {
+    await renderFtChecklistArea(container, doc, ctx, item);
+  };
+
+  const [attachment, checks] = await Promise.all([
+    resolveAttachment(item),
+    getCriterionChecks(ctx.project.id, item.key),
+  ]);
+  const totalInclusion = criteriaRow.criteria.inclusionCriteria.length;
+  const rollup = computeRollup(checks, totalInclusion);
+
+  const rollupLine = el(doc, "p", {
+    classList: ["zotero-evidence-judgment"],
+  }) as HTMLElement;
+  const rollupLabel =
+    rollup === "unclear"
+      ? getString("ft-queue-rollup-unclear")
+      : decisionLabel(rollup);
+  rollupLine.innerHTML = `<strong>${escapeHtml(getString("ft-queue-rollup-label"))}</strong> ${escapeHtml(rollupLabel)}`;
+  container.appendChild(rollupLine);
+
+  const buttonRow = el(doc, "div", {
+    classList: ["zotero-evidence-buttons"],
+  }) as HTMLElement;
+
+  const runBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: {
+      innerHTML: getString(
+        checks.length > 0 ? "ft-queue-rerun-checks" : "ft-queue-run-checks",
+      ),
+    },
+  }) as HTMLButtonElement;
+  runBtn.addEventListener("click", async () => {
+    runBtn.setAttribute("disabled", "true");
+    runBtn.textContent = getString("ft-queue-checks-loading");
+    try {
+      await runCriterionChecks(ctx.project.id, item);
+      await rerender();
+    } catch (e: any) {
+      ztoolkit.getGlobal("alert")(
+        `${getString("ft-queue-checks-error")}\n${e?.message ?? e}`,
+      );
+      runBtn.removeAttribute("disabled");
+      runBtn.textContent = getString(
+        checks.length > 0 ? "ft-queue-rerun-checks" : "ft-queue-run-checks",
+      );
+    }
+  });
+  buttonRow.appendChild(runBtn);
+
+  buttonRow.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("coding-refresh") },
+      listeners: [{ type: "click", listener: () => void rerender() }],
+    }),
+  );
+  container.appendChild(buttonRow);
+
+  container.appendChild(
+    el(doc, "h3", {
+      properties: { innerHTML: getString("ft-queue-checklist-title") },
+    }),
+  );
+  if (checks.length === 0) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("ft-queue-checklist-empty") },
+      }),
+    );
+  } else {
+    renderFtPendingCard(
+      container,
+      doc,
+      ctx,
+      item,
+      attachment,
+      checks,
+      () => void rerender(),
+    );
+    renderFtConfirmedList(
+      container,
+      doc,
+      ctx,
+      item,
+      attachment,
+      checks,
+      () => void rerender(),
+    );
+  }
+
+  container.appendChild(
+    renderFtManualCheckForm(
+      doc,
+      ctx,
+      item,
+      criteriaRow.criteria,
+      attachment,
+      () => void rerender(),
+    ),
+  );
+
+  const decisionRow = el(doc, "div", {
+    classList: ["zotero-evidence-buttons", "zotero-evidence-ft-finalize-row"],
+  });
+  const decisions: FTDecision[] = ["include", "exclude"];
+  for (const decision of decisions) {
+    const isCurrent = state.decision === decision;
+    decisionRow.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        properties: { innerHTML: decisionLabel(decision) },
+        classList: [
+          "zotero-evidence-ft-finalize-button",
+          decision,
+          ...(isCurrent ? ["selected"] : []),
+        ],
+        listeners: [
+          {
+            type: "click",
+            listener: async () => {
               if (decision === "exclude") {
-                excludeReasonRow.classList.add("open");
-              } else {
-                void doConfirm(decision, null);
+                const unconfirmed = await getUnconfirmedExcludeChecks(
+                  ctx.project.id,
+                  item.key,
+                );
+                if (unconfirmed.length > 0) {
+                  const proceed = ztoolkit.getGlobal("confirm")(
+                    getString("ft-queue-finalize-exclude-confirm-unreviewed", {
+                      args: { n: unconfirmed.length },
+                    }),
+                  );
+                  if (!proceed) return;
+                }
+              }
+              const reasons =
+                decision === "exclude"
+                  ? await getConfirmedExclusionReasons(ctx.project.id, item.key)
+                  : null;
+              try {
+                await confirmDecision(
+                  ctx.project.id,
+                  item,
+                  ctx.collections,
+                  decision,
+                  currentDeciderId(),
+                  reasons,
+                );
+                new ztoolkit.ProgressWindow(config.addonName)
+                  .createLine({
+                    text: getString("ft-queue-confirmed"),
+                    type: "success",
+                    progress: 100,
+                  })
+                  .show();
+              } catch (e: any) {
+                ztoolkit.getGlobal("alert")(
+                  `${getString("ft-queue-error-confirm")}\n${e?.message ?? e}`,
+                );
               }
             },
           },
         ],
-      });
-      buttonRow.appendChild(btn);
-    }
-    container.appendChild(buttonRow);
-    container.appendChild(excludeReasonRow);
-
-    if (attachment) {
-      container.appendChild(
-        renderFtEvidenceLinker(
-          doc,
-          ctx,
-          item,
-          attachment,
-          state,
-          () => void rerender(),
-        ),
-      );
-    }
-
-    if (state.decision) {
-      container.appendChild(
-        el(doc, "p", {
-          properties: {
-            innerHTML: `${getString("ft-queue-decided")}: ${decisionLabel(state.decision)}`,
-          },
-        }),
-      );
-    }
-
-    container.appendChild(runBtn);
+      }),
+    );
   }
+  container.appendChild(decisionRow);
 
-  const unavailableBtn = el(doc, "button", {
-    attributes: { type: "button" },
-    classList: ["zotero-evidence-unavailable-button"],
-    properties: { innerHTML: getString("ft-queue-mark-unavailable") },
-    listeners: [
-      {
-        type: "click",
-        listener: async () => {
-          try {
-            await markUnavailable(
-              ctx.project.id,
-              item,
-              ctx.collections,
-              currentDeciderId(),
-            );
-            new ztoolkit.ProgressWindow(config.addonName)
-              .createLine({
-                text: getString("ft-queue-marked-unavailable"),
-                type: "success",
-                progress: 100,
-              })
-              .show();
-          } catch (e: any) {
-            ztoolkit.getGlobal("alert")(
-              `${getString("ft-queue-error-unavailable")}\n${e?.message ?? e}`,
-            );
-          }
+  if (state.decision) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: {
+          innerHTML: `${getString("ft-queue-decided")}: ${decisionLabel(state.decision)}`,
         },
-      },
-    ],
-  });
-  container.appendChild(unavailableBtn);
+      }),
+    );
+  }
 }
 
 /**
- * History view for the FT-Include/FT-Exclude/FT-Unavailable collections,
- * mirroring screenQueuePane.ts's renderHistoryArea: shows the
- * screening_records trail plus an Undo action, instead of the editable
- * FT-Screen Queue controls above. Undo is available in both tabs -- unlike
- * the underlying include/exclude/unavailable decision itself (which needs
- * the PDF to make responsibly), reversing that decision doesn't, so there's
- * no reason to force a trip into the reader just to undo a mistake made
- * from the library view.
+ * History view for the FT-Include/FT-Exclude/FT-Unavailable collections:
+ * the AI-vs-human rollup summary, a read-only rendering of the confirmed
+ * criterion checklist, and Undo. Undo is available in both tabs -- unlike
+ * making the decision itself (which needs the PDF), reversing it doesn't.
  */
 async function renderFtHistoryArea(
   container: HTMLElement,
@@ -556,6 +1186,12 @@ async function renderFtHistoryArea(
     );
   }
 
+  const checks = await getCriterionChecks(ctx.project.id, item.key);
+  if (checks.length > 0) {
+    const attachment = await resolveAttachment(item);
+    renderFtConfirmedList(container, doc, ctx, item, attachment, checks);
+  }
+
   if (state.decision) {
     container.appendChild(
       el(doc, "p", {
@@ -592,38 +1228,6 @@ async function renderFtHistoryArea(
     });
     container.appendChild(undoBtn);
   }
-}
-
-async function renderFtArea(
-  container: HTMLElement,
-  doc: Document,
-  ctx: ProjectPaneContext,
-  item: Zotero.Item,
-) {
-  container.innerHTML = "";
-  const criteriaRow = await getLatestCriteria(ctx.project.id, "ft");
-  let state = await getScreeningState(ctx.project.id, item.key);
-  // This pane only renders (in the reader tab) once the PDF is already
-  // open -- that alone is the human confirming full text is available, so
-  // there's no separate manual "Confirm Full Text Ready" click to make
-  // here the way the library tab would need (it can't see the PDF at
-  // all). Record it exactly like that button used to, just without
-  // requiring the click; runAIJudgment still gates on this DB flag, so it
-  // must actually get set, not just skipped in the UI.
-  if (!state?.fulltextReady) {
-    await markFulltextReady(ctx.project.id, item, currentDeciderId());
-    state = await getScreeningState(ctx.project.id, item.key);
-  }
-  const attachment = await resolveAttachment(item);
-  await renderFtContent(
-    container,
-    doc,
-    ctx,
-    item,
-    attachment,
-    state,
-    !!criteriaRow,
-  );
 }
 
 export function registerFtQueuePane() {
@@ -665,14 +1269,13 @@ export function registerFtQueuePane() {
     // Required for registerSection to actually succeed -- see
     // screenQueuePane.ts for the empirically-confirmed reason.
     onRender: () => {},
-    // Reader tab: the full interactive workflow for ft_queue (Run AI/
-    // Include-Exclude/evidence linker) -- FT-screening fundamentally
-    // requires reading the PDF to decide, so this belongs where the PDF
-    // is, same reasoning as Coding's reader-tab editor. Library tab: a
-    // quick-glance summary without opening the PDF, mirroring
-    // codingPane.ts's renderCodingSummary. Both tabs use the same history
-    // view (with Undo) for the three decided roles -- unlike the decision
-    // itself, undoing it doesn't need the PDF.
+    // Reader tab + ft_queue role: the full checklist workflow -- FT-
+    // screening fundamentally requires reading the PDF to decide, so it
+    // belongs where the PDF is, same reasoning as Coding's reader-tab
+    // editor. Library tab + ft_queue role: the pre-screening step (mark
+    // full text available/unavailable) -- doesn't need the PDF open.
+    // Every other case (either tab, already-decided roles) shows the same
+    // read-only history view with Undo.
     onAsyncRender: async ({ body, doc, item, tabType }) => {
       const ctx = resolveContextSync(item);
       if (
@@ -689,7 +1292,9 @@ export function registerFtQueuePane() {
       const contentArea = renderCardHeader(body, doc, item);
       try {
         if (tabType === "reader" && ctx.role === "ft_queue") {
-          await renderFtArea(contentArea, doc, ctx, item);
+          await renderFtChecklistArea(contentArea, doc, ctx, item);
+        } else if (tabType === "library" && ctx.role === "ft_queue") {
+          await renderFtPreScreenArea(contentArea, doc, ctx, item);
         } else {
           await renderFtHistoryArea(contentArea, doc, ctx, item);
         }

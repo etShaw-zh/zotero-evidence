@@ -227,6 +227,34 @@ export async function importProjectArchive(
       );
     }
 
+    for (const c of manifest.ftCriterionChecks ?? []) {
+      const newItemKey = itemKeyMap.get(c.itemKey);
+      if (!newItemKey) continue;
+      await databaseService.queryAsync(
+        `INSERT INTO ft_criterion_checks
+          (project_id, item_key, criterion_type, criterion_text, verdict, reasoning, quote,
+           annotation_key, pending_position, source, confirmed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          project.id,
+          newItemKey,
+          c.criterionType,
+          c.criterionText,
+          c.verdict,
+          c.reasoning,
+          c.quote,
+          c.annotationKey
+            ? (annotationKeyMap.get(c.annotationKey) ?? null)
+            : null,
+          c.pendingPosition,
+          c.source,
+          c.confirmed,
+          c.createdAt,
+          c.updatedAt,
+        ],
+      );
+    }
+
     const codebookIdByVersion = new Map<number, number>();
     for (const cb of manifest.codebooks) {
       await databaseService.queryAsync(

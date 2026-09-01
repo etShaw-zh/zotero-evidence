@@ -10,6 +10,7 @@ import {
   ArchiveAttachment,
   ArchiveCodebook,
   ArchiveCodingRecord,
+  ArchiveFtCriterionCheck,
   ArchiveItem,
   ArchiveManifest,
   ArchiveScreeningCriteria,
@@ -177,6 +178,33 @@ async function buildScreeningTables(
   return { criteria, records };
 }
 
+async function buildFtCriterionChecks(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<ArchiveFtCriterionCheck[]> {
+  const allRows = (await databaseService.queryAsync(
+    `SELECT * FROM ft_criterion_checks WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const rows = itemKeys
+    ? allRows.filter((row) => itemKeys.has(row.item_key))
+    : allRows;
+  return rows.map((row) => ({
+    itemKey: row.item_key,
+    criterionType: row.criterion_type,
+    criterionText: row.criterion_text,
+    verdict: row.verdict,
+    reasoning: row.reasoning,
+    quote: row.quote,
+    annotationKey: row.annotation_key,
+    pendingPosition: row.pending_position,
+    source: row.source,
+    confirmed: row.confirmed,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
 async function buildCodingTables(
   projectId: number,
   itemKeys: Set<string> | null,
@@ -288,6 +316,10 @@ export async function exportProjectArchive(
       projectId,
       itemKeySet,
     );
+    const ftCriterionChecks = await buildFtCriterionChecks(
+      projectId,
+      itemKeySet,
+    );
     const { codebooks, codingRecords, synthesisThemes } =
       await buildCodingTables(projectId, itemKeySet);
 
@@ -298,6 +330,7 @@ export async function exportProjectArchive(
       items,
       screeningCriteria: criteria,
       screeningRecords: records,
+      ftCriterionChecks,
       codebooks,
       codingRecords,
       synthesisThemes,

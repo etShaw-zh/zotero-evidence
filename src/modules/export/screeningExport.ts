@@ -30,18 +30,26 @@ const countItems = (collectionId: number) =>
   (Zotero.Collections.get(collectionId) as Zotero.Collection).getChildItems()
     .length;
 
-async function getReasonCounts(
+/**
+ * FT-Screening's exclusion reasons now come from ft_criterion_checks (one
+ * row per criterion that actually applied) rather than a single
+ * exclusion_reason column -- so a paper excluded for 2 reasons contributes
+ * to both reasons' counts here, per the "each reason counted once" rule
+ * (not once per excluded paper). Only CONFIRMED checks count, same as
+ * ftCriterionCheckService.ts's own getConfirmedExclusionReasons -- an
+ * unconfirmed AI suggestion was never actually endorsed as the reason.
+ */
+async function getFtReasonCounts(
   projectId: number,
-  stage: "ta_screening" | "ft_screening",
 ): Promise<{ reason: string; count: number }[]> {
   await databaseService.init();
   const rows = (await databaseService.queryAsync(
-    `SELECT exclusion_reason, COUNT(*) as n FROM screening_records
-     WHERE project_id = ? AND stage = ? AND decision = 'exclude' AND exclusion_reason IS NOT NULL AND exclusion_reason != ''
-     GROUP BY exclusion_reason`,
-    [projectId, stage],
-  )) as { exclusion_reason: string; n: number }[] | undefined;
-  return (rows || []).map((r) => ({ reason: r.exclusion_reason, count: r.n }));
+    `SELECT criterion_text, COUNT(*) as n FROM ft_criterion_checks
+     WHERE project_id = ? AND verdict = 'exclude' AND confirmed = 1
+     GROUP BY criterion_text`,
+    [projectId],
+  )) as { criterion_text: string; n: number }[] | undefined;
+  return (rows || []).map((r) => ({ reason: r.criterion_text, count: r.n }));
 }
 
 /**
@@ -80,7 +88,7 @@ export async function computePrismaData(
   const ftExclude = countItems(collections.ftExcludeId);
   const ftUnavailable = countItems(collections.ftUnavailableId);
 
-  const ftReasons = await getReasonCounts(projectId, "ft_screening");
+  const ftReasons = await getFtReasonCounts(projectId);
   if (ftUnavailable > 0) {
     ftReasons.push({ reason: "Full text unavailable", count: ftUnavailable });
   }

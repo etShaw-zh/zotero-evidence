@@ -1,33 +1,8 @@
-import { callChatCompletion } from "../ai/aiClient";
-import { getActiveProvider } from "../ai/providerConfig";
-import { FT_SCREENING_ANNOTATION_COLOR } from "../../utils/annotationColors";
-import {
-  locateQuoteInAttachment,
-  materializePendingHighlight,
-} from "../pdf/pdfAnnotationCreator";
 import { databaseService } from "../db/database";
-import { sanitizeDbText } from "../../utils/sanitize";
 import { ProjectCollectionMap } from "../project/collectionStructure";
-import { getLatestCriteria, ScreeningCriteria } from "./criteriaService";
 
 export type FTDecision = "include" | "exclude";
 export type FTFinalDecision = FTDecision | "unavailable";
-
-export interface AIJudgmentResult {
-  decision: FTDecision | null;
-  reasoning: string;
-  /** Verbatim sentence the decision hinges on, used to auto-locate and
-   * highlight the evidence in the PDF (FTS-06). May fail to match (AI
-   * paraphrase, OCR noise) -- that's expected and falls back to manual
-   * linking, not an error. */
-  quote: string;
-  /** The single exclusion criterion the AI judged as the best fit, copied
-   * verbatim from the project's configured exclusion criteria -- empty
-   * string when including, or when excluding without a confident match.
-   * The human never picks this manually (unlike TA-Screening, which
-   * doesn't capture a reason at all); they only review and confirm. */
-  exclusionReason: string;
-}
 
 export interface ScreeningState {
   id: number;
@@ -40,78 +15,6 @@ export interface ScreeningState {
   /** JSON `LocatedQuote` from a successful auto-locate that hasn't been
    * confirmed into a real annotation yet (FTS-06) -- see confirmDecision. */
   pendingPosition: string | null;
-}
-
-// Real PDFs can run to tens of thousands of characters; sending the whole
-// thing uncapped risks blowing token/cost limits. Truncate rather than
-// reject -- the AI still gets most papers' full argument, and the prompt
-// says explicitly that it may be truncated so it doesn't over-trust an
-// absence of a section near the end.
-const MAX_FULLTEXT_CHARS = 40000;
-
-const SYSTEM_PROMPT =
-  "You are assisting with full-text screening for a systematic literature review. " +
-  "Given full-text inclusion criteria, exclusion criteria, and the full text of a paper " +
-  "(which may be truncated if very long), decide whether the paper should be included or excluded. " +
-  "If excluding, also choose the single exclusion criterion from the provided list that best " +
-  "explains why, and copy it into exclusionReason VERBATIM -- character-for-character, exactly as " +
-  "given in the Exclusion criteria list -- so it can be matched back to that criterion; leave " +
-  "exclusionReason as an empty string when including. " +
-  'Respond with ONLY a JSON object, no markdown and no extra text: {"decision": "include"|"exclude", ' +
-  '"reasoning": "explain the decision", "exclusionReason": "the verbatim matching exclusion ' +
-  'criterion, or empty string if including", "quote": "the exact sentence from the text, verbatim, ' +
-  'that drove the decision"}.';
-
-function buildPrompt(criteria: ScreeningCriteria, fullText: string): string {
-  const truncated = fullText.length > MAX_FULLTEXT_CHARS;
-  const text = truncated ? fullText.slice(0, MAX_FULLTEXT_CHARS) : fullText;
-  return [
-    `Research question: ${criteria.researchQuestion}`,
-    `Inclusion criteria:\n${criteria.inclusionCriteria.map((c) => `- ${c}`).join("\n")}`,
-    `Exclusion criteria:\n${criteria.exclusionCriteria.map((c) => `- ${c}`).join("\n")}`,
-    `Full text${truncated ? " (truncated)" : ""}:\n${text}`,
-  ].join("\n\n");
-}
-
-function normalizeDecision(value: unknown): FTDecision | null {
-  const v = String(value ?? "").toLowerCase();
-  return v === "include" || v === "exclude" ? v : null;
-}
-
-/**
- * Unlike TA-Screening there's no "unclear" intermediate state at the
- * full-text stage (REQUIREMENTS.md FTS-04 only defines Include/Exclude), so
- * an unparseable response doesn't get a synthesized third state -- it comes
- * back with decision=null and the raw text as reasoning, and the UI leaves
- * both buttons available for a human to decide directly.
- */
-export function parseJudgment(raw: string): AIJudgmentResult {
-  const text = raw.trim();
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const jsonText = fenced ? fenced[1] : text;
-  try {
-    const obj = JSON.parse(jsonText);
-    const decision = normalizeDecision(obj.decision);
-    if (decision) {
-      return {
-        decision,
-        reasoning: sanitizeDbText(String(obj.reasoning ?? "")),
-        quote: typeof obj.quote === "string" ? sanitizeDbText(obj.quote) : "",
-        exclusionReason:
-          typeof obj.exclusionReason === "string"
-            ? sanitizeDbText(obj.exclusionReason)
-            : "",
-      };
-    }
-  } catch {
-    // fall through
-  }
-  return {
-    decision: null,
-    reasoning: sanitizeDbText(raw),
-    quote: "",
-    exclusionReason: "",
-  };
 }
 
 /**
@@ -133,7 +36,10 @@ export async function getAttachmentFullText(
   }
 }
 
-async function getOrCreateRecordId(
+// Exported for ftCriterionCheckService.ts, which shares this same
+// screening_records row (one per project/item/ft_screening) to gate on
+// fulltext_ready and to write back the AI-vs-human rollup summary.
+export async function getOrCreateRecordId(
   projectId: number,
   itemKey: string,
 ): Promise<number> {
@@ -189,35 +95,6 @@ export async function getScreeningState(
 }
 
 /**
- * Marks a human-created highlight in the item's PDF as the supporting
- * evidence for its FT-Screening decision (FTS-06). Forces the annotation to
- * the fixed orange color so FT-Screening and Coding annotations on the same
- * PDF stay visually distinguishable by stage (REQUIREMENTS 2.4.5) -- AI
- * itself can't create the highlight (no official text-to-PDF-coordinates
- * API), so the human highlights natively and this just claims/colors it.
- */
-export async function linkFtAnnotation(
-  projectId: number,
-  item: Zotero.Item,
-  annotationKey: string,
-): Promise<void> {
-  const annotation = Zotero.Items.getByLibraryAndKey(
-    item.libraryID,
-    annotationKey,
-  );
-  if (annotation) {
-    (annotation as any).annotationColor = FT_SCREENING_ANNOTATION_COLOR;
-    await (annotation as Zotero.Item).saveTx();
-  }
-
-  const id = await getOrCreateRecordId(projectId, item.key);
-  await databaseService.queryAsync(
-    `UPDATE screening_records SET annotation_key = ? WHERE id = ?`,
-    [annotationKey, id],
-  );
-}
-
-/**
  * Records the user's manual confirmation that a PDF is available and ready
  * for full-text screening (FTS-11). Purely human-triggered, per
  * REQUIREMENTS.md 2.4.5 -- the plugin never infers this from attachment
@@ -238,109 +115,16 @@ export async function markFulltextReady(
 }
 
 /**
- * Runs the AI full-text judgment. Refuses to run unless the user has
- * already confirmed full-text availability (FTS-11 gate) -- this avoids
- * spending a request on an item that isn't actually ready, and keeps the
- * "who confirmed the PDF is usable" step meaningfully human-owned.
- */
-export async function runAIJudgment(
-  projectId: number,
-  item: Zotero.Item,
-): Promise<AIJudgmentResult & { screeningRecordId: number }> {
-  const provider = getActiveProvider();
-  if (!provider) {
-    throw new Error("No AI provider configured.");
-  }
-  const criteriaRow = await getLatestCriteria(projectId, "ft");
-  if (!criteriaRow) {
-    throw new Error("No FT screening criteria configured for this project.");
-  }
-  const state = await getScreeningState(projectId, item.key);
-  if (!state?.fulltextReady) {
-    throw new Error(
-      "Full text has not been confirmed ready for this item yet.",
-    );
-  }
-  const fullText = await getAttachmentFullText(item);
-  if (!fullText) {
-    throw new Error("Could not read full text from the PDF attachment.");
-  }
-
-  const raw = await callChatCompletion(
-    provider,
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildPrompt(criteriaRow.criteria, fullText) },
-    ],
-    "ft_screening",
-  );
-  const judgment = parseJudgment(raw);
-
-  // Only trust an exclusionReason that exactly matches one of the
-  // project's configured exclusion criteria -- a paraphrase or near-
-  // duplicate string would otherwise fragment the PRISMA reasons
-  // breakdown (getReasonCounts groups by exact exclusion_reason text).
-  // `null` here also correctly clears a stale reason from a prior run
-  // when this run doesn't exclude or doesn't confidently match.
-  const matchedExclusionReason =
-    judgment.decision === "exclude" &&
-    criteriaRow.criteria.exclusionCriteria.includes(judgment.exclusionReason)
-      ? judgment.exclusionReason
-      : null;
-
-  const id = await getOrCreateRecordId(projectId, item.key);
-  await databaseService.queryAsync(
-    `UPDATE screening_records
-     SET criteria_id = ?, ai_decision = ?, ai_reasoning = ?, exclusion_reason = ?, ai_model = ?
-     WHERE id = ?`,
-    [
-      criteriaRow.id,
-      judgment.decision,
-      judgment.reasoning,
-      matchedExclusionReason,
-      provider.model,
-      id,
-    ],
-  );
-
-  // Best-effort (FTS-06): try to locate the cited quote in the PDF. This
-  // only records WHERE the evidence is (pending_position) -- it does NOT
-  // create a real annotation yet. The highlight only gets materialized once
-  // the human actually confirms the decision (see confirmDecision), so
-  // nothing shows up on the PDF for a suggestion nobody has reviewed. A miss
-  // (paraphrase, OCR noise) or any extraction failure just leaves
-  // pending_position unset -- the existing manual "choose a highlight, mark
-  // as evidence" UI is still there as a fallback, so this must never throw
-  // out of runAIJudgment.
-  if (judgment.quote) {
-    try {
-      const attachment = await item.getBestAttachment();
-      if (attachment && attachment.isPDFAttachment()) {
-        const located = await locateQuoteInAttachment(
-          attachment,
-          judgment.quote,
-        );
-        if (located) {
-          await databaseService.queryAsync(
-            `UPDATE screening_records SET pending_position = ? WHERE id = ?`,
-            [JSON.stringify(located), id],
-          );
-        }
-      }
-    } catch (e) {
-      ztoolkit.log("FT-Screening auto-locate failed", item.key, e);
-    }
-  }
-
-  return { ...judgment, screeningRecordId: id };
-}
-
-/**
  * Records the human-final decision and moves the item from FT-Queue into
- * FT-Include or FT-Exclude. This is also the point where a pending
- * auto-located highlight (FTS-06) gets materialized into a real annotation
- * -- confirming the decision IS the human's confirmation of the evidence,
- * so the PDF only gains a highlight once a decision has actually been made.
+ * FT-Include or FT-Exclude. `exclusionReasons` is the list of criterion
+ * texts the caller collected from confirmed 'exclude'-verdict criterion
+ * checks (see ftCriterionCheckService.ts's getConfirmedExclusionReasons) --
+ * this function just joins and stores them, it doesn't compute them itself
+ * (that would create a circular import between the two services). Evidence
+ * is no longer materialized here: each criterion check now carries and
+ * materializes its own highlight independently (see
+ * ftCriterionCheckService.ts's confirmCheck), since a single item can have
+ * several pieces of evidence now instead of one.
  */
 export async function confirmDecision(
   projectId: number,
@@ -348,37 +132,20 @@ export async function confirmDecision(
   collections: ProjectCollectionMap,
   decision: FTDecision,
   decidedBy: string,
-  exclusionReason: string | null = null,
+  exclusionReasons: string[] | null = null,
 ): Promise<void> {
   const id = await getOrCreateRecordId(projectId, item.key);
   const now = new Date().toISOString();
+  const exclusionReason =
+    exclusionReasons && exclusionReasons.length > 0
+      ? exclusionReasons.join("; ")
+      : null;
   await databaseService.queryAsync(
     `UPDATE screening_records
      SET decision = ?, human_decision = ?, exclusion_reason = ?, decided_by = ?, decided_at = ?
      WHERE id = ?`,
     [decision, decision, exclusionReason, decidedBy, now, id],
   );
-
-  const state = await getScreeningState(projectId, item.key);
-  if (state && !state.annotationKey && state.pendingPosition) {
-    try {
-      const attachment = await item.getBestAttachment();
-      if (attachment && attachment.isPDFAttachment()) {
-        const annotationKey = await materializePendingHighlight(
-          attachment,
-          state.pendingPosition,
-          FT_SCREENING_ANNOTATION_COLOR,
-          state.aiReasoning ?? "",
-        );
-        await databaseService.queryAsync(
-          `UPDATE screening_records SET annotation_key = ?, pending_position = NULL WHERE id = ?`,
-          [annotationKey, id],
-        );
-      }
-    } catch (e) {
-      ztoolkit.log("FT-Screening materialize highlight failed", item.key, e);
-    }
-  }
 
   item.removeFromCollection(collections.ftQueueId);
   if (decision === "include") {

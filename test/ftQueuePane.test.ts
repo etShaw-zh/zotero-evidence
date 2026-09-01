@@ -296,34 +296,27 @@ describe("FT-Queue item-pane section", function () {
     });
   });
 
-  // Library tab: renders immediately on selection (no lazy tab-click), so
-  // this IS fully automatable -- it's a quick-glance summary (no Run AI/
-  // Include-Exclude/evidence-linker controls, those stay reader-only) that
-  // still offers Undo, mirroring codingPane.ts's renderCodingSummary except
-  // for that one action, which doesn't need the PDF the way the underlying
-  // decision does.
-  describe("(library tab summary)", function () {
+  // Library tab, FT-Screen Queue role (not yet decided): the pre-screening
+  // step -- PDF status plus explicit mark-ready/mark-unavailable buttons,
+  // no AI/checklist controls (those are reader-only). Renders immediately
+  // on selection (no lazy tab-click), so this IS fully automatable.
+  describe("(library tab pre-screen)", function () {
     this.timeout(30000);
 
-    it("shows a read-only 'no record yet' summary with no buttons for a fresh FT-Screen Queue item", async function () {
+    it("shows PDF-missing status and offers no mark-ready button without an attachment", async function () {
       const project = await createProject(
-        `FT Pane Library Summary Test ${Date.now()}`,
+        `FT Pane Prescreen No PDF Test ${Date.now()}`,
       );
       const collections = resolveProjectCollections(
         getRootCollectionId(project)!,
       );
-      await saveCriteria(project.id, "ft", {
-        researchQuestion: "Does X help Y?",
-        inclusionCriteria: ["Reports quantitative outcomes"],
-        exclusionCriteria: ["Pilot study only"],
-      });
       await (Zotero as any)[
         config.addonInstance
       ].api.refreshProjectPaneContextCache();
 
       const item = new Zotero.Item("journalArticle");
       item.libraryID = Zotero.Libraries.userLibraryID;
-      item.setField("title", "FT Pane Library Summary Test Item");
+      item.setField("title", "FT Pane Prescreen No PDF Item");
       await item.saveTx();
       item.addToCollection(collections.ftQueueId);
       await item.saveTx();
@@ -351,19 +344,13 @@ describe("FT-Queue item-pane section", function () {
             collections.ftQueueId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);
-        // renderCardHeader adds the .zotero-evidence-card class and the
-        // empty .zotero-evidence-judgment-area div SYNCHRONOUSLY, before
-        // the pane's own async content (awaited DB calls) fills that area
-        // in -- so "the card exists" is true well before rendering is
-        // actually done. Poll for the content area to actually have
-        // something in it instead.
+        const pdfMissingLabel = await pluginString("ft-queue-pdf-missing");
         const card = await waitForValue(() => {
           const c = doc.getElementById("zotero-view-item");
           if (!c?.classList.contains("zotero-evidence-hide-native"))
             return null;
           const found = findPaneCard(c, "zotero-evidence-ft-queue");
-          const area = found && paneContentArea(found);
-          return area?.textContent?.trim() ? found : null;
+          return found?.textContent?.includes(pdfMissingLabel) ? found : null;
         });
 
         const container = doc.getElementById("zotero-view-item");
@@ -372,17 +359,89 @@ describe("FT-Queue item-pane section", function () {
           container!.classList.contains("zotero-evidence-hide-native"),
           "native sections should be hidden while viewing FT-Screen Queue",
         );
-        assert.isNotNull(card, "custom FT-Queue card should be rendered");
+        assert.include(card.textContent, pdfMissingLabel);
 
-        assert.isNull(
-          paneContentArea(card!)!.querySelector("button"),
-          "no screening record yet -- no Undo (or any other) button should render",
+        const readyLabel = await pluginString("ft-queue-mark-ready");
+        const buttons = Array.from(
+          card.querySelectorAll("button"),
+        ) as HTMLButtonElement[];
+        assert.isUndefined(
+          buttons.find((b) => b.textContent === readyLabel),
+          "without a PDF, there's nothing to mark ready yet",
         );
-        assert.include(
-          card!.textContent,
-          await pluginString("ft-queue-history-none"),
-          "should show the 'no screening record yet' message",
+        const unavailableLabel = await pluginString(
+          "ft-queue-mark-unavailable",
         );
+        assert.isDefined(
+          buttons.find((b) => b.textContent === unavailableLabel),
+          "mark-unavailable should still be offered even with no PDF",
+        );
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
+    });
+
+    it("marking full text ready updates the pre-screen area in place", async function () {
+      const project = await createProject(
+        `FT Pane Prescreen Ready Test ${Date.now()}`,
+      );
+      const collections = resolveProjectCollections(
+        getRootCollectionId(project)!,
+      );
+      await (Zotero as any)[
+        config.addonInstance
+      ].api.refreshProjectPaneContextCache();
+
+      const item = new Zotero.Item("journalArticle");
+      item.libraryID = Zotero.Libraries.userLibraryID;
+      item.setField("title", "FT Pane Prescreen Ready Item");
+      await item.saveTx();
+      item.addToCollection(collections.ftQueueId);
+      await item.saveTx();
+      await Zotero.Attachments.importFromFile({
+        file: writeFixturePdf(`ft-prescreen-ready-${Date.now()}.pdf`),
+        parentItemID: item.id,
+        contentType: "application/pdf",
+      });
+
+      const win = Zotero.getMainWindow();
+      const doc = win.document;
+      const ZoteroPaneGlobal = (win as any).ZoteroPane;
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.ftQueueId,
+        );
+        await waitUntil(
+          () =>
+            ZoteroPaneGlobal.getSelectedCollection(true) ===
+            collections.ftQueueId,
+        );
+        await ZoteroPaneGlobal.selectItem(item.id);
+        const readyLabel = await pluginString("ft-queue-mark-ready");
+        const readyBtn = await waitForValue<HTMLButtonElement>(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          const found = findPaneCard(c, "zotero-evidence-ft-queue");
+          return (
+            (
+              Array.from(
+                found?.querySelectorAll("button") ?? [],
+              ) as HTMLButtonElement[]
+            ).find((b) => b.textContent === readyLabel) ?? null
+          );
+        });
+
+        readyBtn.click();
+        const readyNote = await pluginString("ft-queue-ready-note");
+        const card = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          const found = findPaneCard(c, "zotero-evidence-ft-queue");
+          return found?.textContent?.includes(readyNote) ? found : null;
+        });
+        assert.include(card.textContent, readyNote);
       } catch (e: any) {
         assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
       }
@@ -469,39 +528,44 @@ describe("FT-Queue item-pane section", function () {
       }
     });
 
-    it("shows the AI-picked exclude reason as read-only text with no interactive controls for an FT-Screen Queue item", async function () {
+    it("shows the confirmed criterion checklist as read-only rows (no action buttons) for a decided item", async function () {
       const project = await createProject(
-        `FT Pane Library Exclude Reason Test ${Date.now()}`,
+        `FT Pane Library Checklist Test ${Date.now()}`,
       );
       const collections = resolveProjectCollections(
         getRootCollectionId(project)!,
       );
-      await saveCriteria(project.id, "ft", {
-        researchQuestion: "Does X help Y?",
-        inclusionCriteria: ["Reports quantitative outcomes"],
-        exclusionCriteria: ["Pilot study only", "No control group"],
-      });
       await (Zotero as any)[
         config.addonInstance
       ].api.refreshProjectPaneContextCache();
 
       const item = new Zotero.Item("journalArticle");
       item.libraryID = Zotero.Libraries.userLibraryID;
-      item.setField("title", "FT Pane Library Exclude Reason Test Item");
+      item.setField("title", "FT Pane Library Checklist Test Item");
       await item.saveTx();
       item.addToCollection(collections.ftQueueId);
       await item.saveTx();
-      await markFulltextReady(project.id, item, "test");
+      await markFulltextReady(project.id, item, "test-user");
 
-      // Simulate what runAIJudgment writes once it parses an AI response --
-      // no live provider is mocked in this suite (see ftScreening.test.ts),
-      // so seed the same columns directly.
+      // Seed a confirmed criterion check directly (mirrors what confirmCheck
+      // would have written) rather than mocking the AI provider, then drive
+      // the real confirmDecision flow so screening_records actually gets a
+      // decision row -- renderFtHistoryArea returns early without one.
       await databaseService.init();
+      const now = new Date().toISOString();
       await databaseService.queryAsync(
-        `UPDATE screening_records
-       SET ai_decision = 'exclude', ai_reasoning = 'No control arm reported.', exclusion_reason = 'No control group'
-       WHERE project_id = ? AND item_key = ? AND stage = 'ft_screening'`,
-        [project.id, item.key],
+        `INSERT INTO ft_criterion_checks
+          (project_id, item_key, criterion_type, criterion_text, verdict, reasoning, source, confirmed, created_at, updated_at)
+         VALUES (?, ?, 'exclusion', 'No control group', 'exclude', 'No control arm reported.', 'human', 1, ?, ?)`,
+        [project.id, item.key, now, now],
+      );
+      await confirmDecision(
+        project.id,
+        item,
+        collections,
+        "exclude",
+        "test-user",
+        ["No control group"],
       );
 
       const win = Zotero.getMainWindow();
@@ -509,15 +573,12 @@ describe("FT-Queue item-pane section", function () {
       const ZoteroPaneGlobal = (win as any).ZoteroPane;
       try {
         await ZoteroPaneGlobal.collectionsView.selectCollection(
-          collections.ftQueueId,
+          collections.ftExcludeId,
         );
-        // See the first (library tab summary) test in this file for why:
-        // a CI-only race between selectCollection()'s promise resolving
-        // and ZoteroPane.getSelectedCollection() actually reflecting it.
         await waitUntil(
           () =>
             ZoteroPaneGlobal.getSelectedCollection(true) ===
-            collections.ftQueueId,
+            collections.ftExcludeId,
         );
         await ZoteroPaneGlobal.selectItem(item.id);
         const card = await waitForValue(() => {
@@ -525,23 +586,22 @@ describe("FT-Queue item-pane section", function () {
           if (!c?.classList.contains("zotero-evidence-hide-native"))
             return null;
           const found = findPaneCard(c, "zotero-evidence-ft-queue");
-          return found?.textContent?.includes("No control arm reported.")
+          return found?.textContent?.includes("No control group")
             ? found
             : null;
         });
 
-        const aiLabel = await pluginString("ft-queue-history-ai");
-        assert.include(card.textContent, aiLabel);
-        assert.include(card.textContent, "No control arm reported.");
-
-        assert.isNull(
-          card.querySelector("select"),
-          "library-tab summary should never show the manual-link/reason picker",
-        );
-        assert.isNull(
-          paneContentArea(card)!.querySelector("button"),
-          "AI suggested exclude but no human decision was confirmed yet -- no " +
-            "Confirm/Exclude buttons (reader-only) and no Undo (nothing to undo)",
+        // The row's label is truncated for compactness -- full criterion
+        // text and AI reasoning live in the row's title tooltip instead of
+        // always-rendered paragraphs (see renderFtCheckRow).
+        assert.include(card.textContent, "No control group");
+        const row = card.querySelector(".zotero-evidence-coding-row-label");
+        assert.isNotNull(row);
+        assert.include(row!.getAttribute("title"), "No control arm reported.");
+        assert.equal(
+          card.querySelectorAll(".zotero-evidence-coding-row-actions").length,
+          0,
+          "library-tab checklist rows must be read-only -- no confirm/unconfirm/delete/flip actions",
         );
       } catch (e: any) {
         assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);

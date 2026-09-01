@@ -19,14 +19,14 @@
 
 ## Features
 
-- **Import & dedup** — RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators.
-- **Title/Abstract screening** — one set of eligibility criteria, applied liberally here (only a clear mismatch excludes); AI suggests Include/Exclude/Unclear with its reasoning.
-- **Full-text screening** — the same criteria applied strictly; AI picks a verbatim exclusion reason and locates supporting quotes as highlights.
-- **Extract coding** — define a Codebook (categorical/numeric/text variables), AI proposes `variable = value` mappings backed by quotes and auto-located highlights.
-- **Synthesis** — one click groups confirmed evidence for any variable into AI-generated themes.
-- **Consistency** — Cohen's Kappa (overall and per-category) between AI and human screening decisions, with a disagreement list to review; also a guided, resumable human-vs-human workflow _(beta)_ — sample, dual-screen, reconcile, repeat.
-- **Export** — PRISMA flow data, screening decision log, coding data, and synthesis data, all ready for write-up.
-- **Archive & share** — export an entire project (items, PDFs, annotations, and all coded/screened data) to a single `.zip` for backup or peer review, and restore it as a new project in any library.
+- **Import & dedup** — import RIS / BibTeX / MEDLINE / PubMed XML via Zotero's own translators, with duplicates across sources removed automatically.
+- **Title/Abstract screening** — one set of eligibility criteria, applied liberally; AI suggests Include/Exclude/Unclear with reasoning, human decides.
+- **Full-text screening** — AI checks the paper against each criterion individually, with a highlighted quote as evidence; human confirms each check, then the final Include/Exclude.
+- **Extract coding** — define a Codebook of variables; AI proposes `variable = value` mappings backed by highlighted quotes, confirmed one by one.
+- **Synthesis** — one click groups confirmed evidence for a variable into AI-generated themes.
+- **Consistency** — Cohen's Kappa between AI and human decisions, plus a guided dual-reviewer pilot workflow _(beta)_.
+- **Export** — PRISMA flow data, screening decision log, coding data, and synthesis output.
+- **Archive & share** — export a project to a `.zip`, restore it as a new project in any library.
 
 ## Getting started
 
@@ -64,7 +64,7 @@ src/
 |   |-- project/    # project + Collection structure
 |   |-- import/     # Zotero.Translate.Import wrapper
 |   |-- dedup/      # DOI-first / title+author+year dedup
-|   |-- screening/  # TA/FT: AI judgment, criteria, decisions, Human-AI & human-human consistency (Kappa)
+|   |-- screening/  # TA judgment, FT per-criterion checklist, criteria, decisions, Human-AI & human-human consistency (Kappa)
 |   |-- coding/     # Codebook + Extract Coding services
 |   |-- pdf/        # text extraction, quote location, highlights
 |   |-- ai/         # AI provider config, chat completions, usage tracking

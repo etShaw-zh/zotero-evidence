@@ -135,6 +135,32 @@ export const SCHEMA_STATEMENTS: string[] = [
     updated_at TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
   )`,
+  // One row per eligibility-criterion check for one item at the full-text
+  // stage (ftCriterionCheckService.ts) -- replaces the old single
+  // decision+exclusion_reason model on screening_records with a checklist:
+  // every inclusion criterion gets a row (verdict='include' if satisfied,
+  // 'exclude' if not), while an exclusion criterion only gets a row when it
+  // actually applies (always verdict='exclude'; a non-applicable exclusion
+  // criterion is simply never written). screening_records.decision stays
+  // the final human roll-up call; this table is the per-criterion detail
+  // and evidence backing it.
+  `CREATE TABLE IF NOT EXISTS ft_criterion_checks (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    criterion_type TEXT NOT NULL,
+    criterion_text TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    reasoning TEXT,
+    quote TEXT,
+    annotation_key TEXT,
+    pending_position TEXT,
+    source TEXT NOT NULL DEFAULT 'ai',
+    confirmed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on
