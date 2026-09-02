@@ -20,6 +20,10 @@ import {
   runAIJudgment,
   undoDecision,
 } from "../src/modules/screening/taScreeningService";
+import {
+  isDisagreementFlagged,
+  setDisagreementFlag,
+} from "../src/modules/consistency/disagreementFlagService";
 
 async function makeTestItem(title: string): Promise<Zotero.Item> {
   const item = new Zotero.Item("journalArticle");
@@ -94,6 +98,35 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     const state = await getScreeningState(project.id, item.key);
     assert.equal(state?.decision, "include");
+  });
+
+  it("confirmDecision clears a pending reviewer-disagreement flag, regardless of the final decision", async function () {
+    const project = await createProject(
+      `Confirm Clears Disagreement Flag Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeTestItem("Flagged Disagreement Item");
+    item.addToCollection(collections.taQueueId);
+    await item.saveTx();
+
+    // Simulates what humanConsistencyService.ts's applyAgreedResults does
+    // when two reviewers disagree on an item -- flags it, then leaves it
+    // in TA-Screen Queue for a third reviewer.
+    await setDisagreementFlag(item, true);
+    assert.isTrue(isDisagreementFlagged(item));
+
+    await confirmDecision(
+      project.id,
+      item,
+      collections,
+      null,
+      "exclude",
+      "third-reviewer",
+    );
+
+    assert.isFalse(isDisagreementFlagged(item));
   });
 
   it("confirmDecision(unclear) also moves the item into FT-Queue", async function () {

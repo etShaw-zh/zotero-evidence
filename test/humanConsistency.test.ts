@@ -5,6 +5,7 @@ import { createProject } from "../src/modules/project/projectManager";
 import { getCriterionChecks } from "../src/modules/screening/ftCriterionCheckService";
 import { computePrismaData } from "../src/modules/export/screeningExport";
 import { getConsistencyItemResult } from "../src/modules/consistency/consistencyItemResultsService";
+import { isDisagreementFlagged } from "../src/modules/consistency/disagreementFlagService";
 import {
   applyAgreedResults,
   computeRoundConsistency,
@@ -193,6 +194,15 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     const itemBSnapshot = await getConsistencyItemResult(project.id, itemB.key);
     assert.equal(itemBSnapshot!.aVerdict, "exclude");
     assert.equal(itemBSnapshot!.bVerdict, "include");
+
+    // itemB is also flagged with the visible-in-the-items-list disagreement
+    // tag; the agreed itemA is not (confirmTaDecision cleared it as part of
+    // finalizing its own decision). Deliberately not confirming a decision
+    // on itemB here to check the flag clears -- see screening.test.ts for
+    // that -- itemB needs to stay in TA-Screen Queue for round3's resample
+    // assertions further down.
+    assert.isTrue(isDisagreementFlagged(itemB));
+    assert.isFalse(isDisagreementFlagged(itemA));
 
     const round1AfterApply = (await getAllRounds(project.id)).find(
       (r) => r.id === round1.id,

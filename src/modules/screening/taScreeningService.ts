@@ -2,6 +2,7 @@ import { safeGetField } from "../../utils/zoteroItem";
 import { sanitizeDbText } from "../../utils/sanitize";
 import { callChatCompletion } from "../ai/aiClient";
 import { getActiveProvider } from "../ai/providerConfig";
+import { setDisagreementFlag } from "../consistency/disagreementFlagService";
 import { databaseService } from "../db/database";
 import { ProjectCollectionMap } from "../project/collectionStructure";
 import { getLatestCriteria, ScreeningCriteria } from "./criteriaService";
@@ -212,6 +213,12 @@ export async function confirmDecision(
       ],
     );
   }
+
+  // A real decision just got made either way, so whatever "reviewers
+  // disagreed on this" flag applyAgreedResults may have set (see
+  // humanConsistencyService.ts) no longer applies -- safe to clear
+  // unconditionally even if the item was never flagged.
+  await setDisagreementFlag(item, false);
 
   item.removeFromCollection(collections.taQueueId);
   const targetCollectionId =

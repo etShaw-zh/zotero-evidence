@@ -42,7 +42,7 @@ For a second opinion instead of just AI-vs-human:
 1. **File → Consistency Calculation → Human-Human Screening Consistency…**, pick a sample size, then save the sampled archive.
 2. Send that `.zip` to two reviewers. Each restores it separately and independently screens every sampled item through TA _and_ FT in their own copy, then exports their own screening log.
 3. Import both reviewers' CSVs back into the dialog — `Cohen's ϰ` is computed automatically, and you can start another round any time.
-4. Click **Apply Agreed Results**: items both reviewers agreed on become the project's official result; items they disagreed on stay in `TA-Screen Queue`, with both reviewers' calls shown right in the sidebar for a third reviewer to resolve through the normal screening flow.
+4. Click **Apply Agreed Results**: items both reviewers agreed on become the project's official result; items they disagreed on stay in `TA-Screen Queue`, flagged with a colored tag so they're easy to spot in the items list, with both reviewers' calls shown right in the sidebar for a third reviewer to resolve through the normal screening flow.
 
 Repeat steps 1–4 as many times as you like, and every round's own agreement/ϰ stays listed in the dialog.
 

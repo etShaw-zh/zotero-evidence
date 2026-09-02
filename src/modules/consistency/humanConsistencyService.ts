@@ -30,6 +30,7 @@ import {
 import { CategoryKappa, cohenKappa, cohenKappaByCategory } from "./kappa";
 import { confirmDecision as confirmTaDecision } from "../screening/taScreeningService";
 import { saveConsistencyItemResult } from "./consistencyItemResultsService";
+import { setDisagreementFlag } from "./disagreementFlagService";
 
 export type ConsistencyRoundStatus = "sampled" | "collected" | "reconciled";
 
@@ -619,6 +620,14 @@ export async function applyAgreedResults(
       !bDetail.verdict ||
       aDetail.verdict !== bDetail.verdict
     ) {
+      // Visible in the items list, not just this item's own sidebar (see
+      // screenQueuePane.ts) -- otherwise there's no way to tell which of
+      // potentially many items in TA-Screen Queue are actually waiting on
+      // a third reviewer's call versus just not yet screened at all.
+      // Cleared automatically once a real TA decision is confirmed (see
+      // taScreeningService.ts's confirmDecision), whether or not that
+      // decision came from looking at this flag.
+      await setDisagreementFlag(item as Zotero.Item, true);
       disagreed++;
       continue;
     }
