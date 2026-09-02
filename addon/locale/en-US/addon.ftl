@@ -295,11 +295,16 @@ progress-export-done = Export complete.
 error-export-no-data = There is no data to export for this project yet.
 
 menu-codebook-edit-variable = Edit Codebook Variable…
+menu-codebook-delete-variable = Delete Codebook Variable…
 
 dialog-codebook-edit-variable-title = Edit Codebook Variable
 dialog-codebook-edit-variable-select-label = Variable
 error-codebook-no-variables = This project's Codebook has no variables yet.
 progress-codebook-variable-updated = Variable updated.
+dialog-codebook-delete-variable-title = Delete Codebook Variable
+dialog-codebook-delete-variable-warning = Deleting a variable removes it from the Codebook going forward — it creates a new Codebook version, same as any other edit. Existing coding records for it are NOT deleted, but it will no longer be offered in Add/Edit or appear in new exports' column list.
+dialog-codebook-delete-variable-confirm = Delete variable "{ $name }"? This creates a new Codebook version; existing coding records for it are kept, but it will no longer be offered anywhere.
+progress-codebook-variable-deleted = Variable deleted.
 
 menu-group-synthesis = Synthesis Analysis
 menu-synthesis = Theme Mining…

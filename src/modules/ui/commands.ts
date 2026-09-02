@@ -197,12 +197,15 @@ export class EvidenceCommands {
           commandListener: () =>
             addon.hooks.onDialogEvents("evidenceCodebookAddVariable"),
         },
+        // Ordered 增删改查 (create/delete/update/read) from here down, to
+        // match how these operations are conventionally grouped rather
+        // than the order they were originally added in.
         {
           tag: "menuitem",
-          id: "zotero-evidence-codebook-view",
-          label: getString("menu-codebook-view"),
+          id: "zotero-evidence-codebook-delete-variable",
+          label: getString("menu-codebook-delete-variable"),
           commandListener: () =>
-            addon.hooks.onDialogEvents("evidenceCodebookView"),
+            addon.hooks.onDialogEvents("evidenceCodebookDeleteVariable"),
         },
         {
           tag: "menuitem",
@@ -210,6 +213,13 @@ export class EvidenceCommands {
           label: getString("menu-codebook-edit-variable"),
           commandListener: () =>
             addon.hooks.onDialogEvents("evidenceCodebookEditVariable"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-view",
+          label: getString("menu-codebook-view"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookView"),
         },
       ],
     });
@@ -3446,6 +3456,169 @@ export class EvidenceCommands {
           .show();
       } catch (e: any) {
         ztoolkit.log("Save codebook variable failed", e);
+        ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+      }
+      return;
+    }
+  }
+
+  /**
+   * Removes one variable from the project's Codebook -- the one CRUD
+   * operation this menu was missing (Import/Add Variable = create,
+   * Edit Variable = update, View = read). Like Edit Variable, this just
+   * writes a new saveCodebook() version with the variable filtered out
+   * rather than mutating anything in place: existing coding_records for
+   * that variable are deliberately left alone (past coding work stays
+   * intact and traceable), it simply stops being offered anywhere the
+   * *current* Codebook is read from (Add/Edit pickers, new exports'
+   * column list) going forward.
+   */
+  static async codebookDeleteVariableDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    let projectId = EvidenceCommands.defaultProjectId(projects);
+
+    while (true) {
+      const codebook = await getLatestCodebook(projectId);
+      const variables = codebook?.variables ?? [];
+
+      if (variables.length === 0) {
+        ztoolkit.getGlobal("alert")(getString("error-codebook-no-variables"));
+        return;
+      }
+
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        variableName: variables[0].name,
+      };
+
+      const dialog = new ztoolkit.Dialog(4, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: {
+            innerHTML: getString("dialog-codebook-delete-variable-title"),
+          },
+        })
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-delete-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-edit-variable-select-label"),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-delete-variable-select",
+            attributes: { "data-bind": "variableName", "data-prop": "value" },
+            children: variables.map((v) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: v.name, innerHTML: escapeHtml(v.name) },
+            })),
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "p",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-delete-variable-warning"),
+          },
+          styles: { color: "var(--fill-secondary, #a33)" },
+        })
+        .addButton(getString("dialog-confirm"), "confirm")
+        .addButton(getString("dialog-cancel"), "cancel")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-codebook-delete-variable-title"),
+        520,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const projectSelectEl = doc?.getElementById(
+        "evidence-codebook-delete-project",
+      ) as HTMLSelectElement | undefined;
+      // Same reasoning as codebookEditVariableDialog: switching PROJECT
+      // needs a different variable list, which the popup select can't be
+      // refreshed with in place -- close and let the outer loop reopen a
+      // fresh dialog built for the new project. Switching the VARIABLE
+      // itself needs no such handling here (unlike Edit Variable) since
+      // there are no other fields on this dialog that need to track it.
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      if (dialogData._lastButtonId !== "confirm") return;
+
+      const variableName = String(dialogData.variableName || "");
+      const proceed = ztoolkit.getGlobal("confirm")(
+        getString("dialog-codebook-delete-variable-confirm", {
+          args: { name: variableName },
+        }),
+      );
+      if (!proceed) return;
+
+      const remainingVariables = variables.filter(
+        (v) => v.name !== variableName,
+      );
+
+      try {
+        await saveCodebook(projectId, remainingVariables);
+        new ztoolkit.ProgressWindow(addon.data.config.addonName)
+          .createLine({
+            text: getString("progress-codebook-variable-deleted"),
+            type: "success",
+            progress: 100,
+          })
+          .show();
+      } catch (e: any) {
+        ztoolkit.log("Delete codebook variable failed", e);
         ztoolkit.getGlobal("alert")(e?.message ?? String(e));
       }
       return;

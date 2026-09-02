@@ -179,6 +179,9 @@ function onDialogEvents(type: string) {
     case "evidenceCodebookEditVariable":
       EvidenceCommands.codebookEditVariableDialog();
       break;
+    case "evidenceCodebookDeleteVariable":
+      EvidenceCommands.codebookDeleteVariableDialog();
+      break;
     case "evidenceSynthesis":
       EvidenceCommands.synthesisDialog();
       break;

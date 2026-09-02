@@ -295,11 +295,16 @@ progress-export-done = 导出完成。
 error-export-no-data = 该项目暂无可导出的数据。
 
 menu-codebook-edit-variable = 编辑编码手册变量…
+menu-codebook-delete-variable = 删除编码手册变量…
 
 dialog-codebook-edit-variable-title = 编辑编码手册变量
 dialog-codebook-edit-variable-select-label = 变量
 error-codebook-no-variables = 该项目的编码手册还没有任何变量。
 progress-codebook-variable-updated = 变量已更新。
+dialog-codebook-delete-variable-title = 删除编码手册变量
+dialog-codebook-delete-variable-warning = 删除变量会将其从今后的编码手册中移除——这会创建一个新的编码手册版本，和其他编辑操作一样。已有的编码记录不会被删除，但该变量今后不会再出现在新增/编辑的选项中，也不会出现在新导出数据的列中。
+dialog-codebook-delete-variable-confirm = 确定删除变量"{ $name }"吗？这会创建一个新的编码手册版本；已有的编码记录会保留，但该变量今后将不再在任何地方提供。
+progress-codebook-variable-deleted = 变量已删除。
 
 menu-group-synthesis = 综合分析
 menu-synthesis = 主题挖掘…
