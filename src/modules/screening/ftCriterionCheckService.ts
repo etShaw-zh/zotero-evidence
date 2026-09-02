@@ -168,26 +168,51 @@ export function computeRollup(
   return "unclear";
 }
 
-/** Only CONFIRMED exclude-verdict checks count as a recorded reason -- an
- * unconfirmed AI suggestion is not evidence anyone actually endorsed. */
+/**
+ * Only CONFIRMED checks against a configured EXCLUSION criterion count as
+ * a recorded reason. Both conditions matter: `confirmed` -- an
+ * unconfirmed AI suggestion is not evidence anyone actually endorsed --
+ * and `criterionType === "exclusion"` -- an unmet INCLUSION criterion
+ * also stores as verdict="exclude" (see computeRollup's doc comment), but
+ * "this paper didn't satisfy a requirement" isn't the same thing as "this
+ * paper triggered a configured exclusion criterion", and the exclusion-
+ * reason text is meant to hold only the latter.
+ */
 export async function getConfirmedExclusionReasons(
   projectId: number,
   itemKey: string,
 ): Promise<string[]> {
   const checks = await getCriterionChecks(projectId, itemKey);
   return checks
-    .filter((c) => c.confirmed && c.verdict === "exclude")
+    .filter(
+      (c) =>
+        c.confirmed &&
+        c.verdict === "exclude" &&
+        c.criterionType === "exclusion",
+    )
     .map((c) => c.criterionText);
 }
 
-/** Unconfirmed AI-suggested exclude-verdict checks -- used by the UI to
- * warn before finalizing an Exclude decision that skips reviewing them. */
+/**
+ * Unconfirmed, confirmed-exclusion-criterion checks -- used by the UI to
+ * warn before finalizing an Exclude decision that skips reviewing
+ * something that would otherwise have become a recorded reason. Scoped to
+ * `criterionType === "exclusion"` for the same reason as
+ * getConfirmedExclusionReasons above -- an unmet inclusion criterion was
+ * never going to end up in the reasons text even once confirmed, so it
+ * doesn't belong in a warning about losing reason data.
+ */
 export async function getUnconfirmedExcludeChecks(
   projectId: number,
   itemKey: string,
 ): Promise<CriterionCheck[]> {
   const checks = await getCriterionChecks(projectId, itemKey);
-  return checks.filter((c) => !c.confirmed && c.verdict === "exclude");
+  return checks.filter(
+    (c) =>
+      !c.confirmed &&
+      c.verdict === "exclude" &&
+      c.criterionType === "exclusion",
+  );
 }
 
 /**

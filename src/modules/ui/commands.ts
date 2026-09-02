@@ -2283,7 +2283,7 @@ export class EvidenceCommands {
             unclear: prisma.screening.unclearToFt,
             ftInclude: prisma.included.finalStudies,
             ftExclude: prisma.eligibility.excluded,
-            ftUnavailable: prisma.eligibility.unavailable,
+            ftUnavailable: prisma.retrieval.notRetrieved,
             codingConfirmed: coding.itemsWithConfirmedEvidence,
             codingTotal: coding.totalInCoding,
           };

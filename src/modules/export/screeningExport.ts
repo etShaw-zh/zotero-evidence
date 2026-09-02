@@ -10,18 +10,47 @@ export interface PrismaData {
     databases: { name: string; records: number }[];
     totalRecords: number;
     duplicatesRemoved: number;
+    // = totalRecords - duplicatesRemoved, i.e. the unique-record population
+    // that actually enters screening -- exposed directly so it lines up
+    // against `screening.screened` (+ `screening.pending`, if nonzero)
+    // without the reader having to subtract it themselves.
+    uniqueRecords: number;
   };
   screening: {
     screened: number;
     excluded: number;
     unclearToFt: number;
     includedToFt: number;
+    // Items still sitting in TA-Screen Queue, not yet decided at all --
+    // NOT folded into `screened` (a PRISMA flow diagram assumes a
+    // COMPLETE review, where every record has reached a final
+    // disposition; screened/excluded only ever count decided items).
+    // Exposed separately purely so exporting mid-review surfaces that the
+    // numbers aren't final yet, instead of silently looking complete.
+    pending: number;
+  };
+  // PRISMA 2020's full-text stage is two steps with two different
+  // denominators, not one: first "sought for retrieval" -> "not
+  // retrieved" (did we even get hold of the PDF), then, only for the ones
+  // that WERE retrieved, "assessed for eligibility" -> "excluded" (did it
+  // meet the criteria). A paper never retrieved was never assessed, so it
+  // must not count toward `eligibility.assessedForEligibility` or appear
+  // in the exclusion-reasons breakdown -- "couldn't find the full text"
+  // isn't an eligibility exclusion reason.
+  retrieval: {
+    soughtForRetrieval: number;
+    notRetrieved: number;
   };
   eligibility: {
-    fullTextAssessed: number;
+    assessedForEligibility: number;
     excluded: number;
-    unavailable: number;
     reasons: { reason: string; count: number }[];
+    // Same idea as screening.pending -- items still sitting in FT-Screen
+    // Queue, not yet marked include/exclude/unavailable at all. Not part
+    // of soughtForRetrieval/notRetrieved/assessedForEligibility (those all
+    // assume a completed review); exposed separately so exporting
+    // mid-review surfaces that these numbers aren't final yet.
+    pending: number;
   };
   included: { finalStudies: number };
 }
@@ -38,6 +67,14 @@ const countItems = (collectionId: number) =>
  * (not once per excluded paper). Only CONFIRMED checks count, same as
  * ftCriterionCheckService.ts's own getConfirmedExclusionReasons -- an
  * unconfirmed AI suggestion was never actually endorsed as the reason.
+ *
+ * `criterion_type = 'exclusion'` is required alongside `verdict =
+ * 'exclude'` -- verdict='exclude' alone also matches an unmet INCLUSION
+ * criterion (a paper simply didn't satisfy something required, which
+ * still stores as verdict='exclude' -- see ftCriterionCheckService.ts),
+ * and that's a different thing from a configured exclusion criterion
+ * actually triggering. PRISMA's itemized "reasons excluded" box means the
+ * latter only.
  */
 async function getFtReasonCounts(
   projectId: number,
@@ -45,7 +82,7 @@ async function getFtReasonCounts(
   await databaseService.init();
   const rows = (await databaseService.queryAsync(
     `SELECT criterion_text, COUNT(*) as n FROM ft_criterion_checks
-     WHERE project_id = ? AND verdict = 'exclude' AND confirmed = 1
+     WHERE project_id = ? AND criterion_type = 'exclusion' AND verdict = 'exclude' AND confirmed = 1
      GROUP BY criterion_text`,
     [projectId],
   )) as { criterion_text: string; n: number }[] | undefined;
@@ -81,17 +118,18 @@ export async function computePrismaData(
     [projectId],
   )) as { n: number }[] | undefined;
 
+  const taQueue = countItems(collections.screenQueueId);
   const taInclude = countItems(collections.taIncludeId);
   const taExclude = countItems(collections.taExcludeId);
   const taUnclear = countItems(collections.taUnclearId);
+  const ftQueue = countItems(collections.ftQueueId);
   const ftInclude = countItems(collections.ftIncludeId);
   const ftExclude = countItems(collections.ftExcludeId);
   const ftUnavailable = countItems(collections.ftUnavailableId);
 
   const ftReasons = await getFtReasonCounts(projectId);
-  if (ftUnavailable > 0) {
-    ftReasons.push({ reason: "Full text unavailable", count: ftUnavailable });
-  }
+  const totalRecords = totalRows?.[0]?.n ?? 0;
+  const duplicatesRemoved = duplicateRows?.[0]?.n ?? 0;
 
   return {
     identification: {
@@ -99,20 +137,26 @@ export async function computePrismaData(
         name: r.source_database,
         records: r.n,
       })),
-      totalRecords: totalRows?.[0]?.n ?? 0,
-      duplicatesRemoved: duplicateRows?.[0]?.n ?? 0,
+      totalRecords,
+      duplicatesRemoved,
+      uniqueRecords: totalRecords - duplicatesRemoved,
     },
     screening: {
       screened: taInclude + taExclude + taUnclear,
       excluded: taExclude,
       unclearToFt: taUnclear,
       includedToFt: taInclude,
+      pending: taQueue,
+    },
+    retrieval: {
+      soughtForRetrieval: taInclude + taUnclear,
+      notRetrieved: ftUnavailable,
     },
     eligibility: {
-      fullTextAssessed: ftInclude + ftExclude + ftUnavailable,
+      assessedForEligibility: ftInclude + ftExclude,
       excluded: ftExclude,
-      unavailable: ftUnavailable,
       reasons: ftReasons,
+      pending: ftQueue,
     },
     included: { finalStudies: ftInclude },
   };
@@ -139,6 +183,12 @@ export function formatPrismaCsv(data: PrismaData): string {
       data.identification.duplicatesRemoved,
     ]),
   );
+  lines.push(
+    toCsvLine([
+      "Identification: deduplicated_records",
+      data.identification.uniqueRecords,
+    ]),
+  );
   lines.push(toCsvLine(["TA-Screening: screened", data.screening.screened]));
   lines.push(toCsvLine(["TA-Screening: excluded", data.screening.excluded]));
   lines.push(
@@ -147,16 +197,38 @@ export function formatPrismaCsv(data: PrismaData): string {
   lines.push(
     toCsvLine(["TA-Screening: included_to_ft", data.screening.includedToFt]),
   );
+  if (data.screening.pending > 0) {
+    lines.push(
+      toCsvLine([
+        "TA-Screening: pending_not_yet_screened",
+        data.screening.pending,
+      ]),
+    );
+  }
   lines.push(
     toCsvLine([
-      "FT-Screening: full_text_assessed",
-      data.eligibility.fullTextAssessed,
+      "FT-Screening: sought_for_retrieval",
+      data.retrieval.soughtForRetrieval,
+    ]),
+  );
+  lines.push(
+    toCsvLine(["FT-Screening: not_retrieved", data.retrieval.notRetrieved]),
+  );
+  lines.push(
+    toCsvLine([
+      "FT-Screening: assessed_for_eligibility",
+      data.eligibility.assessedForEligibility,
     ]),
   );
   lines.push(toCsvLine(["FT-Screening: excluded", data.eligibility.excluded]));
-  lines.push(
-    toCsvLine(["FT-Screening: unavailable", data.eligibility.unavailable]),
-  );
+  if (data.eligibility.pending > 0) {
+    lines.push(
+      toCsvLine([
+        "FT-Screening: pending_not_yet_screened",
+        data.eligibility.pending,
+      ]),
+    );
+  }
   lines.push(
     toCsvLine(["Included: final_studies", data.included.finalStudies]),
   );

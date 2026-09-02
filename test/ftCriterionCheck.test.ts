@@ -494,5 +494,41 @@ describe("FT-Screening criterion checklist", function () {
       );
       assert.isTrue(confirmed?.confirmed);
     });
+
+    it("getConfirmedExclusionReasons and getUnconfirmedExcludeChecks ignore an unmet INCLUSION criterion even though it also stores verdict='exclude'", async function () {
+      const project = await createProject(
+        `FTC Inclusion Not Reason Test ${Date.now()}`,
+      );
+      const item = await makeTestItem("FTC Inclusion Not Reason Item");
+
+      // "Didn't satisfy a requirement" is a different thing from "triggered
+      // a configured exclusion criterion" -- both store verdict='exclude',
+      // but only the latter belongs in the exclusion-reason text.
+      await addManualCheck(
+        project.id,
+        item,
+        "inclusion",
+        "Reports quantitative outcomes",
+        "exclude",
+        null,
+      );
+      await databaseService.init();
+      const now = new Date().toISOString();
+      await databaseService.queryAsync(
+        `INSERT INTO ft_criterion_checks
+        (project_id, item_key, criterion_type, criterion_text, verdict, source, confirmed, created_at, updated_at)
+       VALUES (?, ?, 'inclusion', 'Adults 18-65', 'exclude', 'ai', 0, ?, ?)`,
+        [project.id, item.key, now, now],
+      );
+
+      const reasons = await getConfirmedExclusionReasons(project.id, item.key);
+      assert.deepEqual(reasons, []);
+
+      const unconfirmed = await getUnconfirmedExcludeChecks(
+        project.id,
+        item.key,
+      );
+      assert.deepEqual(unconfirmed, []);
+    });
   });
 });

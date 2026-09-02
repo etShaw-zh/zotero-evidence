@@ -47,18 +47,24 @@ describe("Phase 6: screeningExport", function () {
           databases: [{ name: "Web of Science", records: 2 }],
           totalRecords: 2,
           duplicatesRemoved: 0,
+          uniqueRecords: 2,
         },
         screening: {
           screened: 1,
           excluded: 1,
           unclearToFt: 0,
           includedToFt: 0,
+          pending: 0,
+        },
+        retrieval: {
+          soughtForRetrieval: 0,
+          notRetrieved: 0,
         },
         eligibility: {
-          fullTextAssessed: 0,
+          assessedForEligibility: 0,
           excluded: 0,
-          unavailable: 0,
           reasons: [{ reason: "Sample size < 30", count: 1 }],
+          pending: 0,
         },
         included: { finalStudies: 0 },
       };
@@ -68,6 +74,7 @@ describe("Phase 6: screeningExport", function () {
       assert.equal(lines[0], "Stage,Count");
       assert.include(lines, "Identification: Web of Science,2");
       assert.include(lines, "Identification: total_records,2");
+      assert.include(lines, "Identification: deduplicated_records,2");
       assert.include(lines, "TA-Screening: screened,1");
       assert.include(lines, "TA-Screening: excluded,1");
       const separatorIndex = lines.indexOf("");
@@ -79,6 +86,53 @@ describe("Phase 6: screeningExport", function () {
       assert.deepEqual(reasonsTable.slice(1), [
         "Sample size < 30,FT-Screening,1",
       ]);
+    });
+
+    it("only shows a pending-items row (TA or FT) when the review isn't fully screened yet", function () {
+      const base: PrismaData = {
+        identification: {
+          databases: [],
+          totalRecords: 0,
+          duplicatesRemoved: 0,
+          uniqueRecords: 0,
+        },
+        screening: {
+          screened: 0,
+          excluded: 0,
+          unclearToFt: 0,
+          includedToFt: 0,
+          pending: 0,
+        },
+        retrieval: { soughtForRetrieval: 0, notRetrieved: 0 },
+        eligibility: {
+          assessedForEligibility: 0,
+          excluded: 0,
+          reasons: [],
+          pending: 0,
+        },
+        included: { finalStudies: 0 },
+      };
+
+      const complete = formatPrismaCsv(base);
+      assert.notInclude(complete, "pending_not_yet_screened");
+
+      const taIncomplete = formatPrismaCsv({
+        ...base,
+        screening: { ...base.screening, pending: 5 },
+      });
+      assert.include(
+        taIncomplete.split("\n"),
+        "TA-Screening: pending_not_yet_screened,5",
+      );
+
+      const ftIncomplete = formatPrismaCsv({
+        ...base,
+        eligibility: { ...base.eligibility, pending: 3 },
+      });
+      assert.include(
+        ftIncomplete.split("\n"),
+        "FT-Screening: pending_not_yet_screened,3",
+      );
     });
   });
 
@@ -179,22 +233,117 @@ describe("Phase 6: screeningExport", function () {
     ]);
     assert.equal(data.identification.totalRecords, 5);
     assert.equal(data.identification.duplicatesRemoved, 1);
+    assert.equal(data.identification.uniqueRecords, 4);
 
     assert.equal(data.screening.screened, 4);
     assert.equal(data.screening.excluded, 1);
     assert.equal(data.screening.unclearToFt, 1);
     assert.equal(data.screening.includedToFt, 2);
+    // Every item in this scenario reaches a TA decision -- nothing left in
+    // TA-Screen Queue.
+    assert.equal(data.screening.pending, 0);
     assert.isUndefined((data.screening as any).reasons);
 
-    assert.equal(data.eligibility.fullTextAssessed, 3);
+    assert.equal(data.retrieval.soughtForRetrieval, 3);
+    assert.equal(data.retrieval.notRetrieved, 1);
+    assert.equal(data.eligibility.assessedForEligibility, 2);
     assert.equal(data.eligibility.excluded, 1);
-    assert.equal(data.eligibility.unavailable, 1);
+    // "Full text unavailable" must NOT appear here -- a paper that was
+    // never retrieved was never assessed for eligibility, so it can't
+    // have an eligibility exclusion reason.
     assert.deepEqual(data.eligibility.reasons, [
       { reason: "Sample size < 30", count: 1 },
-      { reason: "Full text unavailable", count: 1 },
     ]);
+    // item2/item4/item5 all reach an FT decision (exclude/include/
+    // unavailable) -- nothing left in FT-Screen Queue.
+    assert.equal(data.eligibility.pending, 0);
 
     assert.equal(data.included.finalStudies, 1);
+  });
+
+  it("computePrismaData counts an item still sitting undecided in TA-Screen Queue as pending", async function () {
+    const project = await createProject(`Prisma Pending Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const decided = await makeImportCandidateItem(
+      "Decided Paper",
+      "Doe",
+      "2024",
+    );
+    const undecided = await makeImportCandidateItem(
+      "Undecided Paper",
+      "Roe",
+      "2024",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      decided,
+      undecided,
+    ]);
+    await taConfirmDecision(
+      project.id,
+      decided,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+    // `undecided` is left sitting in TA-Screen Queue -- no decision made.
+
+    const data = await computePrismaData(project.id);
+
+    assert.equal(data.screening.screened, 1);
+    assert.equal(data.screening.pending, 1);
+  });
+
+  it("computePrismaData counts an item still sitting undecided in FT-Screen Queue as pending", async function () {
+    const project = await createProject(`Prisma FT Pending Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const decided = await makeImportCandidateItem(
+      "FT Decided Paper",
+      "Doe",
+      "2024",
+    );
+    const undecided = await makeImportCandidateItem(
+      "FT Undecided Paper",
+      "Roe",
+      "2024",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      decided,
+      undecided,
+    ]);
+    // Both pass TA screening, so both move into FT-Screen Queue.
+    await taConfirmDecision(
+      project.id,
+      decided,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+    await taConfirmDecision(
+      project.id,
+      undecided,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+    await ftConfirmDecision(
+      project.id,
+      decided,
+      collections,
+      "include",
+      "test",
+    );
+    // `undecided` is left sitting in FT-Screen Queue -- no FT decision made.
+
+    const data = await computePrismaData(project.id);
+
+    assert.equal(data.eligibility.pending, 1);
   });
 
   it("exportScreeningLog produces one row per screening_records entry with a header", async function () {
