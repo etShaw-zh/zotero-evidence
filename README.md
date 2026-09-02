@@ -19,7 +19,7 @@
 - **Full-text screening** — AI checks each paper against every criterion with highlighted evidence; you confirm.
 - **Extract coding** — AI extracts data into your Codebook, backed by highlighted quotes; you confirm.
 - **Synthesis** — AI groups confirmed evidence into themes with one click.
-- **Consistency** — measure AI-vs-human agreement (Cohen's Kappa), or run a guided dual-reviewer pilot _(beta)_.
+- **Consistency** — measure AI-vs-human agreement (Cohen's ϰ), or run a guided dual-reviewer pilot _(beta)_.
 - **Export** — PRISMA data, screening log, coding data, and synthesis output.
 - **Archive & share** — export a project as a `.zip` to back up or share; restore it anywhere.
 
@@ -31,9 +31,9 @@
 4. **File → Screening Criteria →** define one set of inclusion/exclusion criteria.
 5. **File → Codebook →** define variables (or import from CSV) before coding begins.
 6. Work through `TA-Screen Queue` → `FT-Screen Queue` → `Extract Coding`.
-7. **File → Consistency Calculation → Human-AI Screening Consistency…** (optional) — check Cohen's Kappa between AI and human decisions for either screening stage.
+7. **File → Consistency Calculation → Human-AI Screening Consistency…** (Cohen's ϰ).
 8. **File → Synthesis Analysis → Theme Mining…**, then **File → Export Data** when ready to write up.
-9. **File → Evidence Project → Archive Project…** to back up or share a project as a `.zip`; **Restore Project from Archive…** to bring it back, choosing the target library.
+9. **File → Evidence Project → Archive Project…** to back up or share a project as a `.zip`.
 
 ## Development
 
