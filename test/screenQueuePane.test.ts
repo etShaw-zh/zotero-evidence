@@ -215,11 +215,11 @@ describe("Screen Queue item-pane section", function () {
     item.addToCollection(collections.screenQueueId);
     await item.saveTx();
 
-    // renderJudgmentContent only shows the Include/Exclude/Unclear buttons
-    // once a screening_records row exists (normally created by runAIJudgment,
-    // which needs a real AI provider) -- seed a bare row directly, the same
-    // shape ftScreeningService.getOrCreateRecordId creates for FT, so the
-    // decision buttons render without depending on network access.
+    // The decision buttons render even with no screening_records row at all
+    // (see the dedicated test below) -- seeding one here isn't required for
+    // the buttons to appear, just for this test's own purpose of starting
+    // from an item that already has a bare AI-less record, the same shape
+    // ftScreeningService.getOrCreateRecordId creates for FT.
     await databaseService.init();
     await databaseService.queryAsync(
       `INSERT INTO screening_records (project_id, item_key, stage) VALUES (?, ?, 'ta_screening')`,
@@ -272,6 +272,78 @@ describe("Screen Queue item-pane section", function () {
       const state = await getScreeningState(project.id, item.key);
       assert.equal(state?.decision, "exclude");
       assert.isNull(state?.exclusionReason);
+    } catch (e: any) {
+      assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+    }
+  });
+
+  it("Include/Exclude/Unclear render and work without ever running AI (no screening_records row at all)", async function () {
+    const project = await createProject(
+      `Pane No-AI Decision Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    await saveCriteria(project.id, "ta", {
+      researchQuestion: "Does X help Y?",
+      inclusionCriteria: ["Empirical study"],
+      exclusionCriteria: ["Not in English"],
+    });
+    await (Zotero as any)[
+      config.addonInstance
+    ].api.refreshProjectPaneContextCache();
+
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "No-AI Decision Pane Test Item");
+    await item.saveTx();
+    item.addToCollection(collections.screenQueueId);
+    await item.saveTx();
+
+    // Deliberately no screening_records row seeded here -- a reviewer who
+    // never clicks "Run AI" at all should still be able to decide directly.
+    assert.isNull(await getScreeningState(project.id, item.key));
+
+    const win = Zotero.getMainWindow();
+    const doc = win.document;
+    const ZoteroPaneGlobal = (win as any).ZoteroPane;
+    try {
+      await ZoteroPaneGlobal.collectionsView.selectCollection(
+        collections.screenQueueId,
+      );
+      await waitUntil(
+        () =>
+          getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
+          collections.screenQueueId,
+      );
+      await ZoteroPaneGlobal.selectItem(item.id);
+      const includeLabel = await pluginString("screen-queue-decision-include");
+      const includeBtn = await waitForValue<HTMLButtonElement>(() => {
+        const c = doc.getElementById("zotero-view-item");
+        if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
+        return (
+          (
+            Array.from(
+              c.querySelectorAll(".zotero-evidence-buttons button"),
+            ) as HTMLButtonElement[]
+          )
+            .filter(visible)
+            .find((b) => b.textContent === includeLabel) ?? null
+        );
+      });
+      assert.isDefined(
+        includeBtn,
+        "Include button should render even with no AI judgment ever run",
+      );
+
+      includeBtn.click();
+      await Zotero.Promise.delay(500);
+
+      const state = await getScreeningState(project.id, item.key);
+      assert.equal(state?.decision, "include");
+      assert.isNull(state?.aiDecision);
+      assert.isFalse(item.inCollection(collections.screenQueueId));
+      assert.isTrue(item.inCollection(collections.taIncludeId));
     } catch (e: any) {
       assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
     }

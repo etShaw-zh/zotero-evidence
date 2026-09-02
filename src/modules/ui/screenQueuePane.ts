@@ -149,12 +149,7 @@ async function renderJudgmentContent(
     );
   }
 
-  if (!state) {
-    container.appendChild(runBtn);
-    return;
-  }
-
-  if (state.aiDecision) {
+  if (state?.aiDecision) {
     container.appendChild(
       el(doc, "div", {
         classList: ["zotero-evidence-judgment"],
@@ -176,13 +171,19 @@ async function renderJudgmentContent(
     );
   }
 
+  // AI judgment is optional -- a reviewer who doesn't want or need it
+  // should still be able to decide directly, so these buttons don't wait
+  // on `state` existing at all. confirmDecision's screeningRecordId is
+  // null in that case, which it already handles by inserting a fresh
+  // human-only screening_records row (no ai_decision) rather than
+  // requiring an existing one to update.
   const doConfirm = async (decision: TADecision, reason: string | null) => {
     try {
       await confirmDecision(
         ctx.project.id,
         item,
         ctx.collections,
-        state.id,
+        state?.id ?? null,
         decision,
         currentDeciderId(),
         reason,
@@ -205,8 +206,8 @@ async function renderJudgmentContent(
   const decisions: TADecision[] = ["include", "exclude", "unclear"];
   for (const decision of decisions) {
     const isCurrent =
-      state.decision === decision ||
-      (!state.decision && state.aiDecision === decision);
+      state?.decision === decision ||
+      (!state?.decision && state?.aiDecision === decision);
     const btn = el(doc, "button", {
       attributes: { type: "button" },
       properties: { innerHTML: decisionLabel(decision) },
@@ -219,7 +220,7 @@ async function renderJudgmentContent(
   }
   container.appendChild(buttonRow);
 
-  if (state.decision) {
+  if (state?.decision) {
     container.appendChild(
       el(doc, "p", {
         properties: {
@@ -229,7 +230,9 @@ async function renderJudgmentContent(
     );
   }
 
-  runBtn.textContent = getString("screen-queue-rerun-ai");
+  runBtn.textContent = getString(
+    state?.aiDecision ? "screen-queue-rerun-ai" : "screen-queue-run-ai",
+  );
   container.appendChild(runBtn);
 }
 

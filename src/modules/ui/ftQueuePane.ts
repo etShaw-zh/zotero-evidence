@@ -1121,7 +1121,42 @@ async function renderFtChecklistArea(
           {
             type: "click",
             listener: async () => {
+              // Both branches below hinge on whether the checklist actually
+              // backs an "exclude" outcome for this item -- fetch every
+              // check once, up front, rather than the old decision-specific
+              // spots. Matches computeRollup's own definition of "exclude"
+              // (ANY confirmed check with verdict='exclude', not just a
+              // triggered EXCLUSION-type criterion): an unmet INCLUSION
+              // criterion is just as valid a basis for excluding a paper --
+              // arguably the more common one in practice -- even though it
+              // doesn't itself populate PRISMA's itemized exclusion-reasons
+              // breakdown (see getConfirmedExclusionReasons's own doc
+              // comment for why that's a deliberate, separate distinction).
+              const allChecks = await getCriterionChecks(
+                ctx.project.id,
+                item.key,
+              );
+              const confirmedExcludeChecks = allChecks.filter(
+                (c) => c.confirmed && c.verdict === "exclude",
+              );
               if (decision === "exclude") {
+                // Hard gate, not a warning: an Exclude with nothing
+                // confirmed behind it has no basis anyone can point back
+                // to -- and if the only thing backing it were a triggered
+                // EXCLUSION criterion, skipping it would also mean the
+                // item never appears in PRISMA's itemized "Reason | Stage |
+                // Count" breakdown (getFtReasonCounts only counts confirmed
+                // ft_criterion_checks rows), silently losing that data.
+                if (confirmedExcludeChecks.length === 0) {
+                  ztoolkit.getGlobal("alert")(
+                    getString("ft-queue-finalize-exclude-blocked-no-reason"),
+                  );
+                  return;
+                }
+                // Softer: AI suggested other exclusion matches that were
+                // never reviewed. Excluding without them just means fewer
+                // reasons get recorded, not zero -- a warning the user can
+                // choose to proceed past, unlike the hard gate above.
                 const unconfirmed = await getUnconfirmedExcludeChecks(
                   ctx.project.id,
                   item.key,
@@ -1134,28 +1169,18 @@ async function renderFtChecklistArea(
                   );
                   if (!proceed) return;
                 }
-              }
-              if (decision === "include") {
-                // A confirmed, triggered exclusion criterion contradicts
-                // finalizing as Include -- and silently allowing both to
-                // stand would also corrupt the PRISMA export: that
-                // criterion would still be counted in the reasons
-                // breakdown (getFtReasonCounts doesn't know or care
-                // whether the paper it belongs to ended up excluded),
-                // while the paper itself counts toward included studies.
-                const confirmedExclusions = await getConfirmedExclusionReasons(
-                  ctx.project.id,
-                  item.key,
+              } else if (confirmedExcludeChecks.length > 0) {
+                // decision === "include": hard gate, not a warning -- a
+                // confirmed check (of either type) already says this paper
+                // should be excluded, so finalizing as Include would
+                // directly contradict the project's own checklist.
+                ztoolkit.getGlobal("alert")(
+                  getString(
+                    "ft-queue-finalize-include-blocked-exclusion-reasons",
+                    { args: { n: confirmedExcludeChecks.length } },
+                  ),
                 );
-                if (confirmedExclusions.length > 0) {
-                  const proceed = ztoolkit.getGlobal("confirm")(
-                    getString(
-                      "ft-queue-finalize-include-confirm-exclusion-reasons",
-                      { args: { n: confirmedExclusions.length } },
-                    ),
-                  );
-                  if (!proceed) return;
-                }
+                return;
               }
               const reasons =
                 decision === "exclude"
