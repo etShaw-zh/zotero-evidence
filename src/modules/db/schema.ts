@@ -212,4 +212,12 @@ export const COLUMN_MIGRATIONS: {
   // Nullable/not backfilled -- rows written before this column existed
   // simply have no recorded model.
   { table: "screening_records", column: "ai_model", definition: "TEXT" },
+  // Same reasoning as screening_records.ai_model just above, but this one
+  // was missed when ft_criterion_checks was introduced -- FT-Screening's
+  // per-criterion AI checks never recorded which model produced them, so
+  // refreshAggregate() below had nothing to snapshot back onto
+  // screening_records.ai_model either, leaving FT-stage rows in the
+  // Export Screening Log with an empty ai_model while TA-stage rows (which
+  // always had it) did not.
+  { table: "ft_criterion_checks", column: "model", definition: "TEXT" },
 ];

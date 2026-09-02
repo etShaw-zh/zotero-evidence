@@ -30,6 +30,10 @@ export interface CriterionCheck {
   pendingPosition: string | null;
   source: "ai" | "human";
   confirmed: boolean;
+  /** The provider model that produced this check, or null for a
+   * human-added row (source: "human") or one written before this column
+   * existed. */
+  model: string | null;
 }
 
 // Same cap used elsewhere (ftScreeningService.ts's old prompt, codingService.ts)
@@ -118,6 +122,7 @@ function rowToCheck(row: any): CriterionCheck {
     pendingPosition: row.pending_position,
     source: row.source,
     confirmed: !!row.confirmed,
+    model: row.model ?? null,
   };
 }
 
@@ -127,7 +132,7 @@ export async function getCriterionChecks(
 ): Promise<CriterionCheck[]> {
   await databaseService.init();
   const rows = (await databaseService.queryAsync(
-    `SELECT id, criterion_type, criterion_text, verdict, reasoning, quote, annotation_key, pending_position, source, confirmed
+    `SELECT id, criterion_type, criterion_text, verdict, reasoning, quote, annotation_key, pending_position, source, confirmed, model
      FROM ft_criterion_checks WHERE project_id = ? AND item_key = ? ORDER BY id ASC`,
     [projectId, itemKey],
   )) as any[] | undefined;
@@ -217,10 +222,10 @@ export async function getUnconfirmedExcludeChecks(
 
 /**
  * Writes the AI-vs-human rollup summary back onto the shared
- * screening_records row (ai_decision/ai_reasoning) purely so existing
- * readers of getScreeningState (the library-tab history view, exports)
- * keep showing something sensible -- the checklist itself, not these
- * columns, is the source of truth going forward.
+ * screening_records row (ai_decision/ai_reasoning/ai_model) purely so
+ * existing readers of getScreeningState (the library-tab history view,
+ * exports) keep showing something sensible -- the checklist itself, not
+ * these columns, is the source of truth going forward.
  */
 async function refreshAggregate(
   projectId: number,
@@ -241,11 +246,17 @@ async function refreshAggregate(
       : rollup === "include"
         ? "All inclusion criteria confirmed satisfied."
         : "Not all criteria have been reviewed yet.";
+  // getCriterionChecks() orders by id ASC -- checks is already ascending,
+  // so the last non-null model is the most recently run AI checklist's
+  // model (a re-run can add rows on top of an earlier, possibly
+  // different-provider batch; earlier rows can also be human-added with no
+  // model at all).
+  const latestModel = [...checks].reverse().find((c) => c.model)?.model ?? null;
 
   const id = await getOrCreateRecordId(projectId, itemKey);
   await databaseService.queryAsync(
-    `UPDATE screening_records SET ai_decision = ?, ai_reasoning = ? WHERE id = ?`,
-    [rollup === "unclear" ? null : rollup, summary, id],
+    `UPDATE screening_records SET ai_decision = ?, ai_reasoning = ?, ai_model = ? WHERE id = ?`,
+    [rollup === "unclear" ? null : rollup, summary, latestModel, id],
   );
 }
 
@@ -337,8 +348,8 @@ export async function runCriterionChecks(
 
     await databaseService.queryAsync(
       `INSERT INTO ft_criterion_checks
-         (project_id, item_key, criterion_type, criterion_text, verdict, reasoning, quote, pending_position, source, confirmed, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', 0, ?, ?)`,
+         (project_id, item_key, criterion_type, criterion_text, verdict, reasoning, quote, pending_position, source, confirmed, model, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', 0, ?, ?, ?)`,
       [
         projectId,
         item.key,
@@ -348,6 +359,7 @@ export async function runCriterionChecks(
         rc.reasoning,
         rc.quote || null,
         pendingPosition,
+        provider.model,
         now,
         now,
       ],
@@ -364,6 +376,7 @@ export async function runCriterionChecks(
       pendingPosition,
       source: "ai",
       confirmed: false,
+      model: provider.model,
     });
   }
 

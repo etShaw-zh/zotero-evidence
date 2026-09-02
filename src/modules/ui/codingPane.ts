@@ -19,11 +19,13 @@ import {
   el,
   escapeHtml,
   quotePreview,
+  refreshAnnotationOptions,
   renderCardHeader,
   renderPaneError,
   resolveAttachment,
   resolveContextSync,
   setNativeSectionsHidden,
+  sortAnnotationsByNewest,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-coding";
@@ -99,6 +101,7 @@ function locationForAnnotation(
 function renderInlineLinkPicker(
   doc: Document,
   item: Zotero.Item,
+  attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   record: CodingRecord,
   onChanged: () => void,
@@ -137,7 +140,7 @@ function renderInlineLinkPicker(
           innerHTML: getString("coding-choose-annotation"),
         },
       },
-      ...annotations.map((a) => ({
+      ...sortAnnotationsByNewest(annotations).map((a) => ({
         tag: "option",
         namespace: "html",
         properties: { value: a.key, innerHTML: annotationOptionLabel(a) },
@@ -145,6 +148,29 @@ function renderInlineLinkPicker(
     ],
   }) as HTMLSelectElement;
   pickerControls.appendChild(select);
+
+  if (attachment) {
+    pickerControls.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        properties: { innerHTML: getString("annotation-refresh") },
+        listeners: [
+          {
+            type: "click",
+            listener: (ev: Event) => {
+              ev.stopPropagation();
+              refreshAnnotationOptions(
+                doc,
+                select,
+                attachment,
+                getString("coding-choose-annotation"),
+              );
+            },
+          },
+        ],
+      }),
+    );
+  }
 
   const linkBtn = el(doc, "button", {
     attributes: { type: "button" },
@@ -239,6 +265,42 @@ function renderSuggestionRow(
     classList: ["zotero-evidence-coding-row-actions"],
   }) as HTMLElement;
 
+  // Only offered when auto-locate actually found a position for this
+  // suggestion (same gate acceptAllBtn already applies below) --
+  // confirmRecord() only ever materializes a real, evidence-backed
+  // annotation (what "confirmed" means here) when there's a pending
+  // position to place it at; without one, it would silently just re-save
+  // the text fields with nothing to show for it. An unlocated suggestion
+  // still needs the manual link picker (click the row) instead.
+  if (located) {
+    const confirmBtn = el(doc, "button", {
+      attributes: { type: "button", title: getString("coding-confirm-one") },
+      properties: { innerHTML: "✓" },
+      listeners: [
+        {
+          type: "click",
+          listener: async (ev: Event) => {
+            ev.stopPropagation();
+            try {
+              await confirmRecord(
+                record.id,
+                item,
+                record.variableName,
+                record.variableValue,
+              );
+              onChanged();
+            } catch (e: any) {
+              ztoolkit.getGlobal("alert")(
+                `${getString("coding-error-confirm")}\n${e?.message ?? e}`,
+              );
+            }
+          },
+        },
+      ],
+    });
+    actions.appendChild(confirmBtn);
+  }
+
   const rejectBtn = el(doc, "button", {
     attributes: { type: "button", title: getString("coding-reject-one") },
     properties: { innerHTML: "✕" },
@@ -279,7 +341,14 @@ function renderSuggestionRow(
       return;
     }
     wrap.appendChild(
-      renderInlineLinkPicker(doc, item, annotations, record, onChanged),
+      renderInlineLinkPicker(
+        doc,
+        item,
+        attachment,
+        annotations,
+        record,
+        onChanged,
+      ),
     );
   });
 
@@ -523,6 +592,7 @@ async function renderManualAddForm(
   item: Zotero.Item,
   codebookId: number,
   variables: CodebookVariable[],
+  attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   onChanged: () => void,
 ) {
@@ -555,7 +625,7 @@ async function renderManualAddForm(
           innerHTML: getString("coding-choose-annotation-optional"),
         },
       },
-      ...annotations.map((a) => ({
+      ...sortAnnotationsByNewest(annotations).map((a) => ({
         tag: "option",
         namespace: "html",
         properties: { value: a.key, innerHTML: annotationOptionLabel(a) },
@@ -563,6 +633,28 @@ async function renderManualAddForm(
     ],
   }) as HTMLSelectElement;
   form.appendChild(annotationSelect);
+
+  if (attachment) {
+    form.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        properties: { innerHTML: getString("annotation-refresh") },
+        listeners: [
+          {
+            type: "click",
+            listener: () => {
+              refreshAnnotationOptions(
+                doc,
+                annotationSelect,
+                attachment,
+                getString("coding-choose-annotation-optional"),
+              );
+            },
+          },
+        ],
+      }),
+    );
+  }
 
   const addBtn = el(doc, "button", {
     attributes: { type: "button" },
@@ -748,6 +840,7 @@ async function renderCodingArea(
     item,
     codebookRow.id,
     codebookRow.variables,
+    attachment,
     annotations,
     () => void rerender(),
   );

@@ -137,9 +137,66 @@ export function annotationOptionLabel(annotation: Zotero.Item): string {
     (annotation.annotationText as unknown as string) || "",
     50,
   );
+  // The highlight's own key used to lead this label -- meaningless to a
+  // human scanning the dropdown for "the one I just made". When was it
+  // highlighted is what actually helps here, so show that instead.
+  const when = annotationDateLabel(annotation);
   return preview
-    ? `${annotation.key}: "${escapeHtml(preview)}"`
-    : `${annotation.key} (${getString("annotation-no-text")})`;
+    ? `${when}: "${escapeHtml(preview)}"`
+    : `${when} (${getString("annotation-no-text")})`;
+}
+
+function annotationDateLabel(annotation: Zotero.Item): string {
+  const parsed = Zotero.Date.sqlToDate(annotation.dateAdded, true);
+  return parsed ? parsed.toLocaleString() : annotation.dateAdded;
+}
+
+/** Newest-first, by when the highlight was made -- so "the highlight I just
+ * created" surfaces at the top of a dropdown instead of wherever
+ * getAnnotations() happened to return it. dateAdded sorts correctly as a
+ * plain string comparison (Zotero's SQL datetime format is already
+ * zero-padded/left-to-right chronological). Doesn't mutate the input. */
+export function sortAnnotationsByNewest(
+  annotations: Zotero.Item[],
+): Zotero.Item[] {
+  return [...annotations].sort((a, b) =>
+    b.dateAdded.localeCompare(a.dateAdded),
+  );
+}
+
+/**
+ * Rebuilds a "pick an existing highlight" <select>'s options in place from
+ * a fresh attachment.getAnnotations() read, preserving the current
+ * selection if it's still valid afterwards. Used by the "Refresh" button
+ * next to each of these dropdowns: a highlight made by hand in the PDF
+ * reader shows up in Zotero's own annotation list immediately, but this
+ * plugin's dropdowns are built from a one-time snapshot taken when their
+ * containing card last rendered, so a just-made highlight doesn't appear
+ * there until something rebuilds the options -- this, without forcing a
+ * full-card rerender that would also collapse whatever the user has open.
+ */
+export function refreshAnnotationOptions(
+  doc: Document,
+  select: HTMLSelectElement,
+  attachment: Zotero.Item,
+  placeholderLabel: string,
+): void {
+  const previousValue = select.value;
+  select.innerHTML = "";
+  const placeholder = doc.createElement("option");
+  placeholder.setAttribute("value", "");
+  placeholder.textContent = placeholderLabel;
+  select.appendChild(placeholder);
+  for (const a of sortAnnotationsByNewest(attachment.getAnnotations())) {
+    const opt = doc.createElement("option");
+    opt.setAttribute("value", a.key);
+    opt.innerHTML = annotationOptionLabel(a);
+    select.appendChild(opt);
+  }
+  const options = Array.from(select.options) as HTMLOptionElement[];
+  if (options.some((o) => o.value === previousValue)) {
+    select.value = previousValue;
+  }
 }
 
 /** Shared "Include"/"Exclude"/"Unclear" wording across TA and FT panes. */

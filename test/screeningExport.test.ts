@@ -15,6 +15,7 @@ import {
   confirmDecision as ftConfirmDecision,
   markUnavailable,
 } from "../src/modules/screening/ftScreeningService";
+import { confirmCheck } from "../src/modules/screening/ftCriterionCheckService";
 
 // processImportedItems (like the real Zotero.Translate.Import path it
 // normally consumes) expects already-saved items with real keys -- it reads
@@ -436,5 +437,43 @@ describe("Phase 6: screeningExport", function () {
     assert.isAbove(doiColumn, -1);
     const dataRow = lines[1].split(",");
     assert.equal(dataRow[doiColumn], "10.1000/example.doi");
+  });
+
+  it("exportScreeningLog includes ai_model for FT-Screening rows too, not just TA-Screening", async function () {
+    const project = await createProject(
+      `Screening Log FT Model Test ${Date.now()}`,
+    );
+    const item = await makeImportCandidateItem(
+      "FT AI-Checked Paper",
+      "Loe",
+      "2024",
+    );
+    await databaseService.init();
+    const now = new Date().toISOString();
+    // Mirrors what runCriterionChecks() (ftCriterionCheckService.ts) itself
+    // inserts for one AI-suggested check, including the model column that
+    // used to be missing entirely -- confirmCheck() below then triggers
+    // refreshAggregate(), which is what actually snapshots it onto
+    // screening_records.ai_model (what exportScreeningLog reads).
+    await databaseService.queryAsync(
+      `INSERT INTO ft_criterion_checks
+        (project_id, item_key, criterion_type, criterion_text, verdict, source, confirmed, model, created_at, updated_at)
+       VALUES (?, ?, 'inclusion', 'Adults 18-65', 'include', 'ai', 0, 'glm-4-flash', ?, ?)`,
+      [project.id, item.key, now, now],
+    );
+    const checkId = await databaseService.getLastInsertId();
+    await confirmCheck(checkId, item, project.id);
+
+    const csv = await exportScreeningLog(project.id);
+    const lines = csv.split("\n");
+    const header = lines[0].split(",");
+    const modelColumn = header.indexOf("ai_model");
+    const stageColumn = header.indexOf("stage");
+    const ftRow = lines
+      .slice(1)
+      .map((l) => l.split(","))
+      .find((fields) => fields[stageColumn] === "ft_screening");
+    assert.isDefined(ftRow);
+    assert.equal(ftRow![modelColumn], "glm-4-flash");
   });
 });

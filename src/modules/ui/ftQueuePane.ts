@@ -37,11 +37,13 @@ import {
   el,
   escapeHtml,
   quotePreview,
+  refreshAnnotationOptions,
   renderCardHeader,
   renderPaneError,
   resolveAttachment,
   resolveContextSync,
   setNativeSectionsHidden,
+  sortAnnotationsByNewest,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-ft-queue";
@@ -184,7 +186,7 @@ function renderFtLinkPicker(
           innerHTML: getString("ft-queue-choose-annotation"),
         },
       },
-      ...annotations.map((a) => ({
+      ...sortAnnotationsByNewest(annotations).map((a) => ({
         tag: "option",
         namespace: "html",
         properties: { value: a.key, innerHTML: annotationOptionLabel(a) },
@@ -192,6 +194,27 @@ function renderFtLinkPicker(
     ],
   }) as HTMLSelectElement;
   pickerControls.appendChild(select);
+
+  pickerControls.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("annotation-refresh") },
+      listeners: [
+        {
+          type: "click",
+          listener: (ev: Event) => {
+            ev.stopPropagation();
+            refreshAnnotationOptions(
+              doc,
+              select,
+              attachment,
+              getString("ft-queue-choose-annotation"),
+            );
+          },
+        },
+      ],
+    }),
+  );
 
   pickerControls.appendChild(
     el(doc, "button", {
@@ -727,7 +750,7 @@ function renderFtManualCheckForm(
           innerHTML: getString("ft-queue-choose-annotation-optional"),
         },
       },
-      ...annotations.map((a) => ({
+      ...sortAnnotationsByNewest(annotations).map((a) => ({
         tag: "option",
         namespace: "html",
         properties: { value: a.key, innerHTML: annotationOptionLabel(a) },
@@ -735,6 +758,28 @@ function renderFtManualCheckForm(
     ],
   }) as HTMLSelectElement;
   form.appendChild(annotationSelect);
+
+  if (attachment) {
+    form.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        properties: { innerHTML: getString("annotation-refresh") },
+        listeners: [
+          {
+            type: "click",
+            listener: () => {
+              refreshAnnotationOptions(
+                doc,
+                annotationSelect,
+                attachment,
+                getString("ft-queue-choose-annotation-optional"),
+              );
+            },
+          },
+        ],
+      }),
+    );
+  }
 
   form.appendChild(
     el(doc, "button", {
