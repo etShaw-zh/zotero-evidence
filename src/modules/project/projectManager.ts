@@ -148,6 +148,7 @@ export async function deleteProject(projectId: number): Promise<void> {
       "codebooks",
       "ft_criterion_checks",
       "consistency_rounds",
+      "consistency_item_results",
       "screening_records",
       "screening_criteria",
       "item_sources",

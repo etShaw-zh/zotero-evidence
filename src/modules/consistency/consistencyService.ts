@@ -3,8 +3,6 @@ import { databaseService } from "../db/database";
 import { getProjectById } from "../project/projectManager";
 import { CategoryKappa, cohenKappa, cohenKappaByCategory } from "./kappa";
 
-export type ScreeningConsistencyStage = "ta_screening" | "ft_screening";
-
 export interface ScreeningDisagreement {
   itemKey: string;
   title: string;
@@ -20,24 +18,10 @@ export interface ScreeningConsistencyStats {
   disagreements: ScreeningDisagreement[];
 }
 
-export interface ScreeningConsistencyByModel extends ScreeningConsistencyStats {
-  // null groups rows with no recorded AI model -- screening_records written
-  // before the ai_model column existed.
-  aiModel: string | null;
-}
-
-export interface ScreeningConsistencyResult extends ScreeningConsistencyStats {
-  // Same stats as above, computed once per distinct ai_model that made a
-  // decision at this stage -- lumping different models' decisions into one
-  // Kappa would hide a model swap mid-project instead of surfacing it.
-  byModel: ScreeningConsistencyByModel[];
-}
-
 interface ScreeningRow {
   item_key: string;
   ai_decision: string;
   human_decision: string;
-  ai_model: string | null;
 }
 
 function buildStats(
@@ -73,44 +57,104 @@ function buildStats(
   };
 }
 
+interface StageDecisionRow {
+  item_key: string;
+  stage: "ta_screening" | "ft_screening";
+  ai_decision: string | null;
+  human_decision: string | null;
+}
+
 /**
- * Compares each screening_records row's ai_decision against the human's
- * final human_decision for one project/stage -- advisory only, same as the
- * rest of this feature: nothing here changes any decision, it's purely for
- * the reviewer to judge how much to trust the AI's suggestions going
- * forward (or which specific category/model to double-check).
+ * One side's (AI's or the human's) overall final verdict for one item,
+ * derived from its own TA and (if it got that far) FT decision -- same
+ * collapsing rule as humanConsistencyService.ts's deriveFinalVerdict, and
+ * for the same reason: TA's three-way category set (include/exclude/
+ * unclear) and FT's (include/exclude/unavailable) aren't the same rating
+ * task, so a TA-exclude ends the pipeline right there ("exclude", no FT
+ * decision needed or expected), while TA-include/unclear falls through to
+ * the FT decision (include -> "include", anything else -> "exclude").
+ * Null means not enough information yet -- no TA decision at all, or
+ * TA-passed but no FT decision recorded yet -- skipped from n rather than
+ * guessed, same convention used everywhere else in this feature.
  */
-export async function getScreeningConsistency(
+function deriveVerdict(
+  taDecision: string | null | undefined,
+  ftDecision: string | null | undefined,
+): "include" | "exclude" | null {
+  if (!taDecision) return null;
+  if (taDecision === "exclude") return "exclude";
+  if (!ftDecision) return null;
+  return ftDecision === "include" ? "include" : "exclude";
+}
+
+/**
+ * Compares the AI's and the human's overall FINAL verdict for each item --
+ * "did it end up included" -- rather than their TA and FT decisions as two
+ * separate stage-wise kappas. An earlier version of this feature reported
+ * TA and FT as two independent per-stage Kappas (optionally broken down by
+ * ai_model too); both were removed in favor of this single measure, for
+ * the same reason the human-human version of this idea
+ * (humanConsistencyService.ts) doesn't report per-stage either: TA's
+ * three-way category set (include/exclude/unclear) and FT's
+ * (include/exclude/unavailable) aren't the same rating task, so pooling
+ * them -- or even reporting them side by side as if they answered the same
+ * question -- doesn't answer what actually matters for a systematic
+ * review: do the AI and the human arrive at the same final included set.
+ *
+ * Both sides are derived symmetrically from the SAME screening_records
+ * rows this project's actual screening already produced
+ * (ai_decision/human_decision at each stage), so unlike the human-human
+ * version of this idea (which needs two reviewers to independently
+ * double-screen a sample), this needs no extra data collection -- it's
+ * computable right now from whatever's already been screened. No
+ * per-model breakdown: a project that used different models at TA vs FT
+ * has no single model to attribute one item's combined final verdict to.
+ */
+export async function getFinalVerdictConsistency(
   projectId: number,
-  stage: ScreeningConsistencyStage,
-): Promise<ScreeningConsistencyResult> {
+): Promise<ScreeningConsistencyStats> {
   await databaseService.init();
   const project = await getProjectById(projectId);
   const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
 
   const rows = ((await databaseService.queryAsync(
-    `SELECT item_key, ai_decision, human_decision, ai_model FROM screening_records
-     WHERE project_id = ? AND stage = ? AND ai_decision IS NOT NULL AND human_decision IS NOT NULL
-     ORDER BY item_key`,
-    [projectId, stage],
-  )) || []) as ScreeningRow[];
+    `SELECT item_key, stage, ai_decision, human_decision FROM screening_records
+     WHERE project_id = ? AND (stage = 'ta_screening' OR stage = 'ft_screening')
+     ORDER BY item_key, id ASC`,
+    [projectId],
+  )) || []) as StageDecisionRow[];
 
-  const rowsByModel = new Map<string | null, ScreeningRow[]>();
+  // ORDER BY id ASC + Map overwrite-on-set: the latest row per item/stage
+  // wins if a stage was somehow screened more than once for the same item.
+  const byItem = new Map<
+    string,
+    { ta?: StageDecisionRow; ft?: StageDecisionRow }
+  >();
   for (const r of rows) {
-    const list = rowsByModel.get(r.ai_model) ?? [];
-    list.push(r);
-    rowsByModel.set(r.ai_model, list);
+    const entry = byItem.get(r.item_key) ?? {};
+    if (r.stage === "ta_screening") entry.ta = r;
+    else entry.ft = r;
+    byItem.set(r.item_key, entry);
   }
-  // Models with more compared decisions first -- the model actually driving
-  // the project matters more than one that only ran on a handful of items.
-  const byModel: ScreeningConsistencyByModel[] = Array.from(
-    rowsByModel.entries(),
-  )
-    .sort((a, b) => b[1].length - a[1].length)
-    .map(([aiModel, modelRows]) => ({
-      aiModel,
-      ...buildStats(modelRows, libraryID),
-    }));
 
-  return { ...buildStats(rows, libraryID), byModel };
+  const verdictRows: ScreeningRow[] = [];
+  for (const [itemKey, entry] of byItem) {
+    const aiVerdict = deriveVerdict(
+      entry.ta?.ai_decision,
+      entry.ft?.ai_decision,
+    );
+    const humanVerdict = deriveVerdict(
+      entry.ta?.human_decision,
+      entry.ft?.human_decision,
+    );
+    if (aiVerdict && humanVerdict) {
+      verdictRows.push({
+        item_key: itemKey,
+        ai_decision: aiVerdict,
+        human_decision: humanVerdict,
+      });
+    }
+  }
+
+  return buildStats(verdictRows, libraryID);
 }

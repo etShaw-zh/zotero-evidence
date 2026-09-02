@@ -1,5 +1,6 @@
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
+import { getConsistencyItemResult } from "../consistency/consistencyItemResultsService";
 import { refreshProjectPaneContextCache } from "../project/projectContext";
 import { ProjectPaneContext } from "../project/projectContext";
 import { getLatestCriteria } from "../screening/criteriaService";
@@ -83,6 +84,70 @@ async function renderJudgmentContent(
     properties: { innerHTML: getString("screen-queue-run-ai") },
     listeners: [{ type: "click", listener: () => void runAI() }],
   }) as HTMLButtonElement;
+
+  // If this item was part of a human-human consistency round and the two
+  // reviewers disagreed (an agreed item never reaches here -- it was
+  // already applied as this project's real result and left the queue, see
+  // humanConsistencyService.ts's applyAgreedResults), show both reviewers'
+  // own calls so whoever screens it next (a third opinion) has that
+  // context without leaving this pane. Rendered before the state==null
+  // early return below -- a disagreement can easily still be sitting here
+  // with no local AI judgment run yet.
+  const consistencyResult = await getConsistencyItemResult(
+    ctx.project.id,
+    item.key,
+  );
+  const formatReviewerLine = (
+    label: string,
+    reviewerName: string,
+    verdict: "include" | "exclude" | null,
+    reason: string,
+  ): string | null => {
+    if (!verdict) return null;
+    const who = reviewerName ? `${label} (${escapeHtml(reviewerName)})` : label;
+    const reasonHtml =
+      verdict === "exclude" && reason
+        ? ` — ${getString("screen-queue-consistency-reason", { args: { reason: escapeHtml(reason) } })}`
+        : "";
+    return `${who}: ${decisionLabel(verdict)}${reasonHtml}`;
+  };
+  const reviewerLines = consistencyResult
+    ? [
+        formatReviewerLine(
+          getString("screen-queue-consistency-reviewer-a"),
+          consistencyResult.aReviewer,
+          consistencyResult.aVerdict,
+          consistencyResult.aExclusionReason,
+        ),
+        formatReviewerLine(
+          getString("screen-queue-consistency-reviewer-b"),
+          consistencyResult.bReviewer,
+          consistencyResult.bVerdict,
+          consistencyResult.bExclusionReason,
+        ),
+      ].filter((line): line is string => line !== null)
+    : [];
+  if (reviewerLines.length > 0) {
+    container.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-section"],
+        children: [
+          {
+            tag: "h3",
+            namespace: "html",
+            properties: {
+              innerHTML: getString("screen-queue-consistency-title"),
+            },
+          },
+          ...reviewerLines.map((line) => ({
+            tag: "p",
+            namespace: "html" as const,
+            properties: { innerHTML: line },
+          })),
+        ],
+      }),
+    );
+  }
 
   if (!state) {
     container.appendChild(runBtn);

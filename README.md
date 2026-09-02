@@ -75,5 +75,4 @@ test/                 # Mocha suite, run inside Zotero via `npm test`
 
 ## License
 
-Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, see [LICENSE](LICENSE).  
-No warranties are provided — keep the laws of your locality in mind.
+Copyright © 2026 [Jianjun Xiao](mailto:et_shaw@126.com). AGPL-3.0-or-later, see [LICENSE](LICENSE).

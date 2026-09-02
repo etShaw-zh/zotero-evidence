@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { databaseService } from "../src/modules/db/database";
 import { createProject } from "../src/modules/project/projectManager";
-import { getScreeningConsistency } from "../src/modules/consistency/consistencyService";
+import { getFinalVerdictConsistency } from "../src/modules/consistency/consistencyService";
 
 async function makeTestItem(title: string): Promise<Zotero.Item> {
   const item = new Zotero.Item("journalArticle");
@@ -11,146 +11,126 @@ async function makeTestItem(title: string): Promise<Zotero.Item> {
   return item;
 }
 
-describe("Screening Consistency: getScreeningConsistency (project + DB)", function () {
+describe("Screening Consistency: getFinalVerdictConsistency (project + DB)", function () {
   this.timeout(60000);
 
-  it("computes overall + per-category Kappa and lists disagreements for one stage", async function () {
-    const project = await createProject(`Consistency Test ${Date.now()}`);
-    await databaseService.init();
-
-    const items = await Promise.all(
-      Array.from({ length: 4 }, (_, i) =>
-        makeTestItem(`Consistency Item ${i}`),
-      ),
+  it("derives 'exclude' straight from a TA-exclude, needing no FT row on either side", async function () {
+    const project = await createProject(
+      `Final Verdict TA Exclude Test ${Date.now()}`,
     );
-    const rows: { key: string; ai: string; human: string }[] = [
-      { key: items[0].key, ai: "include", human: "include" },
-      { key: items[1].key, ai: "include", human: "exclude" },
-      { key: items[2].key, ai: "exclude", human: "exclude" },
-      { key: items[3].key, ai: "unclear", human: "unclear" },
-    ];
-    for (const r of rows) {
+    await databaseService.init();
+    const item = await makeTestItem("TA Excluded Both Sides");
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+       VALUES (?, ?, 'ta_screening', 'exclude', 'exclude')`,
+      [project.id, item.key],
+    );
+
+    const result = await getFinalVerdictConsistency(project.id);
+    assert.equal(result.n, 1);
+    assert.equal(result.disagreements.length, 0);
+  });
+
+  it("derives 'include' from TA-include/unclear followed by FT-include, and 'exclude' from anything else at FT", async function () {
+    const project = await createProject(
+      `Final Verdict TA Then FT Test ${Date.now()}`,
+    );
+    await databaseService.init();
+    const items = await Promise.all([
+      makeTestItem("Both Include"), // AI+human both TA-include, FT-include -> agree include
+      makeTestItem("AI Include Human FT Exclude"), // disagreement, originates at FT
+      makeTestItem("AI Unclear At TA Then FT Include"), // TA 'unclear' behaves like TA-include
+    ]);
+    const [bothInclude, disagreeAtFt, unclearThenInclude] = items;
+
+    for (const key of [bothInclude.key, disagreeAtFt.key]) {
       await databaseService.queryAsync(
-        `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision, decision)
-         VALUES (?, ?, 'ta_screening', ?, ?, ?)`,
-        [project.id, r.key, r.ai, r.human, r.human],
+        `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+         VALUES (?, ?, 'ta_screening', 'include', 'include')`,
+        [project.id, key],
       );
     }
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+       VALUES (?, ?, 'ft_screening', 'include', 'include')`,
+      [project.id, bothInclude.key],
+    );
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+       VALUES (?, ?, 'ft_screening', 'include', 'exclude')`,
+      [project.id, disagreeAtFt.key],
+    );
 
-    const result = await getScreeningConsistency(project.id, "ta_screening");
-    assert.equal(result.n, 4);
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+       VALUES (?, ?, 'ta_screening', 'unclear', 'unclear')`,
+      [project.id, unclearThenInclude.key],
+    );
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+       VALUES (?, ?, 'ft_screening', 'include', 'include')`,
+      [project.id, unclearThenInclude.key],
+    );
+
+    const result = await getFinalVerdictConsistency(project.id);
+    assert.equal(result.n, 3);
     assert.equal(result.disagreements.length, 1);
-    assert.equal(result.disagreements[0].itemKey, items[1].key);
-    assert.equal(result.disagreements[0].title, "Consistency Item 1");
+    assert.equal(result.disagreements[0].itemKey, disagreeAtFt.key);
     assert.equal(result.disagreements[0].aiDecision, "include");
     assert.equal(result.disagreements[0].humanDecision, "exclude");
-    assert.approximately(result.observedAgreement!, 3 / 4, 1e-9);
-    assert.isNotNull(result.kappa);
 
     const byName = new Map(result.byCategory.map((c) => [c.category, c]));
     assert.isTrue(byName.has("include"));
     assert.isTrue(byName.has("exclude"));
-    assert.isTrue(byName.has("unclear"));
-
-    // None of these rows recorded an ai_model, so everything falls into a
-    // single "unknown model" group identical to the overall figures.
-    assert.equal(result.byModel.length, 1);
-    assert.isNull(result.byModel[0].aiModel);
-    assert.equal(result.byModel[0].n, 4);
   });
 
-  it("splits the breakdown by ai_model, sorted by most-compared model first", async function () {
-    const project = await createProject(`Consistency Model Test ${Date.now()}`);
-    await databaseService.init();
-    const items = await Promise.all(
-      Array.from({ length: 5 }, (_, i) => makeTestItem(`Model Item ${i}`)),
+  it("excludes an item from n when either side TA-passed it but hasn't recorded an FT decision yet", async function () {
+    const project = await createProject(
+      `Final Verdict Pending FT Test ${Date.now()}`,
     );
-    const rows: {
-      key: string;
-      ai: string;
-      human: string;
-      model: string | null;
-    }[] = [
-      {
-        key: items[0].key,
-        ai: "include",
-        human: "include",
-        model: "gpt-4o-mini",
-      },
-      {
-        key: items[1].key,
-        ai: "include",
-        human: "include",
-        model: "gpt-4o-mini",
-      },
-      {
-        key: items[2].key,
-        ai: "exclude",
-        human: "include",
-        model: "gpt-4o-mini",
-      }, // disagreement
-      { key: items[3].key, ai: "include", human: "exclude", model: "claude-3" }, // disagreement
-      { key: items[4].key, ai: "include", human: "include", model: null }, // legacy row, no model recorded
-    ];
-    for (const r of rows) {
-      await databaseService.queryAsync(
-        `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision, ai_model)
-         VALUES (?, ?, 'ta_screening', ?, ?, ?)`,
-        [project.id, r.key, r.ai, r.human, r.model],
-      );
-    }
-
-    const result = await getScreeningConsistency(project.id, "ta_screening");
-    assert.equal(result.n, 5);
-    assert.equal(result.byModel.length, 3);
-
-    // Sorted by n descending: gpt-4o-mini (3) is unambiguously first.
-    assert.equal(result.byModel[0].aiModel, "gpt-4o-mini");
-    assert.equal(result.byModel[0].n, 3);
-    assert.equal(result.byModel[0].disagreements.length, 1);
-
-    const claude = result.byModel.find((m) => m.aiModel === "claude-3")!;
-    assert.equal(claude.n, 1);
-    assert.equal(claude.disagreements.length, 1);
-    assert.equal(claude.observedAgreement, 0);
-
-    const unknown = result.byModel.find((m) => m.aiModel === null)!;
-    assert.equal(unknown.n, 1);
-    assert.equal(unknown.disagreements.length, 0);
-  });
-
-  it("ignores rows where either side hasn't decided yet, returning n=0 with no crash", async function () {
-    const project = await createProject(`Consistency Empty Test ${Date.now()}`);
     await databaseService.init();
-    const item = await makeTestItem("Undecided Item");
-    await databaseService.queryAsync(
-      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision)
-       VALUES (?, ?, 'ta_screening', 'include')`,
-      [project.id, item.key],
-    );
-
-    const result = await getScreeningConsistency(project.id, "ta_screening");
-    assert.equal(result.n, 0);
-    assert.isNull(result.observedAgreement);
-    assert.isNull(result.kappa);
-    assert.deepEqual(result.byCategory, []);
-    assert.deepEqual(result.disagreements, []);
-    assert.deepEqual(result.byModel, []);
-  });
-
-  it("keeps TA and FT stages independent even within the same project", async function () {
-    const project = await createProject(`Consistency Stage Test ${Date.now()}`);
-    await databaseService.init();
-    const item = await makeTestItem("Stage Item");
+    const item = await makeTestItem("Pending FT Item");
+    // Both sides TA-included it, but only the AI has gone on to FT --
+    // human_decision at FT is still unset.
     await databaseService.queryAsync(
       `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
        VALUES (?, ?, 'ta_screening', 'include', 'include')`,
       [project.id, item.key],
     );
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision)
+       VALUES (?, ?, 'ft_screening', 'include')`,
+      [project.id, item.key],
+    );
 
-    const ta = await getScreeningConsistency(project.id, "ta_screening");
-    const ft = await getScreeningConsistency(project.id, "ft_screening");
-    assert.equal(ta.n, 1);
-    assert.equal(ft.n, 0);
+    const result = await getFinalVerdictConsistency(project.id);
+    assert.equal(result.n, 0);
+    assert.isNull(result.observedAgreement);
+    assert.isNull(result.kappa);
+  });
+
+  it("keeps TA-exclude authoritative even if a stray FT row exists for the same item", async function () {
+    // Shouldn't normally happen (an item TA-excluded never reaches
+    // FT-Screen Queue in the real pipeline), but deriveVerdict must not
+    // let a stray FT row override a TA-exclude either way.
+    const project = await createProject(
+      `Final Verdict Stray FT Test ${Date.now()}`,
+    );
+    await databaseService.init();
+    const item = await makeTestItem("Stray FT Row Item");
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+       VALUES (?, ?, 'ta_screening', 'exclude', 'exclude')`,
+      [project.id, item.key],
+    );
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, human_decision)
+       VALUES (?, ?, 'ft_screening', 'include', 'include')`,
+      [project.id, item.key],
+    );
+
+    const result = await getFinalVerdictConsistency(project.id);
+    assert.equal(result.n, 1);
+    assert.equal(result.disagreements.length, 0); // both still "exclude"
   });
 });

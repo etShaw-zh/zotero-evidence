@@ -180,6 +180,32 @@ export const SCHEMA_STATEMENTS: string[] = [
     UNIQUE(project_id, item_key),
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
   )`,
+  // One row per item that was part of a human-human consistency round
+  // (humanConsistencyService.ts) -- a snapshot of what each reviewer's own
+  // CSV said, written when the round's "apply agreed results" step runs
+  // (both for items it auto-applied and ones left disagreeing). Purely for
+  // display: screenQueuePane.ts reads this to show both reviewers'
+  // verdicts next to a still-pending, disagreed item, so whoever screens
+  // it next (a third opinion, or the coordinator) has that context without
+  // needing to go find and re-open the two CSVs. One row per project+item
+  // -- like coding_notes, overwritten in place if a later round somehow
+  // covers the same item again, no version history needed for a snapshot.
+  `CREATE TABLE IF NOT EXISTS consistency_item_results (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    round_id INTEGER NOT NULL,
+    a_reviewer TEXT,
+    a_verdict TEXT,
+    a_exclusion_reason TEXT,
+    b_reviewer TEXT,
+    b_verdict TEXT,
+    b_exclusion_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id, item_key),
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on
