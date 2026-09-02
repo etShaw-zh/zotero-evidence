@@ -144,6 +144,7 @@ export async function deleteProject(projectId: number): Promise<void> {
     );
     for (const table of [
       "coding_records",
+      "coding_notes",
       "codebooks",
       "ft_criterion_checks",
       "consistency_rounds",

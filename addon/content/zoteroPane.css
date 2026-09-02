@@ -441,3 +441,94 @@ item-pane-sidenav .inherit-flex {
 .zotero-evidence-ft-manual-check {
   margin: 10px 0;
 }
+
+/* Shared wrapper for each distinct block of the reader-tab Coding editor
+   from "Add mapping manually" down (renderCodingArea in codingPane.ts) --
+   a top border + consistent spacing so different features (manual
+   mapping, the key-literature flag, notes) read as visually separate
+   steps instead of running together with nothing between them, including
+   separating the first of these from the suggestions/confirmed-list area
+   above it. */
+.zotero-evidence-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.zotero-evidence-section h3 {
+  font-size: 0.95em;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+}
+
+/* Key-literature flag toggle (keyLiteratureService.ts / codingPane.ts's
+   renderKeyLiteratureToggle) -- amber to match the tag color it assigns
+   in Zotero's items list (KEY_LITERATURE_COLOR, #e5a50a), so the sidebar
+   button and the highlighted row read as the same "flagged" concept.
+   Styled explicitly (padding/radius/border) rather than left at native
+   button defaults -- at native size it read as an afterthought next to
+   the rest of this pane's deliberately-styled controls. */
+.zotero-evidence-flag-button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 0.95em;
+  text-align: center;
+  cursor: pointer;
+}
+
+.zotero-evidence-flag-button:hover {
+  background: rgba(229, 165, 10, 0.1);
+  border-color: rgba(229, 165, 10, 0.5);
+}
+
+.zotero-evidence-flag-button.flagged {
+  background: rgba(229, 165, 10, 0.15);
+  border-color: rgba(229, 165, 10, 0.5);
+  font-weight: bold;
+}
+
+/* Coding's free-text analytic-memo section (renderNotesSection in
+   codingPane.ts) -- the hint is styled like .zotero-evidence-coding-ai-quote
+   (muted, italic scaffolding text) rather than a heading, since it's a
+   prompt to read, not a label. */
+.zotero-evidence-notes-hint {
+  color: #666;
+  font-style: italic;
+  font-size: 0.9em;
+  margin: 0 0 6px 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
+}
+
+/* max-width:100% + box-sizing:border-box here matter more than usual: a
+   <textarea> has its own native intrinsic width unrelated to its actual
+   content, so without this it can push the sidebar wider exactly like the
+   overflow bugs fixed above this file -- not just shrink to fit one.
+   Explicit border/radius/padding for the same reason as
+   .zotero-evidence-flag-button above: native textarea chrome looked
+   noticeably plainer than the rest of this pane. */
+.zotero-evidence-notes-textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.zotero-evidence-notes-textarea:focus {
+  outline: none;
+  border-color: #2ea8e5;
+  box-shadow: 0 0 0 1px rgba(46, 168, 229, 0.3);
+}

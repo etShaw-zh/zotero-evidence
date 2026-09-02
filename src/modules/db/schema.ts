@@ -161,6 +161,25 @@ export const SCHEMA_STATEMENTS: string[] = [
     updated_at TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
   )`,
+  // One free-text analytic memo per project+item, written by the human
+  // during Full-Text Coding once they've reviewed the AI's suggestions and
+  // formed their own understanding of the paper -- deliberately NOT tied to
+  // any single Codebook variable/coding_records row (a coding decision),
+  // and deliberately NOT exported alongside coding/synthesis data (by
+  // request -- this is the researcher's own working notes, not a data
+  // column). One row per item, overwritten in place on every save (no
+  // version history, unlike coding_records/screening_records -- there's no
+  // "decision" here to keep an audit trail of, just current thinking).
+  `CREATE TABLE IF NOT EXISTS coding_notes (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id, item_key),
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on

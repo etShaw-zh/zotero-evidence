@@ -1,6 +1,11 @@
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
 import { CodebookVariable, getLatestCodebook } from "../coding/codebookService";
+import { getNote, saveNote } from "../coding/codingNotesService";
+import {
+  isKeyLiterature,
+  setKeyLiterature,
+} from "../coding/keyLiteratureService";
 import {
   addManualRecord,
   CodingRecord,
@@ -701,6 +706,116 @@ async function renderManualAddForm(
   container.appendChild(form);
 }
 
+/**
+ * Toggle for keyLiteratureService's "key literature" flag (a real Zotero
+ * tag under the hood -- see that file for why). Rendered right before the
+ * notes section, by request, as a compact self-labeling button rather
+ * than a checkbox: its own text says which action clicking it will take
+ * ("Mark"/"Unmark"), so its current state doesn't need a separate label.
+ */
+function renderKeyLiteratureToggle(
+  container: HTMLElement,
+  doc: Document,
+  item: Zotero.Item,
+  onChanged: () => void,
+): void {
+  const flagged = isKeyLiterature(item);
+  const btn = el(doc, "button", {
+    classList: ["zotero-evidence-flag-button", ...(flagged ? ["flagged"] : [])],
+    attributes: { type: "button" },
+    properties: {
+      innerHTML: flagged
+        ? getString("coding-key-literature-unflag")
+        : getString("coding-key-literature-flag"),
+    },
+    listeners: [
+      {
+        type: "click",
+        listener: async () => {
+          try {
+            await setKeyLiterature(item, !flagged);
+            onChanged();
+          } catch (e: any) {
+            ztoolkit.getGlobal("alert")(
+              `${getString("coding-error-flag")}\n${e?.message ?? e}`,
+            );
+          }
+        },
+      },
+    ],
+  });
+  container.appendChild(btn);
+}
+
+/**
+ * Free-text analytic memo (REQUIREMENTS: none yet -- added by request),
+ * separate from the Codebook variable-mapping workflow above it: after
+ * reviewing the AI's suggestions and forming their own understanding of
+ * the paper, the human can jot down thoughts connecting it to the
+ * research question without those thoughts having to map onto any single
+ * Codebook variable. Optional (an empty save just clears any existing
+ * note -- see codingNotesService.saveNote) and deliberately NOT included
+ * in exportCodingData/exportSynthesisData, by request: this is the
+ * researcher's own working notes, not a data column.
+ */
+async function renderNotesSection(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+): Promise<void> {
+  const existing = await getNote(ctx.project.id, item.key);
+
+  container.appendChild(
+    el(doc, "h3", {
+      properties: { innerHTML: getString("coding-notes-title") },
+    }),
+  );
+  container.appendChild(
+    el(doc, "p", {
+      classList: ["zotero-evidence-notes-hint"],
+      properties: { innerHTML: getString("coding-notes-hint") },
+    }),
+  );
+
+  const textarea = el(doc, "textarea", {
+    classList: ["zotero-evidence-notes-textarea"],
+    attributes: {
+      rows: "5",
+      placeholder: getString("coding-notes-placeholder"),
+    },
+    properties: { value: existing },
+  }) as HTMLTextAreaElement;
+  container.appendChild(textarea);
+
+  const saveBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: { innerHTML: getString("coding-notes-save") },
+    listeners: [
+      {
+        type: "click",
+        listener: async () => {
+          try {
+            await saveNote(ctx.project.id, item.key, textarea.value);
+            new ztoolkit.ProgressWindow(addon.data.config.addonName)
+              .createLine({
+                text: getString("progress-coding-note-saved"),
+                type: "success",
+                progress: 100,
+              })
+              .show();
+          } catch (e: any) {
+            ztoolkit.getGlobal("alert")(
+              `${getString("coding-error-note-save")}\n${e?.message ?? e}`,
+            );
+          }
+        },
+      },
+    ],
+  });
+  container.appendChild(saveBtn);
+}
+
 async function renderCodingArea(
   container: HTMLElement,
   doc: Document,
@@ -828,13 +943,17 @@ async function renderCodingArea(
     );
   }
 
-  container.appendChild(
+  const manualAddSection = el(doc, "div", {
+    classList: ["zotero-evidence-section"],
+  }) as HTMLElement;
+  manualAddSection.appendChild(
     el(doc, "h3", {
       properties: { innerHTML: getString("coding-manual-add-title") },
     }),
   );
+  container.appendChild(manualAddSection);
   await renderManualAddForm(
-    container,
+    manualAddSection,
     doc,
     ctx,
     item,
@@ -844,6 +963,18 @@ async function renderCodingArea(
     annotations,
     () => void rerender(),
   );
+
+  const flagSection = el(doc, "div", {
+    classList: ["zotero-evidence-section"],
+  }) as HTMLElement;
+  container.appendChild(flagSection);
+  renderKeyLiteratureToggle(flagSection, doc, item, () => void rerender());
+
+  const notesSection = el(doc, "div", {
+    classList: ["zotero-evidence-section"],
+  }) as HTMLElement;
+  container.appendChild(notesSection);
+  await renderNotesSection(notesSection, doc, ctx, item);
 }
 
 function renderHeader(
