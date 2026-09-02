@@ -10,7 +10,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](LICENSE)
 
 > [!WARNING]
-> Under active, high-frequency development — features, menus, and data formats can still change between releases.
+> Under high-frequency development — features and data formats can still change between releases.
 
 ## Features
 
