@@ -7,6 +7,7 @@ import {
 import { getRootCollectionId } from "../project/projectContext";
 import { getProjectById } from "../project/projectManager";
 import { splitCsvLine } from "../../utils/csv";
+import { normalizeDOI } from "../dedup/normalize";
 import { safeGetField } from "../../utils/zoteroItem";
 import { ScreeningConsistencyStage } from "./consistencyService";
 import {
@@ -219,6 +220,10 @@ export async function recordCollectedCsv(
 
 interface ParsedReviewerRow {
   title: string;
+  // "" when the CSV predates the doi column (old export) or the item had no
+  // DOI -- callers must treat that as "no DOI available", never match two
+  // empty-DOI rows against each other.
+  doi: string;
   humanDecision: string;
   decidedBy: string;
 }
@@ -227,7 +232,9 @@ interface ParsedReviewerRow {
  * Reads back a CSV produced by exportScreeningLog() (screeningExport.ts) --
  * the same "Export Screening Log" format each reviewer is expected to send
  * back. Keyed by column name rather than fixed position so a future column
- * reorder there doesn't silently break this.
+ * reorder there doesn't silently break this. `doi` is optional -- a CSV
+ * exported before the doi column existed still parses fine, it just never
+ * gets a DOI match (see computeRoundConsistency's title fallback).
  */
 function parseReviewerCsv(
   csvText: string,
@@ -240,6 +247,7 @@ function parseReviewerCsv(
   const header = splitCsvLine(lines[0]);
   const col = (name: string) => header.indexOf(name);
   const titleCol = col("title");
+  const doiCol = col("doi");
   const stageCol = col("stage");
   const decisionCol = col("human_decision");
   const decidedByCol = col("decided_by");
@@ -257,6 +265,7 @@ function parseReviewerCsv(
     if (!humanDecision) continue;
     rows.push({
       title: fields[titleCol]?.trim() ?? "",
+      doi: doiCol >= 0 ? (normalizeDOI(fields[doiCol]) ?? "") : "",
       humanDecision,
       decidedBy: decidedByCol >= 0 ? (fields[decidedByCol]?.trim() ?? "") : "",
     });
@@ -288,10 +297,14 @@ export interface HumanConsistencyResult {
 
 /**
  * Compares the two reviewers' human_decision values for every item in this
- * round, matched by title (item_key isn't stable across independently-
- * imported copies of the same archive -- see archiveImportService.ts).
- * Advisory only, same as the AI-vs-human consistency feature: nothing here
- * writes anything, that's applyReconciliation()'s job.
+ * round. Matched by DOI first (a title can collide or drift slightly
+ * between two independently hand-edited CSVs -- a DOI doesn't), falling
+ * back to title when either side has no usable DOI -- item_key isn't
+ * stable across independently-imported copies of the same archive (see
+ * archiveImportService.ts), and a CSV exported before the doi column
+ * existed simply never DOI-matches. Advisory only, same as the AI-vs-human
+ * consistency feature: nothing here writes anything, that's
+ * applyReconciliation()'s job.
  */
 export async function computeRoundConsistency(
   round: ConsistencyRound,
@@ -315,14 +328,21 @@ export async function computeRoundConsistency(
   for (const r of rowsA) if (!byTitleA.has(r.title)) byTitleA.set(r.title, r);
   const byTitleB = new Map<string, ParsedReviewerRow>();
   for (const r of rowsB) if (!byTitleB.has(r.title)) byTitleB.set(r.title, r);
+  const byDoiA = new Map<string, ParsedReviewerRow>();
+  for (const r of rowsA) if (r.doi && !byDoiA.has(r.doi)) byDoiA.set(r.doi, r);
+  const byDoiB = new Map<string, ParsedReviewerRow>();
+  for (const r of rowsB) if (r.doi && !byDoiB.has(r.doi)) byDoiB.set(r.doi, r);
 
   const items: HumanConsistencyItem[] = [];
   const pairs: [string, string][] = [];
   for (const itemKey of round.itemKeys) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
     const title = item ? safeGetField(item as Zotero.Item, "title") : "";
-    const a = byTitleA.get(title);
-    const b = byTitleB.get(title);
+    const doi = item
+      ? (normalizeDOI(safeGetField(item as Zotero.Item, "DOI")) ?? "")
+      : "";
+    const a = (doi && byDoiA.get(doi)) || byTitleA.get(title);
+    const b = (doi && byDoiB.get(doi)) || byTitleB.get(title);
     items.push({
       itemKey,
       title,

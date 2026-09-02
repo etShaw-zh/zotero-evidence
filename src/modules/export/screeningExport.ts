@@ -271,6 +271,7 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
     toCsvLine([
       "item_key",
       "title",
+      "doi",
       "stage",
       "ai_decision",
       "ai_reasoning",
@@ -285,10 +286,12 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
   for (const row of rows || []) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, row.item_key);
     const title = item ? safeGetField(item as Zotero.Item, "title") : "";
+    const doi = item ? safeGetField(item as Zotero.Item, "DOI") : "";
     lines.push(
       toCsvLine([
         row.item_key,
         title,
+        doi,
         row.stage,
         row.ai_decision ?? "",
         row.ai_reasoning ?? "",

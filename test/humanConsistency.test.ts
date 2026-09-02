@@ -13,10 +13,11 @@ import {
   startPilotRound,
 } from "../src/modules/consistency/humanConsistencyService";
 
-async function makeTestItem(title: string): Promise<Zotero.Item> {
+async function makeTestItem(title: string, doi?: string): Promise<Zotero.Item> {
   const item = new Zotero.Item("journalArticle");
   item.libraryID = Zotero.Libraries.userLibraryID;
   item.setField("title", title);
+  if (doi) item.setField("DOI", doi);
   await item.saveTx();
   return item;
 }
@@ -29,14 +30,14 @@ function tempPath(name: string): string {
 
 function reviewerCsv(
   decidedBy: string,
-  rows: { title: string; stage: string; decision: string }[],
+  rows: { title: string; doi?: string; stage: string; decision: string }[],
 ): string {
   const lines = [
-    "item_key,title,stage,ai_decision,ai_reasoning,ai_model,human_decision,exclusion_reason,decided_by,decided_at,fulltext_ready",
+    "item_key,title,doi,stage,ai_decision,ai_reasoning,ai_model,human_decision,exclusion_reason,decided_by,decided_at,fulltext_ready",
   ];
   for (const r of rows) {
     lines.push(
-      `,${r.title},${r.stage},,,,${r.decision},,${decidedBy},2026-01-01T00:00:00.000Z,0`,
+      `,${r.title},${r.doi ?? ""},${r.stage},,,,${r.decision},,${decidedBy},2026-01-01T00:00:00.000Z,0`,
     );
   }
   return lines.join("\n");
@@ -170,6 +171,93 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     assert.equal(fullRound.itemKeys.length, 3);
     assert.notInclude(fullRound.itemKeys, itemA.key);
     assert.notInclude(fullRound.itemKeys, itemB.key);
+  });
+
+  it("computeRoundConsistency matches by DOI even when the two reviewers' CSVs disagree on the title text, and falls back to title when no DOI is available", async function () {
+    const project = await createProject(
+      `Human Consistency DOI Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+
+    // itemWithDoi: both reviewers' CSVs carry a garbled/mismatched title for
+    // it (simulating hand-edited CSVs), but the same DOI (differently
+    // formatted -- one with a doi.org URL prefix, one bare, one uppercased)
+    // -- normalizeDOI() should still line them up.
+    const itemWithDoi = await makeTestItem(
+      "The Real Title",
+      "10.1000/Example.DOI",
+    );
+    // itemNoDoi: no DOI on the item or in either CSV -- must still match by
+    // title as before.
+    const itemNoDoi = await makeTestItem("Plain Title No DOI");
+
+    for (const item of [itemWithDoi, itemNoDoi]) {
+      item.addToCollection(collections.screenQueueId);
+      await item.saveTx();
+    }
+
+    const csvAPath = tempPath(`hc-doi-a-${Date.now()}.csv`);
+    const csvBPath = tempPath(`hc-doi-b-${Date.now()}.csv`);
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvAPath),
+      reviewerCsv("111", [
+        {
+          title: "Reviewer A's garbled title",
+          doi: "https://doi.org/10.1000/example.doi",
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: "Plain Title No DOI",
+          stage: "ta_screening",
+          decision: "exclude",
+        },
+      ]),
+    );
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvBPath),
+      reviewerCsv("222", [
+        {
+          title: "Reviewer B's totally different garbled title",
+          doi: "10.1000/EXAMPLE.DOI",
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: "Plain Title No DOI",
+          stage: "ta_screening",
+          decision: "exclude",
+        },
+      ]),
+    );
+
+    const round = await startPilotRound(
+      project.id,
+      "ta_screening",
+      100,
+      tempPath(`hc-doi-pilot-${Date.now()}.zip`),
+    );
+    await recordCollectedCsv(round.id, "a", csvAPath);
+    const finalRound = await recordCollectedCsv(round.id, "b", csvBPath);
+    assert.equal(finalRound.status, "collected");
+
+    const result = await computeRoundConsistency(finalRound);
+
+    const doiItemResult = result.items.find(
+      (it) => it.itemKey === itemWithDoi.key,
+    )!;
+    // Neither CSV's title matches the item's real title (nor each other),
+    // so this only resolves if the DOI match won.
+    assert.equal(doiItemResult.aDecision, "include");
+    assert.equal(doiItemResult.bDecision, "include");
+
+    const titleItemResult = result.items.find(
+      (it) => it.itemKey === itemNoDoi.key,
+    )!;
+    assert.equal(titleItemResult.aDecision, "exclude");
+    assert.equal(titleItemResult.bDecision, "exclude");
   });
 
   it("computeRoundConsistency refuses until both reviewers' CSVs are collected", async function () {

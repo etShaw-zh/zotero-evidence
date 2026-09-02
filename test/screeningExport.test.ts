@@ -405,4 +405,36 @@ describe("Phase 6: screeningExport", function () {
     const dataRow = lines[1].split(",");
     assert.equal(dataRow[modelColumn], "gpt-4o-mini");
   });
+
+  it("exportScreeningLog includes each item's DOI, for reviewers' collected CSVs to be matched back up by DOI", async function () {
+    const project = await createProject(`Screening Log DOI Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeImportCandidateItem(
+      "DOI Paper",
+      "Poe",
+      "2024",
+      "10.1000/example.doi",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      item,
+    ]);
+    await taConfirmDecision(
+      project.id,
+      item,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+
+    const csv = await exportScreeningLog(project.id);
+    const lines = csv.split("\n");
+    const header = lines[0].split(",");
+    const doiColumn = header.indexOf("doi");
+    assert.isAbove(doiColumn, -1);
+    const dataRow = lines[1].split(",");
+    assert.equal(dataRow[doiColumn], "10.1000/example.doi");
+  });
 });
