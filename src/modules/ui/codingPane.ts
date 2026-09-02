@@ -682,7 +682,7 @@ async function renderCodingArea(
           } catch (e: any) {
             ztoolkit.log("Coding generateSuggestions failed", item.key, e);
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-generate")}\n${e?.stack ?? e?.message ?? e}`,
+              `${getString("coding-error-generate")}\n${e?.message ?? e}`,
             );
             generateBtn.removeAttribute("disabled");
             generateBtn.textContent = getString("coding-generate-suggestions");

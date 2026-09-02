@@ -1,3 +1,5 @@
+import { extractProviderErrorMessage } from "./aiClient";
+
 /**
  * Derives an OpenAI-compatible `/models` listing URL from a stored
  * chat/completions URL (AIProviderConfig.baseURL is the FULL completions
@@ -29,11 +31,29 @@ export async function fetchAvailableModels(
       "Could not derive a /models URL from this base URL (expected it to end with /chat/completions).",
     );
   }
-  const xhr = await Zotero.HTTP.request("GET", modelsURL, {
-    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-    responseType: "json",
-    timeout: 30000,
-  });
+  let xhr: any;
+  try {
+    xhr = await Zotero.HTTP.request("GET", modelsURL, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      responseType: "json",
+      timeout: 30000,
+      // See aiClient.ts's callChatCompletion for why: without this,
+      // Zotero.HTTP.request silently retries a non-2xx response (backoff up
+      // to an hour by default) instead of failing fast for this
+      // foreground, user-initiated "Fetch Models" call.
+      errorDelayMax: 0,
+    });
+  } catch (e: any) {
+    // Same reasoning as aiClient.ts's callChatCompletion: a non-2xx status
+    // (bad key, insufficient balance, ...) throws Zotero.HTTP.
+    // UnexpectedStatusException with no body detail in its own .message
+    // when responseType is "json" -- read the provider's own error.message
+    // off the parsed body instead of surfacing a bare "Unexpected status
+    // code NNN".
+    const providerMessage = extractProviderErrorMessage(e?.xmlhttp?.response);
+    if (providerMessage) throw new Error(providerMessage);
+    throw e;
+  }
   const list = (xhr.response as any)?.data;
   if (!Array.isArray(list)) {
     throw new Error(
