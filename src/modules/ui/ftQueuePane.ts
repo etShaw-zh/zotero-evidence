@@ -1090,6 +1090,28 @@ async function renderFtChecklistArea(
                   if (!proceed) return;
                 }
               }
+              if (decision === "include") {
+                // A confirmed, triggered exclusion criterion contradicts
+                // finalizing as Include -- and silently allowing both to
+                // stand would also corrupt the PRISMA export: that
+                // criterion would still be counted in the reasons
+                // breakdown (getFtReasonCounts doesn't know or care
+                // whether the paper it belongs to ended up excluded),
+                // while the paper itself counts toward included studies.
+                const confirmedExclusions = await getConfirmedExclusionReasons(
+                  ctx.project.id,
+                  item.key,
+                );
+                if (confirmedExclusions.length > 0) {
+                  const proceed = ztoolkit.getGlobal("confirm")(
+                    getString(
+                      "ft-queue-finalize-include-confirm-exclusion-reasons",
+                      { args: { n: confirmedExclusions.length } },
+                    ),
+                  );
+                  if (!proceed) return;
+                }
+              }
               const reasons =
                 decision === "exclude"
                   ? await getConfirmedExclusionReasons(ctx.project.id, item.key)

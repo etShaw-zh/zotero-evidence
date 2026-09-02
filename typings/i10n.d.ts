@@ -206,6 +206,7 @@ export type FluentMessageId =
   | 'ft-queue-error-unavailable'
   | 'ft-queue-error-undo'
   | 'ft-queue-finalize-exclude-confirm-unreviewed'
+  | 'ft-queue-finalize-include-confirm-exclusion-reasons'
   | 'ft-queue-head-text'
   | 'ft-queue-history-ai'
   | 'ft-queue-history-human'

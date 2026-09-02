@@ -197,6 +197,7 @@ ft-queue-add-manual-check = + Add Check Manually
 ft-queue-manual-check-cancel = Cancel
 ft-queue-manual-check-error-incomplete = Please choose a criterion.
 ft-queue-finalize-exclude-confirm-unreviewed = { $n } AI-suggested exclusion reason(s) haven't been confirmed yet — only confirmed reasons get recorded. Exclude anyway without them?
+ft-queue-finalize-include-confirm-exclusion-reasons = This item already has { $n } confirmed exclusion reason(s) — including it contradicts those, and will affect the PRISMA export's exclusion-reason breakdown. Include anyway?
 ft-queue-history-title = Screening record
 ft-queue-history-none = No screening record found for this item.
 ft-queue-history-ai = AI:

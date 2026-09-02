@@ -197,6 +197,7 @@ ft-queue-add-manual-check = ＋ 手动添加一条判断
 ft-queue-manual-check-cancel = 取消
 ft-queue-manual-check-error-incomplete = 请选择一项标准。
 ft-queue-finalize-exclude-confirm-unreviewed = 还有 { $n } 条 AI 建议的排除依据尚未确认——只有已确认的理由才会被记录。是否仍然排除（不记录这些理由）？
+ft-queue-finalize-include-confirm-exclusion-reasons = 该条目已有 { $n } 条已确认的排除依据——纳入会与这些依据矛盾，且会影响 PRISMA 导出的排除理由统计。是否仍然纳入？
 ft-queue-history-title = 筛选记录
 ft-queue-history-none = 未找到该条目的筛选记录。
 ft-queue-history-ai = AI：
