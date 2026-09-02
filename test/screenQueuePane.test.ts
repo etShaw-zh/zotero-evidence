@@ -187,6 +187,20 @@ describe("Screen Queue item-pane section", function () {
         container!.querySelector(".zotero-evidence-judgment-area"),
         "judgment area should be rendered",
       );
+
+      // Zotero's own <item-pane-header> title field must stay read-only
+      // (selectable/copyable, just not editable) while viewing an item
+      // that's part of an Evidence project -- see paneHelpers.ts's
+      // setNativeSectionsHidden, which sets `header.editable = false`
+      // alongside hiding the native sections.
+      const titleField = doc
+        .getElementById("zotero-item-pane-header")
+        ?.querySelector("editable-text textarea") as HTMLTextAreaElement | null;
+      assert.isNotNull(titleField, "title field should be present");
+      assert.isTrue(
+        titleField!.readOnly,
+        "title should not be editable while viewing an Evidence project item",
+      );
     } catch (e: any) {
       assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
     }

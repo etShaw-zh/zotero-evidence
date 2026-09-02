@@ -21,10 +21,17 @@ const BUILTIN_PANE_IDS = [
   "related",
 ];
 
-export function setNativeSectionsHidden(doc: Document, hidden: boolean) {
+/**
+ * Applies the hide/readonly state to one specific <item-details> (or other
+ * container) subtree -- shared by setNativeSectionsHidden (onItemChange,
+ * scoped to the section instance's own root) and
+ * refreshLibraryNativeSectionsHidden (onDestroy's recovery path, scoped to
+ * the library's own fixed-id root).
+ */
+function applyNativeSectionsHidden(root: ParentNode, hidden: boolean) {
   // 1. Library pane: toggle class on #zotero-view-item so descendant CSS
   //    selectors at the top of zoteroPane.css hide native sections there.
-  const libraryContainer = doc.getElementById("zotero-view-item");
+  const libraryContainer = root.querySelector("#zotero-view-item");
   libraryContainer?.classList.toggle(NATIVE_HIDE_CLASS, hidden);
 
   // 2. Reader pane (and any other layout): toggle class directly on each
@@ -35,11 +42,94 @@ export function setNativeSectionsHidden(doc: Document, hidden: boolean) {
   //    abstract/attachments -- those native sections take up visible space
   //    and the whole column needs to scroll through them to reach us.
   for (const paneId of BUILTIN_PANE_IDS) {
-    const sections = doc.querySelectorAll(`[data-pane="${paneId}"]`);
+    const sections = root.querySelectorAll(`[data-pane="${paneId}"]`);
     for (const section of sections) {
       section.classList.toggle(NATIVE_HIDE_CLASS, hidden);
     }
   }
+
+  // 3. Title field: Zotero's own <item-pane-header> exposes an `editable`
+  //    property (chrome://zotero/content/elements/itemPaneHeader.js) that
+  //    sets the title textarea's `readOnly` attribute -- readOnly still
+  //    allows selecting and copying the title, just not typing into it.
+  //    Evidence's screening/dedup/export logic all key off an item's title
+  //    text, so editing it from inside a project pane risks silently
+  //    desyncing that state from what was actually screened; disabling
+  //    editing (not visibility, unlike #1/#2 above) is enough to prevent
+  //    that while leaving copy/paste for citing the title elsewhere intact.
+  //    Matched by tag name (not the duplicated id) within the scoped root.
+  const header = root.querySelector("item-pane-header") as
+    | (HTMLElement & { editable: boolean })
+    | null;
+  if (header) header.editable = !hidden;
+}
+
+/**
+ * `body` (a hook's own section-content element) is required, not optional,
+ * for a reason -- see the scoping comment below. Call from onItemChange
+ * only -- see refreshLibraryNativeSectionsHidden for onDestroy, where
+ * `body` is unreliable.
+ */
+export function setNativeSectionsHidden(
+  doc: Document,
+  body: HTMLElement,
+  hidden: boolean,
+) {
+  // Scope every lookup to the SPECIFIC <item-details> instance this
+  // section's own content (`body`) lives inside, not the whole document.
+  // Zotero's reader-tab context pane is NOT a separate document -- it's
+  // another <item-details id="{tabID}-context"> element living as a
+  // sibling of the library tab's own <item-details id="zotero-item-
+  // details">, all inside the SAME top-level chrome document
+  // (chrome://zotero/content/elements/contextPane.js creates one per open
+  // tab in a shared deck). Each instance's own internal template hard-
+  // codes the SAME ids for its title header (#zotero-item-pane-header) and
+  // view-item container (#zotero-view-item) -- valid HTML doesn't actually
+  // forbid a document from containing duplicate ids, it just means an
+  // unscoped doc.getElementById always silently resolves to whichever
+  // instance happens to be first in the DOM (in practice, always the
+  // library tab's) and never a reader tab's own copy. That's why this is
+  // scoped by walking up from `body` rather than querying `doc` directly
+  // -- confirmed via Zotero.debug logging that at onItemChange time `body`
+  // is reliably still attached under its own <item-details>, unlike at
+  // onDestroy time (see refreshLibraryNativeSectionsHidden). Falls back to
+  // the whole document if no <item-details> ancestor is found (e.g. a test
+  // environment without Zotero's real layout), matching the old unscoped
+  // behavior.
+  const root: ParentNode = body.closest("item-details") ?? doc;
+  applyNativeSectionsHidden(root, hidden);
+}
+
+/**
+ * Use from onDestroy instead of setNativeSectionsHidden -- onDestroy fires
+ * whenever ANY instance of a pane section goes away (e.g. closing a PDF
+ * reader tab opened from a Coding/FT-Include item), but by that point its
+ * own `body` is already detached from its <item-details> ancestor
+ * (confirmed via Zotero.debug logging: body.closest("item-details")
+ * reliably returns null at onDestroy time, even though the identical call
+ * from onItemChange moments earlier correctly found it) -- so scoping from
+ * `body` the way setNativeSectionsHidden does doesn't work here, and
+ * falling back to a document-wide search hits whichever <item-details> is
+ * first in the DOM (the library tab's) regardless of which tab is actually
+ * closing, incorrectly clearing the STILL-ACTIVE library tab's state. This
+ * was exactly the reported bug: opening then closing a PDF from Extract
+ * Coding left the library tab's native panes visible and its title
+ * editable again, with nothing afterward to re-hide them (Zotero doesn't
+ * re-fire onItemChange for the library tab just because a different tab
+ * closed). Fixed by not trusting the destroy event's own body at all: the
+ * library tab's own <item-details> root has a fixed, predictable id
+ * ("zotero-item-details", unlike a reader tab's "{tabID}-context") --
+ * found directly, then hidden is re-derived from the library pane's own
+ * ACTUAL current selection (the same inputs onItemChange itself uses)
+ * rather than assumed. A no-op if the library root can't be found (e.g.
+ * the whole window is closing).
+ */
+export function refreshLibraryNativeSectionsHidden(doc: Document) {
+  const root = doc.getElementById("zotero-item-details");
+  if (!root) return;
+  const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+  const selectedItem = ZoteroPaneGlobal.getSelectedItems?.()[0];
+  applyNativeSectionsHidden(root, !!resolveContextSync(selectedItem));
 }
 
 /**

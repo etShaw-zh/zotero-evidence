@@ -17,6 +17,7 @@ import {
   decisionLabel,
   el,
   escapeHtml,
+  refreshLibraryNativeSectionsHidden,
   renderCardHeader,
   renderPaneError,
   resolveContextSync,
@@ -341,7 +342,7 @@ export function registerScreenQueuePane() {
       l10nID: getLocaleID("screen-queue-sidenav-tooltip"),
       icon: "chrome://zotero/skin/16/universal/magnifier.svg",
     },
-    onItemChange: ({ item, doc, setEnabled, tabType }) => {
+    onItemChange: ({ item, doc, body, setEnabled, tabType }) => {
       // Must decide synchronously: Zotero renders based on this call's
       // result before any promise from here would resolve, so the lookup
       // has to be a synchronous cache read, not a fresh async DB query.
@@ -361,13 +362,13 @@ export function registerScreenQueuePane() {
       // section's hook runs last would clobber the other's decision back
       // off, and the two sections don't always agree on section-specific
       // relevance for the same collection.
-      setNativeSectionsHidden(doc, !!ctx);
+      setNativeSectionsHidden(doc, body, !!ctx);
       // Keep the cache warm for next time in case it's gone stale (e.g. a
       // project was created/renamed since the last refresh).
       void refreshProjectPaneContextCache();
     },
     onDestroy: ({ doc }) => {
-      setNativeSectionsHidden(doc, false);
+      refreshLibraryNativeSectionsHidden(doc);
     },
     // registerSection silently fails (returns false, no section is created
     // at all) without a synchronous onRender -- onAsyncRender alone isn't

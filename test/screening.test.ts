@@ -303,8 +303,18 @@ describe("Phase 2: TA-Screening core loop", function () {
     const ftQueue = await findProjectPaneContext(collections.ftQueueId);
     assert.equal(ftQueue?.role, "ft_queue");
 
-    // Sources/<db> and Coding are not TA-Screening-pane collections.
-    const unrelated = await findProjectPaneContext(collections.sourcesId);
-    assert.isNull(unrelated);
+    // Root and Sources aren't TA-Screening-pane collections (no pane
+    // section treats "other" as its own relevant role -- see PaneRole's
+    // doc comment), but they still resolve to a context so
+    // setNativeSectionsHidden (native panes hidden, title read-only)
+    // applies there too, same as every other stage -- an item lands in
+    // Sources at the same moment it lands in screen_queue (see
+    // dedupService.ts), so this isn't a new window into the project, just
+    // closing the gap for the edge case where it's later removed from
+    // every other stage collection by hand.
+    const root = await findProjectPaneContext(getRootCollectionId(project)!);
+    assert.equal(root?.role, "other");
+    const sources = await findProjectPaneContext(collections.sourcesId);
+    assert.equal(sources?.role, "other");
   });
 });

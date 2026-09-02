@@ -38,6 +38,7 @@ import {
   escapeHtml,
   quotePreview,
   refreshAnnotationOptions,
+  refreshLibraryNativeSectionsHidden,
   renderCardHeader,
   renderPaneError,
   resolveAttachment,
@@ -1339,7 +1340,7 @@ export function registerFtQueuePane() {
       l10nID: getLocaleID("ft-queue-sidenav-tooltip"),
       icon: "chrome://zotero/skin/16/universal/page.svg",
     },
-    onItemChange: ({ item, doc, setEnabled }) => {
+    onItemChange: ({ item, doc, body, setEnabled }) => {
       const ctx = resolveContextSync(item);
       const relevant =
         !!ctx &&
@@ -1352,11 +1353,11 @@ export function registerFtQueuePane() {
       // rather than this section's own relevance -- both sections share one
       // class and Zotero calls every section's onItemChange per event, so
       // whichever runs last must not clobber the other's decision.
-      setNativeSectionsHidden(doc, !!ctx);
+      setNativeSectionsHidden(doc, body, !!ctx);
       void refreshProjectPaneContextCache();
     },
     onDestroy: ({ doc }) => {
-      setNativeSectionsHidden(doc, false);
+      refreshLibraryNativeSectionsHidden(doc);
     },
     // Required for registerSection to actually succeed -- see
     // screenQueuePane.ts for the empirically-confirmed reason.

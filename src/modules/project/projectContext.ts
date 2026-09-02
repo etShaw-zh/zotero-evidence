@@ -13,7 +13,21 @@ export type PaneRole =
   | "ft_include"
   | "ft_exclude"
   | "ft_unavailable"
-  | "coding";
+  | "coding"
+  // The project's own root Collection, "1. Sources", and its per-source-
+  // database children -- none of which any pane section treats as its own
+  // relevant role (no custom UI renders for them), but an item sitting in
+  // any of them is still just as much "in this Evidence project" as one in
+  // a pipeline-stage Collection. An item lands in Sources the moment it's
+  // imported, always alongside screen_queue (see dedupService.ts, which
+  // adds both in the same operation), so in practice every project item
+  // already carries a mapped role from the instant it exists -- mapping
+  // "other" too just closes the (currently theoretical) gap where a user
+  // manually removes an item from every pipeline-stage Collection by hand
+  // while leaving it in Sources or the root. Exists only so
+  // setNativeSectionsHidden (native panes hidden, title read-only) still
+  // applies while browsing any of these, same as every other stage.
+  | "other";
 
 export interface ProjectPaneContext {
   project: EvidenceProject;
@@ -111,6 +125,25 @@ async function buildContextMap(): Promise<{
       collections,
       role: "coding",
     });
+    map.set(rootId, {
+      project,
+      collections,
+      role: "other",
+    });
+    map.set(collections.sourcesId, {
+      project,
+      collections,
+      role: "other",
+    });
+    for (const sourceCollectionId of Object.values(
+      collections.sourceCollectionIds,
+    )) {
+      map.set(sourceCollectionId, {
+        project,
+        collections,
+        role: "other",
+      });
+    }
   }
   return { paneContexts: map, ownedCollectionIds, collectionOwnerProjectId };
 }

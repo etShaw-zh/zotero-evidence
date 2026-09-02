@@ -25,6 +25,7 @@ import {
   escapeHtml,
   quotePreview,
   refreshAnnotationOptions,
+  refreshLibraryNativeSectionsHidden,
   renderCardHeader,
   renderPaneError,
   resolveAttachment,
@@ -1047,7 +1048,7 @@ export function registerCodingPane() {
     // too (a no-op if that container doesn't exist in some reader layout).
     // Goal: opening a PDF for a Coding/FT-Include item shouldn't leave Info/
     // Abstract as the only thing worth looking at in that pane.
-    onItemChange: ({ item, doc, setEnabled, tabType }) => {
+    onItemChange: ({ item, doc, body, setEnabled, tabType }) => {
       const ctx = resolveContextSync(item);
       const relevant =
         (tabType === "reader" &&
@@ -1055,10 +1056,10 @@ export function registerCodingPane() {
           (ctx.role === "ft_include" || ctx.role === "coding")) ||
         (tabType === "library" && !!ctx && ctx.role === "coding");
       setEnabled(relevant);
-      setNativeSectionsHidden(doc, !!ctx);
+      setNativeSectionsHidden(doc, body, !!ctx);
     },
     onDestroy: ({ doc }) => {
-      setNativeSectionsHidden(doc, false);
+      refreshLibraryNativeSectionsHidden(doc);
     },
     // Required for registerSection to actually succeed -- see
     // screenQueuePane.ts for the empirically-confirmed reason.
