@@ -57,6 +57,7 @@ import {
   SOURCE_DATABASE_LABELS,
 } from "../project/collectionStructure";
 import {
+  findOwningProjectIdSync,
   findProjectPaneContext,
   getRootCollectionId,
   refreshProjectPaneContextCache,
@@ -424,6 +425,26 @@ export class EvidenceCommands {
     dialogData.unloadLock.promise.then(() => win.clearInterval(handle));
   }
 
+  // Every "pick a project" dialog needs *some* initial project id to
+  // pre-select/pre-fill from. Defaulting to projects[0] (whatever
+  // listProjects() happens to return first) is wrong -- if the user doesn't
+  // notice/change the dropdown, actions silently apply to an arbitrary
+  // project instead of the one they're actually looking at (e.g.
+  // criteriaDialog silently overwriting a DIFFERENT project's criteria).
+  // Prefer whichever project owns the Collection currently selected in the
+  // library pane -- root, "1. Sources", a source-database child, a
+  // TA-/FT-Screening collection, all of it, via findOwningProjectIdSync --
+  // and only fall back to projects[0] when nothing relevant is selected.
+  private static defaultProjectId(projects: EvidenceProject[]): number {
+    const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
+    const ownerId = findOwningProjectIdSync(collectionId);
+    if (ownerId !== null && projects.some((p) => p.id === ownerId)) {
+      return ownerId;
+    }
+    return projects[0].id;
+  }
+
   static async newProjectDialog() {
     // Only libraries the user can actually write to are offered -- a
     // read-only Group Library membership couldn't save the Collection tree
@@ -538,8 +559,9 @@ export class EvidenceCommands {
       return;
     }
 
+    const defaultProjectId = EvidenceCommands.defaultProjectId(projects);
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(defaultProjectId),
       confirmName: "",
     };
 
@@ -591,7 +613,11 @@ export class EvidenceCommands {
           tag: "label",
           namespace: "html",
           id: "evidence-delete-project-name-display",
-          properties: { innerHTML: escapeHtml(projects[0].name) },
+          properties: {
+            innerHTML: escapeHtml(
+              projects.find((p) => p.id === defaultProjectId)?.name ?? "",
+            ),
+          },
           styles: { fontWeight: "bold" },
         },
         false,
@@ -689,7 +715,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
     };
     const dialog = new ztoolkit.Dialog(2, 2)
       .addCell(0, 0, {
@@ -994,8 +1020,9 @@ export class EvidenceCommands {
       select.value = "";
     };
 
+    const defaultProjectId = EvidenceCommands.defaultProjectId(projects);
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(defaultProjectId),
       sourceLabel: SOURCE_DATABASE_LABELS[0] as string,
       filePath: "",
     };
@@ -1066,7 +1093,7 @@ export class EvidenceCommands {
                     ),
                   },
                 },
-                ...sourceLabelOptions(projects[0].id).map((label) => ({
+                ...sourceLabelOptions(defaultProjectId).map((label) => ({
                   tag: "option",
                   namespace: "html",
                   properties: { value: label, innerHTML: escapeHtml(label) },
@@ -1290,7 +1317,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
       filePath: "",
     };
 
@@ -1452,9 +1479,10 @@ export class EvidenceCommands {
       exclusionCriteria: (criteria?.exclusionCriteria ?? []).join("\n"),
     });
 
-    const initial = await getLatestCriteria(projects[0].id, "ta");
+    const defaultProjectId = EvidenceCommands.defaultProjectId(projects);
+    const initial = await getLatestCriteria(defaultProjectId, "ta");
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(defaultProjectId),
       ...criteriaFields(initial?.criteria ?? null),
     };
 
@@ -2519,7 +2547,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
       filePath: "",
     };
 
@@ -2685,7 +2713,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
       name: "",
       type: "text",
       values: "",
@@ -2940,7 +2968,7 @@ export class EvidenceCommands {
       return;
     }
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
     };
 
     const renderList = async (container: HTMLElement) => {
@@ -3050,7 +3078,7 @@ export class EvidenceCommands {
       return;
     }
 
-    let projectId = projects[0].id;
+    let projectId = EvidenceCommands.defaultProjectId(projects);
 
     while (true) {
       const codebook = await getLatestCodebook(projectId);
@@ -3441,7 +3469,7 @@ export class EvidenceCommands {
     }
 
     const HTML_NS = "http://www.w3.org/1999/xhtml";
-    let projectId = projects[0].id;
+    let projectId = EvidenceCommands.defaultProjectId(projects);
 
     while (true) {
       const codebook = await getLatestCodebook(projectId);
@@ -3741,7 +3769,7 @@ export class EvidenceCommands {
     }
 
     const HTML_NS = "http://www.w3.org/1999/xhtml";
-    let projectId = projects[0].id;
+    let projectId = EvidenceCommands.defaultProjectId(projects);
     const MAX_DISAGREEMENT_ROWS = 150;
 
     while (true) {
@@ -4090,7 +4118,7 @@ export class EvidenceCommands {
     }
 
     const HTML_NS = "http://www.w3.org/1999/xhtml";
-    let projectId = projects[0].id;
+    let projectId = EvidenceCommands.defaultProjectId(projects);
 
     while (true) {
       const dialogData: { [key: string]: any } = {
@@ -4634,7 +4662,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
     };
     const dialog = new ztoolkit.Dialog(2, 2)
       .addCell(0, 0, {
