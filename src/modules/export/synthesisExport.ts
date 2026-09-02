@@ -37,6 +37,7 @@ export async function exportSynthesisData(projectId: number): Promise<string> {
     toCsvLine([
       "item_key",
       "title",
+      "doi",
       "variable_name",
       "variable_value",
       "quote",
@@ -49,10 +50,12 @@ export async function exportSynthesisData(projectId: number): Promise<string> {
       | Zotero.Item
       | false;
     const title = item ? safeGetField(item, "title") : "";
+    const doi = item ? safeGetField(item, "DOI") : "";
     lines.push(
       toCsvLine([
         r.item_key,
         title,
+        doi,
         r.variable_name,
         r.variable_value,
         r.quote || "",

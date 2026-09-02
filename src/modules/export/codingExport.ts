@@ -53,7 +53,14 @@ export async function exportCodingData(projectId: number): Promise<string> {
 
   const lines: string[] = [];
   lines.push(
-    toCsvLine(["item_key", "authors", "year", "title", ...variableNames]),
+    toCsvLine([
+      "item_key",
+      "authors",
+      "year",
+      "title",
+      "doi",
+      ...variableNames,
+    ]),
   );
 
   for (const { item_key: itemKey } of itemRows || []) {
@@ -68,6 +75,7 @@ export async function exportCodingData(projectId: number): Promise<string> {
       .join("; ");
     const year = (safeGetField(item, "date").match(/\d{4}/) || [])[0] || "";
     const title = safeGetField(item, "title");
+    const doi = safeGetField(item, "DOI");
 
     const records = (await getCodingRecords(projectId, itemKey)).filter(
       (r) => r.confirmed,
@@ -83,7 +91,7 @@ export async function exportCodingData(projectId: number): Promise<string> {
 
     const rows = expandRecordsToRows(variableNames, valuesByVariable);
     for (const row of rows) {
-      lines.push(toCsvLine([itemKey, authors, year, title, ...row]));
+      lines.push(toCsvLine([itemKey, authors, year, title, doi, ...row]));
     }
   }
 

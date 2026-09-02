@@ -32,13 +32,45 @@ describe("Phase 8: synthesisExport", function () {
     const lines = csv.split("\n");
     assert.equal(
       lines[0],
-      "item_key,title,variable_name,variable_value,quote,theme",
+      "item_key,title,doi,variable_name,variable_value,quote,theme",
     );
     assert.equal(lines.length, 2);
     assert.equal(
       lines[1],
-      `${item.key},Synthesis Export Paper,Population,Adults,adults only,`,
+      `${item.key},Synthesis Export Paper,,Population,Adults,adults only,`,
     );
+  });
+
+  it("includes the item's DOI", async function () {
+    const project = await createProject(
+      `Synthesis Export DOI Test ${Date.now()}`,
+    );
+    const codebook = await saveCodebook(project.id, [
+      { name: "Population", type: "text" },
+    ]);
+
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "DOI Synthesis Paper");
+    item.setField("DOI", "10.1000/example.doi");
+    await item.saveTx();
+
+    await addManualRecord(
+      project.id,
+      item,
+      codebook.id,
+      "Population",
+      "Adults",
+      null,
+      null,
+    );
+
+    const csv = await exportSynthesisData(project.id);
+    const lines = csv.split("\n");
+    const header = lines[0].split(",");
+    const doiColumn = header.indexOf("doi");
+    assert.isAbove(doiColumn, -1);
+    assert.equal(lines[1].split(",")[doiColumn], "10.1000/example.doi");
   });
 
   it("produces header-only CSV when the project has no confirmed coding records", async function () {
