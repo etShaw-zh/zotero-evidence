@@ -4,10 +4,10 @@
 
 # Zotero Evidence
 
-[![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-square&logo=github)](https://github.com/windingwind/zotero-plugin-template)
-[![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](LICENSE)
+[![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 
 > [!WARNING]
 > Under high-frequency development — features and data formats can still change between releases.
