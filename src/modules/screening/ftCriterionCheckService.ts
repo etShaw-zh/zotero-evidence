@@ -135,29 +135,34 @@ export async function getCriterionChecks(
 }
 
 /**
- * Roll-up rule (advisory only, same as every other AI-vs-human feature in
- * this plugin): any CONFIRMED exclude-verdict check -> 'exclude' (whether
- * it's an unmet inclusion criterion or a triggered exclusion criterion,
- * both mean the paper doesn't qualify); otherwise, once every inclusion
- * criterion has a CONFIRMED include-verdict check -> 'include'; anything
- * short of that is 'unclear' -- not enough has been reviewed yet to say
- * either way. Unconfirmed AI suggestions never count on their own, by
- * design: silently trusting them would recreate the exact "AI decided and
- * nobody actually checked" problem this whole checklist replaces.
+ * Roll-up rule (advisory only -- this is the "AI suggests" half of the
+ * checklist, purely a hint shown in the UI and in the history view's "AI:"
+ * summary; it never gates or auto-writes anything official on its own):
+ * any exclude-verdict check -> 'exclude' (whether it's an unmet inclusion
+ * criterion or a triggered exclusion criterion, both mean the paper
+ * doesn't qualify); otherwise, once every inclusion criterion has an
+ * include-verdict check -> 'include'; anything short of that is 'unclear'.
+ *
+ * Counts confirmed AND unconfirmed checks alike -- this is deliberately
+ * NOT the same "unconfirmed never counts" rule the rest of this checklist
+ * enforces for what actually gets recorded when a paper is finalized
+ * (getConfirmedExclusionReasons/getUnconfirmedExcludeChecks still only
+ * ever look at confirmed rows for that). This function only answers "what
+ * does the AI's own read currently amount to", which is exactly what its
+ * "AI:" label promises -- filtering to confirmed-only here just meant it
+ * always showed 'unclear' immediately after running the AI checklist and
+ * before a human had confirmed anything, which read as broken rather than
+ * "nothing confirmed yet".
  */
 export function computeRollup(
   checks: CriterionCheck[],
   totalInclusionCriteria: number,
 ): "include" | "exclude" | "unclear" {
-  const confirmed = checks.filter((c) => c.confirmed);
-  if (confirmed.some((c) => c.verdict === "exclude")) return "exclude";
-  const confirmedIncludes = confirmed.filter(
+  if (checks.some((c) => c.verdict === "exclude")) return "exclude";
+  const includes = checks.filter(
     (c) => c.criterionType === "inclusion" && c.verdict === "include",
   ).length;
-  if (
-    totalInclusionCriteria > 0 &&
-    confirmedIncludes >= totalInclusionCriteria
-  ) {
+  if (totalInclusionCriteria > 0 && includes >= totalInclusionCriteria) {
     return "include";
   }
   return "unclear";

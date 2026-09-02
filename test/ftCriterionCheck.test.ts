@@ -179,12 +179,11 @@ describe("FT-Screening criterion checklist", function () {
         ...overrides,
       });
 
-      it("returns 'unclear' when nothing is confirmed yet", function () {
-        const checks = [check({ confirmed: false })];
-        assert.equal(computeRollup(checks, 1), "unclear");
+      it("returns 'unclear' when there are no checks at all", function () {
+        assert.equal(computeRollup([], 1), "unclear");
       });
 
-      it("returns 'exclude' when any confirmed check is an exclude verdict, regardless of type", function () {
+      it("returns 'exclude' when any check is an exclude verdict, regardless of type", function () {
         const checks = [
           check({
             criterionType: "inclusion",
@@ -200,32 +199,24 @@ describe("FT-Screening criterion checklist", function () {
         assert.equal(computeRollup(checks, 1), "exclude");
       });
 
-      it("returns 'include' only once every inclusion criterion has a confirmed include-verdict check", function () {
+      it("returns 'include' only once every inclusion criterion has an include-verdict check", function () {
         const oneOfTwo = [
-          check({
-            criterionType: "inclusion",
-            verdict: "include",
-            confirmed: true,
-          }),
+          check({ criterionType: "inclusion", verdict: "include" }),
         ];
         assert.equal(computeRollup(oneOfTwo, 2), "unclear");
 
         const bothOfTwo = [
-          check({
-            criterionType: "inclusion",
-            verdict: "include",
-            confirmed: true,
-          }),
-          check({
-            criterionType: "inclusion",
-            verdict: "include",
-            confirmed: true,
-          }),
+          check({ criterionType: "inclusion", verdict: "include" }),
+          check({ criterionType: "inclusion", verdict: "include" }),
         ];
         assert.equal(computeRollup(bothOfTwo, 2), "include");
       });
 
-      it("ignores unconfirmed checks entirely, even an exclude-verdict one", function () {
+      // Deliberately the opposite of what this rollup used to do -- see
+      // its doc comment: this is "AI:"'s own read, not the "only confirmed
+      // rows ever count" rule the rest of the checklist still enforces for
+      // what actually gets recorded when a paper is finalized.
+      it("counts unconfirmed checks too, so the AI's own read shows up before anything is confirmed", function () {
         const checks = [
           check({
             criterionType: "exclusion",
@@ -233,7 +224,21 @@ describe("FT-Screening criterion checklist", function () {
             confirmed: false,
           }),
         ];
-        assert.equal(computeRollup(checks, 0), "unclear");
+        assert.equal(computeRollup(checks, 0), "exclude");
+
+        const bothUnconfirmed = [
+          check({
+            criterionType: "inclusion",
+            verdict: "include",
+            confirmed: false,
+          }),
+          check({
+            criterionType: "inclusion",
+            verdict: "include",
+            confirmed: false,
+          }),
+        ];
+        assert.equal(computeRollup(bothUnconfirmed, 2), "include");
       });
     });
   });
