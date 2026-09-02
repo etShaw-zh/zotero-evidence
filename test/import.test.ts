@@ -174,6 +174,28 @@ describe("Phase 1: project structure, import, dedup", function () {
        VALUES (?, 'Theme A', ?, ?)`,
       [codingRecordId, new Date().toISOString(), new Date().toISOString()],
     );
+    // Both added after deleteProject's own cleanup list was first written --
+    // a real row in either of these (not just an empty table) is what
+    // actually reproduces the "FOREIGN KEY constraint failed" bug: an empty
+    // table never violates the constraint, so omitting these let that
+    // regression ship unnoticed.
+    await databaseService.queryAsync(
+      `INSERT INTO ft_criterion_checks
+        (project_id, item_key, criterion_type, criterion_text, verdict, source, confirmed, created_at, updated_at)
+       VALUES (?, ?, 'inclusion', 'Adults 18-65', 'include', 'human', 1, ?, ?)`,
+      [
+        project.id,
+        item.key,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
+    );
+    await databaseService.queryAsync(
+      `INSERT INTO consistency_rounds
+        (project_id, stage, phase, status, item_keys, created_at, updated_at)
+       VALUES (?, 'ta_screening', 'pilot', 'sampled', '[]', ?, ?)`,
+      [project.id, new Date().toISOString(), new Date().toISOString()],
+    );
 
     await deleteProject(project.id);
 
@@ -192,6 +214,8 @@ describe("Phase 1: project structure, import, dedup", function () {
       "codebooks",
       "coding_records",
       "item_sources",
+      "ft_criterion_checks",
+      "consistency_rounds",
     ]) {
       const rows = await databaseService.queryAsync(
         `SELECT * FROM ${table} WHERE project_id = ?`,
