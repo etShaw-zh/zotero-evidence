@@ -320,16 +320,22 @@ export class EvidenceCommands {
   }
 
   static registerItemMenus() {
+    // Same icon as every menuFile group above -- marks these three as
+    // Evidence's own entries in the item right-click menu, not a native
+    // Zotero action, at a glance.
+    const icon = `chrome://${config.addonRef}/content/icons/icon.svg`;
     ztoolkit.Menu.register("item", {
       tag: "menuitem",
       id: "zotero-evidence-batch-run-ai",
       label: getString("menu-batch-run-ai"),
+      icon,
       commandListener: () => addon.hooks.onDialogEvents("evidenceBatchRunAI"),
     });
     ztoolkit.Menu.register("item", {
       tag: "menuitem",
       id: "zotero-evidence-batch-confirm-ai",
       label: getString("menu-batch-confirm-ai"),
+      icon,
       commandListener: () =>
         addon.hooks.onDialogEvents("evidenceBatchConfirmAI"),
     });
@@ -337,6 +343,7 @@ export class EvidenceCommands {
       tag: "menuitem",
       id: "zotero-evidence-batch-mark-unavailable",
       label: getString("menu-batch-mark-unavailable"),
+      icon,
       commandListener: () =>
         addon.hooks.onDialogEvents("evidenceBatchMarkUnavailable"),
     });
