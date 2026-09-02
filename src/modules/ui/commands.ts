@@ -2318,7 +2318,7 @@ export class EvidenceCommands {
           ]);
           return {
             name: p.name,
-            pending: countItems(collections.screenQueueId),
+            pending: countItems(collections.taQueueId),
             include: prisma.screening.includedToFt,
             exclude: prisma.screening.excluded,
             unclear: prisma.screening.unclearToFt,
@@ -2388,12 +2388,12 @@ export class EvidenceCommands {
     );
   }
 
-  private static async resolveScreenQueueBatchContext() {
+  private static async resolveTaQueueBatchContext() {
     const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
     const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
     const ctx = await findProjectPaneContext(collectionId ?? null);
-    if (!ctx || ctx.role !== "screen_queue") {
-      ztoolkit.getGlobal("alert")(getString("error-not-screen-queue"));
+    if (!ctx || ctx.role !== "ta_queue") {
+      ztoolkit.getGlobal("alert")(getString("error-not-ta-queue"));
       return null;
     }
     const items = (ZoteroPaneGlobal.getSelectedItems() as Zotero.Item[]).filter(
@@ -2404,7 +2404,7 @@ export class EvidenceCommands {
   }
 
   static async batchRunAI() {
-    const resolved = await EvidenceCommands.resolveScreenQueueBatchContext();
+    const resolved = await EvidenceCommands.resolveTaQueueBatchContext();
     if (!resolved) return;
     const { ctx, items } = resolved;
 
@@ -2451,7 +2451,7 @@ export class EvidenceCommands {
   }
 
   static async batchConfirmAI() {
-    const resolved = await EvidenceCommands.resolveScreenQueueBatchContext();
+    const resolved = await EvidenceCommands.resolveTaQueueBatchContext();
     if (!resolved) return;
     const { ctx, items } = resolved;
 
@@ -3914,10 +3914,10 @@ export class EvidenceCommands {
 
   private static consistencyDecisionLabel(raw: string): string {
     const keys: { [k: string]: FluentMessageId } = {
-      include: "screen-queue-decision-include",
-      exclude: "screen-queue-decision-exclude",
-      unclear: "screen-queue-decision-unclear",
-      unavailable: "screen-queue-decision-unavailable",
+      include: "ta-queue-decision-include",
+      exclude: "ta-queue-decision-exclude",
+      unclear: "ta-queue-decision-unclear",
+      unavailable: "ta-queue-decision-unavailable",
     };
     const key = keys[raw];
     return key ? getString(key) : raw;
@@ -4470,7 +4470,7 @@ export class EvidenceCommands {
       // round that was itself never applied stays stuck at 'collected'
       // forever once a newer round exists -- its disagreements are already
       // sitting in TA-Screen Queue for a third reviewer regardless (see
-      // screenQueuePane.ts), so nothing is lost, just this dialog's own
+      // taQueuePane.ts), so nothing is lost, just this dialog's own
       // "apply" entry point for that particular round's agreements.
       const renderRoundResult = async (
         round: ConsistencyRound,

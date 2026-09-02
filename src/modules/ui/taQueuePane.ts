@@ -24,7 +24,7 @@ import {
   setNativeSectionsHidden,
 } from "./paneHelpers";
 
-const PANE_ID = "zotero-evidence-screen-queue";
+const PANE_ID = "zotero-evidence-ta-queue";
 
 async function renderJudgmentArea(
   container: HTMLElement,
@@ -38,7 +38,7 @@ async function renderJudgmentArea(
   if (!criteriaRow) {
     container.appendChild(
       el(doc, "p", {
-        properties: { innerHTML: getString("screen-queue-no-criteria") },
+        properties: { innerHTML: getString("ta-queue-no-criteria") },
         styles: { color: "var(--fill-secondary, #a33)" },
       }),
     );
@@ -60,7 +60,7 @@ async function renderJudgmentContent(
 
   const runAI = async () => {
     runBtn.setAttribute("disabled", "true");
-    runBtn.textContent = getString("screen-queue-loading");
+    runBtn.textContent = getString("ta-queue-loading");
     try {
       const result = await runAIJudgment(ctx.project.id, item);
       const newState: ScreeningState = {
@@ -73,16 +73,16 @@ async function renderJudgmentContent(
       await renderJudgmentContent(container, doc, ctx, item, newState);
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
-        `${getString("screen-queue-error-run-ai")}\n${e?.message ?? e}`,
+        `${getString("ta-queue-error-run-ai")}\n${e?.message ?? e}`,
       );
       runBtn.removeAttribute("disabled");
-      runBtn.textContent = getString("screen-queue-run-ai");
+      runBtn.textContent = getString("ta-queue-run-ai");
     }
   };
 
   const runBtn = el(doc, "button", {
     attributes: { type: "button" },
-    properties: { innerHTML: getString("screen-queue-run-ai") },
+    properties: { innerHTML: getString("ta-queue-run-ai") },
     listeners: [{ type: "click", listener: () => void runAI() }],
   }) as HTMLButtonElement;
 
@@ -108,20 +108,20 @@ async function renderJudgmentContent(
     const who = reviewerName ? `${label} (${escapeHtml(reviewerName)})` : label;
     const reasonHtml =
       verdict === "exclude" && reason
-        ? ` — ${getString("screen-queue-consistency-reason", { args: { reason: escapeHtml(reason) } })}`
+        ? ` — ${getString("ta-queue-consistency-reason", { args: { reason: escapeHtml(reason) } })}`
         : "";
     return `${who}: ${decisionLabel(verdict)}${reasonHtml}`;
   };
   const reviewerLines = consistencyResult
     ? [
         formatReviewerLine(
-          getString("screen-queue-consistency-reviewer-a"),
+          getString("ta-queue-consistency-reviewer-a"),
           consistencyResult.aReviewer,
           consistencyResult.aVerdict,
           consistencyResult.aExclusionReason,
         ),
         formatReviewerLine(
-          getString("screen-queue-consistency-reviewer-b"),
+          getString("ta-queue-consistency-reviewer-b"),
           consistencyResult.bReviewer,
           consistencyResult.bVerdict,
           consistencyResult.bExclusionReason,
@@ -137,7 +137,7 @@ async function renderJudgmentContent(
             tag: "h3",
             namespace: "html",
             properties: {
-              innerHTML: getString("screen-queue-consistency-title"),
+              innerHTML: getString("ta-queue-consistency-title"),
             },
           },
           ...reviewerLines.map((line) => ({
@@ -159,7 +159,7 @@ async function renderJudgmentContent(
             tag: "strong",
             namespace: "html",
             properties: {
-              innerHTML: `${getString("screen-queue-ai-suggestion")} ${decisionLabel(state.aiDecision)}`,
+              innerHTML: `${getString("ta-queue-ai-suggestion")} ${decisionLabel(state.aiDecision)}`,
             },
           },
           {
@@ -191,14 +191,14 @@ async function renderJudgmentContent(
       );
       new ztoolkit.ProgressWindow(config.addonName)
         .createLine({
-          text: getString("screen-queue-confirmed"),
+          text: getString("ta-queue-confirmed"),
           type: "success",
           progress: 100,
         })
         .show();
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
-        `${getString("screen-queue-error-confirm")}\n${e?.message ?? e}`,
+        `${getString("ta-queue-error-confirm")}\n${e?.message ?? e}`,
       );
     }
   };
@@ -225,14 +225,14 @@ async function renderJudgmentContent(
     container.appendChild(
       el(doc, "p", {
         properties: {
-          innerHTML: `${getString("screen-queue-decided")}: ${decisionLabel(state.decision)}`,
+          innerHTML: `${getString("ta-queue-decided")}: ${decisionLabel(state.decision)}`,
         },
       }),
     );
   }
 
   runBtn.textContent = getString(
-    state?.aiDecision ? "screen-queue-rerun-ai" : "screen-queue-run-ai",
+    state?.aiDecision ? "ta-queue-rerun-ai" : "ta-queue-run-ai",
   );
   container.appendChild(runBtn);
 }
@@ -253,14 +253,14 @@ async function renderHistoryArea(
 
   container.appendChild(
     el(doc, "h3", {
-      properties: { innerHTML: getString("screen-queue-history-title") },
+      properties: { innerHTML: getString("ta-queue-history-title") },
     }),
   );
 
   if (!state) {
     container.appendChild(
       el(doc, "p", {
-        properties: { innerHTML: getString("screen-queue-history-none") },
+        properties: { innerHTML: getString("ta-queue-history-none") },
       }),
     );
     return;
@@ -275,7 +275,7 @@ async function renderHistoryArea(
             tag: "strong",
             namespace: "html",
             properties: {
-              innerHTML: `${getString("screen-queue-history-ai")} ${decisionLabel(state.aiDecision)}`,
+              innerHTML: `${getString("ta-queue-history-ai")} ${decisionLabel(state.aiDecision)}`,
             },
           },
           {
@@ -292,14 +292,14 @@ async function renderHistoryArea(
     container.appendChild(
       el(doc, "p", {
         properties: {
-          innerHTML: `${getString("screen-queue-history-human")} ${decisionLabel(state.decision)}`,
+          innerHTML: `${getString("ta-queue-history-human")} ${decisionLabel(state.decision)}`,
         },
       }),
     );
 
     const undoBtn = el(doc, "button", {
       attributes: { type: "button" },
-      properties: { innerHTML: getString("screen-queue-undo") },
+      properties: { innerHTML: getString("ta-queue-undo") },
       listeners: [
         {
           type: "click",
@@ -308,14 +308,14 @@ async function renderHistoryArea(
               await undoDecision(ctx.project.id, item, ctx.collections);
               new ztoolkit.ProgressWindow(config.addonName)
                 .createLine({
-                  text: getString("screen-queue-undo-done"),
+                  text: getString("ta-queue-undo-done"),
                   type: "success",
                   progress: 100,
                 })
                 .show();
             } catch (e: any) {
               ztoolkit.getGlobal("alert")(
-                `${getString("screen-queue-error-undo")}\n${e?.message ?? e}`,
+                `${getString("ta-queue-error-undo")}\n${e?.message ?? e}`,
               );
             }
           },
@@ -326,7 +326,7 @@ async function renderHistoryArea(
   }
 }
 
-export function registerScreenQueuePane() {
+export function registerTaQueuePane() {
   Zotero.ItemPaneManager.registerSection({
     paneID: PANE_ID,
     pluginID: config.addonID,
@@ -335,11 +335,11 @@ export function registerScreenQueuePane() {
     // tagging (tag.svg). Matches Zotero's own native item-pane icon style
     // (chrome://zotero/skin/16/universal/*.svg, tinted via context-fill).
     header: {
-      l10nID: getLocaleID("screen-queue-head-text"),
+      l10nID: getLocaleID("ta-queue-head-text"),
       icon: "chrome://zotero/skin/16/universal/magnifier.svg",
     },
     sidenav: {
-      l10nID: getLocaleID("screen-queue-sidenav-tooltip"),
+      l10nID: getLocaleID("ta-queue-sidenav-tooltip"),
       icon: "chrome://zotero/skin/16/universal/magnifier.svg",
     },
     onItemChange: ({ item, doc, body, setEnabled, tabType }) => {
@@ -349,7 +349,7 @@ export function registerScreenQueuePane() {
       const ctx = tabType === "library" ? resolveContextSync(item) : null;
       const relevant =
         !!ctx &&
-        (ctx.role === "screen_queue" ||
+        (ctx.role === "ta_queue" ||
           ctx.role === "ta_include" ||
           ctx.role === "ta_exclude" ||
           ctx.role === "ta_unclear");
@@ -380,7 +380,7 @@ export function registerScreenQueuePane() {
       if (
         !ctx ||
         !(
-          ctx.role === "screen_queue" ||
+          ctx.role === "ta_queue" ||
           ctx.role === "ta_include" ||
           ctx.role === "ta_exclude" ||
           ctx.role === "ta_unclear"
@@ -390,13 +390,13 @@ export function registerScreenQueuePane() {
       }
       const contentArea = renderCardHeader(body, doc, item);
       try {
-        if (ctx.role === "screen_queue") {
+        if (ctx.role === "ta_queue") {
           await renderJudgmentArea(contentArea, doc, ctx, item);
         } else {
           await renderHistoryArea(contentArea, doc, ctx, item);
         }
       } catch (e) {
-        ztoolkit.log("Screen Queue pane render failed", item.key, e);
+        ztoolkit.log("TA Queue pane render failed", item.key, e);
         renderPaneError(doc, contentArea, e);
       }
     },

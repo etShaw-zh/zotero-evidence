@@ -103,7 +103,7 @@ async function resolveSamplePool(projectId: number) {
   const rootId = getRootCollectionId(project);
   if (rootId === null) throw new Error("Project collection not found.");
   const collections = resolveProjectCollections(rootId);
-  return { collections, queueId: collections.screenQueueId };
+  return { collections, queueId: collections.taQueueId };
 }
 
 async function insertRound(
@@ -554,7 +554,7 @@ export interface ApplyAgreedResultsSummary {
  * it already was (TA-Screen Queue, since a round only ever samples from
  * there), for a third reviewer to resolve through the normal Screening
  * pane. Every item, agreed or not, gets its snapshot written to
- * consistency_item_results so screenQueuePane.ts can show both reviewers'
+ * consistency_item_results so taQueuePane.ts can show both reviewers'
  * calls next to a still-pending disagreement.
  */
 export async function applyAgreedResults(

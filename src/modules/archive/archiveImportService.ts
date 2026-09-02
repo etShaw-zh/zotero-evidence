@@ -26,8 +26,8 @@ function collectionIdForRole(
     );
   }
   switch (role) {
-    case "screenQueue":
-      return collections.screenQueueId;
+    case "taQueue":
+      return collections.taQueueId;
     case "taInclude":
       return collections.taIncludeId;
     case "taExclude":

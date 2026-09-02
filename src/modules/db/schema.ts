@@ -184,7 +184,7 @@ export const SCHEMA_STATEMENTS: string[] = [
   // (humanConsistencyService.ts) -- a snapshot of what each reviewer's own
   // CSV said, written when the round's "apply agreed results" step runs
   // (both for items it auto-applied and ones left disagreeing). Purely for
-  // display: screenQueuePane.ts reads this to show both reviewers'
+  // display: taQueuePane.ts reads this to show both reviewers'
   // verdicts next to a still-pending, disagreed item, so whoever screens
   // it next (a third opinion, or the coordinator) has that context without
   // needing to go find and re-open the two CSVs. One row per project+item

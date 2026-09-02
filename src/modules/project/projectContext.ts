@@ -5,7 +5,7 @@ import {
 import { EvidenceProject, listProjects } from "./projectManager";
 
 export type PaneRole =
-  | "screen_queue"
+  | "ta_queue"
   | "ta_include"
   | "ta_exclude"
   | "ta_unclear"
@@ -19,7 +19,7 @@ export type PaneRole =
   // relevant role (no custom UI renders for them), but an item sitting in
   // any of them is still just as much "in this Evidence project" as one in
   // a pipeline-stage Collection. An item lands in Sources the moment it's
-  // imported, always alongside screen_queue (see dedupService.ts, which
+  // imported, always alongside ta_queue (see dedupService.ts, which
   // adds both in the same operation), so in practice every project item
   // already carries a mapped role from the instant it exists -- mapping
   // "other" too just closes the (currently theoretical) gap where a user
@@ -80,10 +80,10 @@ async function buildContextMap(): Promise<{
       // bad project break the whole cache/lookup for everyone else.
       continue;
     }
-    map.set(collections.screenQueueId, {
+    map.set(collections.taQueueId, {
       project,
       collections,
-      role: "screen_queue",
+      role: "ta_queue",
     });
     map.set(collections.taIncludeId, {
       project,

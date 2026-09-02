@@ -1349,7 +1349,7 @@ export function registerFtQueuePane() {
           ctx.role === "ft_exclude" ||
           ctx.role === "ft_unavailable");
       setEnabled(relevant);
-      // See screenQueuePane.ts for why this must be based on ctx truthiness
+      // See taQueuePane.ts for why this must be based on ctx truthiness
       // rather than this section's own relevance -- both sections share one
       // class and Zotero calls every section's onItemChange per event, so
       // whichever runs last must not clobber the other's decision.
@@ -1360,7 +1360,7 @@ export function registerFtQueuePane() {
       refreshLibraryNativeSectionsHidden(doc);
     },
     // Required for registerSection to actually succeed -- see
-    // screenQueuePane.ts for the empirically-confirmed reason.
+    // taQueuePane.ts for the empirically-confirmed reason.
     onRender: () => {},
     // Reader tab + ft_queue role: the full checklist workflow -- FT-
     // screening fundamentally requires reading the PDF to decide, so it

@@ -90,7 +90,7 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
       Array.from({ length: 5 }, (_, i) => makeTestItem(`HC Item ${i}`)),
     );
     for (const item of items) {
-      item.addToCollection(collections.screenQueueId);
+      item.addToCollection(collections.taQueueId);
       await item.saveTx();
     }
 
@@ -178,18 +178,18 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
 
     // The agreed "include" drives the item all the way to FT-Include (TA
     // confirm, then FT confirm) -- not just TA-Include.
-    assert.isFalse(itemA.inCollection(collections.screenQueueId));
+    assert.isFalse(itemA.inCollection(collections.taQueueId));
     assert.isTrue(itemA.inCollection(collections.taIncludeId));
     assert.isFalse(itemA.inCollection(collections.ftQueueId));
     assert.isTrue(itemA.inCollection(collections.ftIncludeId));
     // The disagreement is left completely untouched -- still sitting right
     // where a round always samples from, for a third reviewer to resolve.
-    assert.isTrue(itemB.inCollection(collections.screenQueueId));
+    assert.isTrue(itemB.inCollection(collections.taQueueId));
     assert.isFalse(itemB.inCollection(collections.taExcludeId));
     assert.isFalse(itemB.inCollection(collections.taIncludeId));
 
     // Every item in the round -- agreed or not -- gets a snapshot so
-    // screenQueuePane.ts can show a third reviewer both original calls.
+    // taQueuePane.ts can show a third reviewer both original calls.
     const itemBSnapshot = await getConsistencyItemResult(project.id, itemB.key);
     assert.equal(itemBSnapshot!.aVerdict, "exclude");
     assert.equal(itemBSnapshot!.bVerdict, "include");
@@ -230,7 +230,7 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     // so there's no criteria information to reconstruct.
     const taItem = await makeTestItem("TA-Origin Exclude Item");
     for (const item of [ftItem, taItem]) {
-      item.addToCollection(collections.screenQueueId);
+      item.addToCollection(collections.taQueueId);
       await item.saveTx();
     }
 
@@ -331,7 +331,7 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Pending FT Item");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
     const title = item.getField("title") as string;
 
@@ -391,7 +391,7 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     const itemNoDoi = await makeTestItem("Plain Title No DOI");
 
     for (const item of [itemWithDoi, itemNoDoi]) {
-      item.addToCollection(collections.screenQueueId);
+      item.addToCollection(collections.taQueueId);
       await item.saveTx();
     }
 
@@ -477,7 +477,7 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Incomplete Item");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     const zip = tempPath(`hc-incomplete-${Date.now()}.zip`);

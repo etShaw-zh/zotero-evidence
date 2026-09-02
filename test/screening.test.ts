@@ -76,7 +76,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Include Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -88,7 +88,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       "test-user",
     );
 
-    assert.isFalse(item.inCollection(collections.screenQueueId));
+    assert.isFalse(item.inCollection(collections.taQueueId));
     assert.isTrue(item.inCollection(collections.taIncludeId));
     assert.isTrue(item.inCollection(collections.ftQueueId));
 
@@ -102,7 +102,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Unclear Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -124,7 +124,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Exclude Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -139,7 +139,7 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     assert.isTrue(item.inCollection(collections.taExcludeId));
     assert.isFalse(item.inCollection(collections.ftQueueId));
-    assert.isFalse(item.inCollection(collections.screenQueueId));
+    assert.isFalse(item.inCollection(collections.taQueueId));
 
     const state = await getScreeningState(project.id, item.key);
     assert.equal(state?.exclusionReason, "Not empirical");
@@ -153,7 +153,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Exclude Me No Reason");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -175,7 +175,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Undo Include Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -193,7 +193,7 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     assert.isFalse(item.inCollection(collections.taIncludeId));
     assert.isFalse(item.inCollection(collections.ftQueueId));
-    assert.isTrue(item.inCollection(collections.screenQueueId));
+    assert.isTrue(item.inCollection(collections.taQueueId));
 
     const state = await getScreeningState(project.id, item.key);
     assert.isNull(state?.decision);
@@ -206,7 +206,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Undo Exclude Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -225,7 +225,7 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     assert.isFalse(item.inCollection(collections.taExcludeId));
     assert.isFalse(item.inCollection(collections.ftQueueId));
-    assert.isTrue(item.inCollection(collections.screenQueueId));
+    assert.isTrue(item.inCollection(collections.taQueueId));
 
     const state = await getScreeningState(project.id, item.key);
     assert.isNull(state?.decision);
@@ -238,12 +238,12 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Never Screened");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await undoDecision(project.id, item, collections);
 
-    assert.isTrue(item.inCollection(collections.screenQueueId));
+    assert.isTrue(item.inCollection(collections.taQueueId));
   });
 
   it("runAIJudgment refuses to run without a configured provider", async function () {
@@ -287,9 +287,9 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
 
-    const screenQueue = await findProjectPaneContext(collections.screenQueueId);
-    assert.equal(screenQueue?.role, "screen_queue");
-    assert.equal(screenQueue?.project.id, project.id);
+    const taQueue = await findProjectPaneContext(collections.taQueueId);
+    assert.equal(taQueue?.role, "ta_queue");
+    assert.equal(taQueue?.project.id, project.id);
 
     const taInclude = await findProjectPaneContext(collections.taIncludeId);
     assert.equal(taInclude?.role, "ta_include");
@@ -308,7 +308,7 @@ describe("Phase 2: TA-Screening core loop", function () {
     // doc comment), but they still resolve to a context so
     // setNativeSectionsHidden (native panes hidden, title read-only)
     // applies there too, same as every other stage -- an item lands in
-    // Sources at the same moment it lands in screen_queue (see
+    // Sources at the same moment it lands in ta_queue (see
     // dedupService.ts), so this isn't a new window into the project, just
     // closing the gap for the edge case where it's later removed from
     // every other stage collection by hand.

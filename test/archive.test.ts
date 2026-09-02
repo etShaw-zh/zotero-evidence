@@ -70,7 +70,7 @@ describe("Archive & Share (export/restore round trip)", function () {
     // Multiple roles at once -- exercises the roles[] array, not just a
     // single collection.
     item.addToCollection(wosId);
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     const attachment = await Zotero.Attachments.importFromFile({
@@ -152,13 +152,11 @@ describe("Archive & Share (export/restore round trip)", function () {
       getRootCollectionId(restored)!,
     );
 
-    const screenQueueItems = (
-      Zotero.Collections.get(
-        restoredCollections.screenQueueId,
-      ) as Zotero.Collection
+    const taQueueItems = (
+      Zotero.Collections.get(restoredCollections.taQueueId) as Zotero.Collection
     ).getChildItems();
-    assert.equal(screenQueueItems.length, 1);
-    const restoredItem = screenQueueItems[0];
+    assert.equal(taQueueItems.length, 1);
+    const restoredItem = taQueueItems[0];
     assert.equal(restoredItem.getField("title"), "Archive Round Trip Item");
     assert.notEqual(
       restoredItem.key,

@@ -163,7 +163,7 @@ export async function getScreeningState(
 }
 
 /**
- * Records the human-final decision and moves the item out of Screen Queue
+ * Records the human-final decision and moves the item out of TA-Screen Queue
  * into TA-Include/TA-Exclude/TA-Unclear. Per REQUIREMENTS.md 2.2.4,
  * TA-Unclear is treated the same as TA-Include for downstream flow: both
  * also land in FT-Queue.
@@ -213,7 +213,7 @@ export async function confirmDecision(
     );
   }
 
-  item.removeFromCollection(collections.screenQueueId);
+  item.removeFromCollection(collections.taQueueId);
   const targetCollectionId =
     finalDecision === "include"
       ? collections.taIncludeId
@@ -228,7 +228,7 @@ export async function confirmDecision(
 }
 
 /**
- * Reverses confirmDecision: moves the item back to Screen Queue and clears
+ * Reverses confirmDecision: moves the item back to TA-Screen Queue and clears
  * the human decision fields, leaving ai_decision/ai_reasoning intact -- same
  * "only clear confirmation fields, don't destroy the AI's original
  * suggestion" precedent as codingService.ts's unconfirmRecord. No-ops if
@@ -252,7 +252,7 @@ export async function undoDecision(
   if (state.decision !== "exclude") {
     item.removeFromCollection(collections.ftQueueId);
   }
-  item.addToCollection(collections.screenQueueId);
+  item.addToCollection(collections.taQueueId);
   await item.saveTx();
 
   await databaseService.init();

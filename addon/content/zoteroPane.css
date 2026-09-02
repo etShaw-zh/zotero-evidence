@@ -63,8 +63,8 @@ item-pane-sidenav .inherit-flex {
   gap: unset;
 }
 
-/* Hides native item-pane sections while the Screen Queue card is active
-   (see src/modules/ui/screenQueuePane.ts). Native sections all render with a
+/* Hides native item-pane sections while the TA Queue card is active
+   (see src/modules/ui/taQueuePane.ts). Native sections all render with a
    stable data-pane attribute matching Zotero.ItemPaneManager's BuiltInPaneID
    list, confirmed by inspecting a live item pane. */
 #zotero-view-item.zotero-evidence-hide-native > [data-pane="info"],

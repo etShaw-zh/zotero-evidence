@@ -2,7 +2,7 @@
 // (src/modules/ui/codingPane.ts), registered with tabType: 'reader'.
 //
 // Empirically confirmed while writing this test: unlike the library item
-// pane (screenQueuePane.ts/ftQueuePane.ts), where every enabled section
+// pane (taQueuePane.ts/ftQueuePane.ts), where every enabled section
 // renders immediately, the reader sidebar appears to render registered
 // sections lazily -- onAsyncRender only fires once the user actually
 // selects that section's tab in the sidebar. Driving that tab-click
@@ -70,7 +70,7 @@ function writeFixturePdf(name: string): string {
 }
 
 // See ftQueuePane.test.ts's identical helper for why: #zotero-view-item
-// hosts every registered custom section's body side by side (Screen Queue,
+// hosts every registered custom section's body side by side (TA Queue,
 // FT-Queue, Coding all share the `.zotero-evidence-card` class), and a
 // section that isn't relevant for the current item still leaves its own
 // body element in the DOM rather than being removed -- so a bare
@@ -296,7 +296,7 @@ describe("Coding item-pane section", function () {
   }
 
   // Unlike the reader-tab editor above, this branch renders in the library
-  // item pane the same way Screen Queue/FT-Queue do -- immediately on
+  // item pane the same way TA Queue/FT-Queue do -- immediately on
   // selection, no lazy tab-click needed -- so it's fully automatable.
   describe("(library tab summary)", function () {
     this.timeout(30000);

@@ -1,6 +1,6 @@
 // Integration test for the FT-Queue item-pane section
 // (src/modules/ui/ftQueuePane.ts). Same rationale as
-// test/screenQueuePane.test.ts: registerSection can silently fail to
+// test/taQueuePane.test.ts: registerSection can silently fail to
 // register at all (no error, nothing renders) if the synchronous onRender
 // handler is missing, which pure unit tests around ftScreeningService.ts
 // structurally cannot catch.
@@ -83,7 +83,7 @@ function writeFixturePdf(name: string): string {
 }
 
 // #zotero-view-item hosts every registered custom section's body side by
-// side (Screen Queue, FT-Queue, Coding all share the same
+// side (TA Queue, FT-Queue, Coding all share the same
 // `.zotero-evidence-card` class) -- a section that isn't relevant for the
 // current item still leaves its own body element in the DOM (just
 // collapsed/hidden via Zotero's own section chrome, not removed), so a
@@ -498,9 +498,7 @@ describe("FT-Queue item-pane section", function () {
         });
 
         const humanLabel = await pluginString("ft-queue-history-human");
-        const includeLabel = await pluginString(
-          "screen-queue-decision-include",
-        );
+        const includeLabel = await pluginString("ta-queue-decision-include");
         assert.include(card.textContent, humanLabel);
         assert.include(card.textContent, includeLabel);
 

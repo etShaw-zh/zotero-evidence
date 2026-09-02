@@ -158,7 +158,7 @@ export function getSelectedCollectionIdCompat(
 /**
  * Synchronous collection -> project/role lookup, safe to call from
  * onItemChange (see projectContext.ts for why this must stay synchronous).
- * Shared by every pane section (Screen Queue, FT-Queue, ...).
+ * Shared by every pane section (TA-Queue, FT-Queue, ...).
  */
 export function resolveContextSync(
   item: Zotero.Item | undefined,
@@ -291,7 +291,7 @@ export function refreshAnnotationOptions(
 
 /** Shared "Include"/"Exclude"/"Unclear" wording across TA and FT panes. */
 export function decisionLabel(decision: string): string {
-  return getString(`screen-queue-decision-${decision}` as any);
+  return getString(`ta-queue-decision-${decision}` as any);
 }
 
 /**
@@ -328,8 +328,7 @@ export function renderCardHeader(
   doc: Document,
   item: Zotero.Item,
 ): HTMLElement {
-  const title =
-    safeGetField(item, "title") || getString("screen-queue-untitled");
+  const title = safeGetField(item, "title") || getString("ta-queue-untitled");
   const creators = item
     .getCreators()
     .map((c) => `${c.lastName}${c.firstName ? ", " + c.firstName : ""}`)
@@ -357,21 +356,21 @@ export function renderCardHeader(
     properties: {
       innerHTML: abstract
         ? escapeHtml(abstract)
-        : getString("screen-queue-no-abstract"),
+        : getString("ta-queue-no-abstract"),
     },
   }) as HTMLElement;
   body.appendChild(abstractBox);
 
   const toggleBtn = el(doc, "button", {
     attributes: { type: "button" },
-    properties: { innerHTML: getString("screen-queue-expand") },
+    properties: { innerHTML: getString("ta-queue-expand") },
     listeners: [
       {
         type: "click",
         listener: () => {
           const expanded = abstractBox.classList.toggle("expanded");
           toggleBtn.textContent = getString(
-            expanded ? "screen-queue-collapse" : "screen-queue-expand",
+            expanded ? "ta-queue-collapse" : "ta-queue-expand",
           );
         },
       },

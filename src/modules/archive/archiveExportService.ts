@@ -31,7 +31,7 @@ function roleMap(collections: ProjectCollectionMap): Map<number, string> {
   for (const [label, id] of Object.entries(collections.sourceCollectionIds)) {
     map.set(id, `sources:${label}`);
   }
-  map.set(collections.screenQueueId, "screenQueue");
+  map.set(collections.taQueueId, "taQueue");
   map.set(collections.taIncludeId, "taInclude");
   map.set(collections.taExcludeId, "taExclude");
   map.set(collections.taUnclearId, "taUnclear");

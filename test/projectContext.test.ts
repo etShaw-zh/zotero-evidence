@@ -42,7 +42,7 @@ describe("projectContext: findOwningProjectId / findOwningProjectIdSync", functi
       projectA.id,
     );
     assert.equal(
-      await findOwningProjectId(collectionsA.screenQueueId),
+      await findOwningProjectId(collectionsA.taQueueId),
       projectA.id,
     );
     assert.equal(

@@ -65,7 +65,7 @@ export async function saveConsistencyItemResult(
 }
 
 /** The stored snapshot for one item, or null if it was never part of a
- * human-human consistency round -- screenQueuePane.ts uses this to decide
+ * human-human consistency round -- taQueuePane.ts uses this to decide
  * whether to show the "Reviewer A / Reviewer B" block at all. */
 export async function getConsistencyItemResult(
   projectId: number,

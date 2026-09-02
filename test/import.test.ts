@@ -13,7 +13,7 @@ import {
   FT_SCREENING,
   FT_UNAVAILABLE,
   resolveProjectCollections,
-  SCREEN_QUEUE,
+  TA_QUEUE,
   SOURCES,
   TA_EXCLUDE,
   TA_INCLUDE,
@@ -92,7 +92,7 @@ describe("Phase 1: project structure, import, dedup", function () {
     const project = await createProject(`Evidence Test ${Date.now()}`);
     const collections = resolveProjectCollections(getRootCollectionId(project));
     assert.isNumber(collections.sourcesId);
-    assert.isNumber(collections.screenQueueId);
+    assert.isNumber(collections.taQueueId);
     assert.isNumber(collections.taIncludeId);
     assert.isNumber(collections.ftQueueId);
     assert.isNumber(collections.codingId);
@@ -139,7 +139,7 @@ describe("Phase 1: project structure, import, dedup", function () {
     item.libraryID = Zotero.Libraries.userLibraryID;
     item.setField("title", "Delete Test Item");
     await item.saveTx();
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
     const itemId = item.id;
 
@@ -242,11 +242,11 @@ describe("Phase 1: project structure, import, dedup", function () {
     const nameOf = (id: number) =>
       (Zotero.Collections.get(id) as Zotero.Collection).name;
     assert.equal(nameOf(collections.sourcesId), SOURCES);
-    assert.equal(nameOf(collections.screenQueueId), SCREEN_QUEUE);
+    assert.equal(nameOf(collections.taQueueId), TA_QUEUE);
     assert.equal(nameOf(collections.ftQueueId), FT_QUEUE);
     assert.equal(nameOf(collections.codingId), CODING);
     assert.isTrue(SOURCES.startsWith("1."));
-    assert.isTrue(SCREEN_QUEUE.startsWith("2."));
+    assert.isTrue(TA_QUEUE.startsWith("2."));
     assert.isTrue(TA_SCREENING.startsWith("3."));
     assert.isTrue(FT_QUEUE.startsWith("4."));
     assert.isTrue(FT_SCREENING.startsWith("5."));
@@ -268,7 +268,7 @@ describe("Phase 1: project structure, import, dedup", function () {
 
     const root = await makeCollection(`Legacy Naming Test ${Date.now()}`);
     const sources = await makeCollection("Sources", root.id);
-    const screenQueue = await makeCollection("Screen Queue", root.id);
+    const taQueue = await makeCollection("Screen Queue", root.id);
     const taScreening = await makeCollection(
       "Title-Abstract Screening",
       root.id,
@@ -290,7 +290,7 @@ describe("Phase 1: project structure, import, dedup", function () {
 
     const collections = resolveProjectCollections(root.id);
     assert.equal(collections.sourcesId, sources.id);
-    assert.equal(collections.screenQueueId, screenQueue.id);
+    assert.equal(collections.taQueueId, taQueue.id);
     assert.equal(collections.ftQueueId, ftQueue.id);
     assert.equal(collections.codingId, coding.id);
   });
@@ -404,13 +404,13 @@ async function runImportDedupTest() {
     "1 Scopus record duplicates a WoS DOI",
   );
 
-  const screenQueueCollection = Zotero.Collections.get(
-    collections.screenQueueId,
+  const taQueueCollection = Zotero.Collections.get(
+    collections.taQueueId,
   ) as Zotero.Collection;
-  const screenQueueItems = screenQueueCollection.getChildItems();
+  const taQueueItems = taQueueCollection.getChildItems();
   assert.equal(
-    screenQueueItems.length,
+    taQueueItems.length,
     4,
-    "Screen Queue should contain 4 unique records (3 WoS + 1 new Scopus)",
+    "TA-Screen Queue should contain 4 unique records (3 WoS + 1 new Scopus)",
   );
 }

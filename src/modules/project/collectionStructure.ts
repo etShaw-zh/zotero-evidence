@@ -13,8 +13,8 @@ export type SourceDatabaseLabel = (typeof SOURCE_DATABASE_LABELS)[number];
 // resolveProjectCollections() below also recognizes every prior generation
 // of names (and FT-Screen Queue's prior nested position under FT-Screening)
 // so projects created at any point keep resolving without a migration.
-export const SCREEN_QUEUE = "2. TA-Screen Queue";
-export const SCREEN_QUEUE_LEGACY_NAMES = ["Screen Queue", "2. Screen Queue"];
+export const TA_QUEUE = "2. TA-Screen Queue";
+export const TA_QUEUE_LEGACY_NAMES = ["Screen Queue", "2. Screen Queue"];
 export const TA_SCREENING = "3. TA-Screening Results";
 export const TA_SCREENING_LEGACY_NAMES = [
   "Title-Abstract Screening",
@@ -46,7 +46,7 @@ export interface ProjectCollectionMap {
   rootKey: string;
   libraryID: number;
   sourcesId: number;
-  screenQueueId: number;
+  taQueueId: number;
   taIncludeId: number;
   taExcludeId: number;
   taUnclearId: number;
@@ -86,7 +86,7 @@ export async function createProjectCollectionStructure(
     sourceCollectionIds[label] = c.id;
   }
 
-  const screenQueue = await createCollection(SCREEN_QUEUE, libraryID, root.id);
+  const taQueue = await createCollection(TA_QUEUE, libraryID, root.id);
 
   const taScreening = await createCollection(TA_SCREENING, libraryID, root.id);
   const taInclude = await createCollection(
@@ -131,7 +131,7 @@ export async function createProjectCollectionStructure(
     rootKey: root.key,
     libraryID,
     sourcesId: sources.id,
-    screenQueueId: screenQueue.id,
+    taQueueId: taQueue.id,
     taIncludeId: taInclude.id,
     taExcludeId: taExclude.id,
     taUnclearId: taUnclear.id,
@@ -163,11 +163,11 @@ export function resolveProjectCollections(
     children.find((c) => c.name === name || legacyNames.includes(c.name));
 
   const sources = byName(SOURCES, SOURCES_LEGACY_NAMES);
-  const screenQueue = byName(SCREEN_QUEUE, SCREEN_QUEUE_LEGACY_NAMES);
+  const taQueue = byName(TA_QUEUE, TA_QUEUE_LEGACY_NAMES);
   const taScreening = byName(TA_SCREENING, TA_SCREENING_LEGACY_NAMES);
   const ftScreening = byName(FT_SCREENING, FT_SCREENING_LEGACY_NAMES);
   const coding = byName(CODING, CODING_LEGACY_NAMES);
-  if (!sources || !screenQueue || !taScreening || !ftScreening || !coding) {
+  if (!sources || !taQueue || !taScreening || !ftScreening || !coding) {
     throw new Error(
       `Project collection structure is incomplete for collection ${rootId}`,
     );
@@ -213,7 +213,7 @@ export function resolveProjectCollections(
     rootKey: root.key,
     libraryID,
     sourcesId: sources.id,
-    screenQueueId: screenQueue.id,
+    taQueueId: taQueue.id,
     taIncludeId: taInclude.id,
     taExcludeId: taExclude.id,
     taUnclearId: taUnclear.id,

@@ -1,5 +1,5 @@
-// Integration test for the Screen Queue item-pane section
-// (src/modules/ui/screenQueuePane.ts). This exercises the real
+// Integration test for the TA Queue item-pane section
+// (src/modules/ui/taQueuePane.ts). This exercises the real
 // Zotero.ItemPaneManager.registerSection() integration end-to-end -- unit
 // tests around the pure context-resolution logic aren't enough to catch
 // registration/rendering failures, which is exactly what this test caught
@@ -25,7 +25,7 @@ async function pluginString(id: string): Promise<string> {
   return value;
 }
 
-// Screen Queue and FT-Queue share renderCardHeader's markup (same class
+// TA Queue and FT-Queue share renderCardHeader's markup (same class
 // names), and Zotero.ItemPaneManager keeps a disabled section's previously
 // rendered DOM around (hidden, not removed) rather than tearing it down --
 // so a broad querySelector can match a stale, already-clicked element left
@@ -108,10 +108,10 @@ function dumpPaneDiagnostics(win: Window, doc: Document): string {
   return parts.join(" | ");
 }
 
-describe("Screen Queue item-pane section", function () {
+describe("TA Queue item-pane section", function () {
   this.timeout(30000);
 
-  it("renders the custom card and hides native sections in Screen Queue", async function () {
+  it("renders the custom card and hides native sections in TA Queue", async function () {
     const project = await createProject(`Pane Integration Test ${Date.now()}`);
     const collections = resolveProjectCollections(
       getRootCollectionId(project)!,
@@ -136,7 +136,7 @@ describe("Screen Queue item-pane section", function () {
     item.setField("title", "Pane Integration Test Item");
     item.setField("abstractNote", "Integration test abstract.");
     await item.saveTx();
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     const win = Zotero.getMainWindow();
@@ -145,7 +145,7 @@ describe("Screen Queue item-pane section", function () {
 
     try {
       await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.screenQueueId,
+        collections.taQueueId,
       );
       // selectCollection()'s promise can resolve before
       // ZoteroPane.getSelectedCollection() actually reflects the change (a
@@ -160,7 +160,7 @@ describe("Screen Queue item-pane section", function () {
       await waitUntil(
         () =>
           getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
-          collections.screenQueueId,
+          collections.taQueueId,
       );
       await ZoteroPaneGlobal.selectItem(item.id);
       await waitForValue(() => {
@@ -174,14 +174,14 @@ describe("Screen Queue item-pane section", function () {
 
       assert.isTrue(
         container!.classList.contains("zotero-evidence-hide-native"),
-        "native sections should be hidden while viewing Screen Queue",
+        "native sections should be hidden while viewing TA Queue",
       );
       // Built-in sections carry a data-pane attribute; plugin-registered
       // sections render as <item-pane-custom-section> wrapping our own
       // markup, so match on our own card class instead.
       assert.isNotNull(
         container!.querySelector(".zotero-evidence-card"),
-        "custom Screen Queue card should be rendered",
+        "custom TA Queue card should be rendered",
       );
       assert.isNotNull(
         container!.querySelector(".zotero-evidence-judgment-area"),
@@ -226,7 +226,7 @@ describe("Screen Queue item-pane section", function () {
     item.libraryID = Zotero.Libraries.userLibraryID;
     item.setField("title", "Exclude No Reason Pane Test Item");
     await item.saveTx();
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     // The decision buttons render even with no screening_records row at all
@@ -245,7 +245,7 @@ describe("Screen Queue item-pane section", function () {
     const ZoteroPaneGlobal = (win as any).ZoteroPane;
     try {
       await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.screenQueueId,
+        collections.taQueueId,
       );
       // See the first test in this file for why: a CI-only race between
       // selectCollection()'s promise resolving and
@@ -253,10 +253,10 @@ describe("Screen Queue item-pane section", function () {
       await waitUntil(
         () =>
           getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
-          collections.screenQueueId,
+          collections.taQueueId,
       );
       await ZoteroPaneGlobal.selectItem(item.id);
-      const excludeLabel = await pluginString("screen-queue-decision-exclude");
+      const excludeLabel = await pluginString("ta-queue-decision-exclude");
       const excludeBtn = await waitForValue<HTMLButtonElement>(() => {
         const c = doc.getElementById("zotero-view-item");
         if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
@@ -311,7 +311,7 @@ describe("Screen Queue item-pane section", function () {
     item.libraryID = Zotero.Libraries.userLibraryID;
     item.setField("title", "No-AI Decision Pane Test Item");
     await item.saveTx();
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     // Deliberately no screening_records row seeded here -- a reviewer who
@@ -323,15 +323,15 @@ describe("Screen Queue item-pane section", function () {
     const ZoteroPaneGlobal = (win as any).ZoteroPane;
     try {
       await ZoteroPaneGlobal.collectionsView.selectCollection(
-        collections.screenQueueId,
+        collections.taQueueId,
       );
       await waitUntil(
         () =>
           getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
-          collections.screenQueueId,
+          collections.taQueueId,
       );
       await ZoteroPaneGlobal.selectItem(item.id);
-      const includeLabel = await pluginString("screen-queue-decision-include");
+      const includeLabel = await pluginString("ta-queue-decision-include");
       const includeBtn = await waitForValue<HTMLButtonElement>(() => {
         const c = doc.getElementById("zotero-view-item");
         if (!c?.classList.contains("zotero-evidence-hide-native")) return null;
@@ -356,7 +356,7 @@ describe("Screen Queue item-pane section", function () {
       const state = await getScreeningState(project.id, item.key);
       assert.equal(state?.decision, "include");
       assert.isNull(state?.aiDecision);
-      assert.isFalse(item.inCollection(collections.screenQueueId));
+      assert.isFalse(item.inCollection(collections.taQueueId));
       assert.isTrue(item.inCollection(collections.taIncludeId));
     } catch (e: any) {
       assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);

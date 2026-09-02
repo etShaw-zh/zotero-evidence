@@ -4,7 +4,7 @@ import { registerCodingPane } from "./modules/ui/codingPane";
 import { registerCollectionMenuGuard } from "./modules/ui/collectionMenuGuard";
 import { EvidenceCommands } from "./modules/ui/commands";
 import { registerFtQueuePane } from "./modules/ui/ftQueuePane";
-import { registerScreenQueuePane } from "./modules/ui/screenQueuePane";
+import { registerTaQueuePane } from "./modules/ui/taQueuePane";
 import { initLocale } from "./utils/locale";
 import { createZToolkit } from "./utils/ztoolkit";
 
@@ -35,7 +35,7 @@ async function onStartup() {
   (addon.api as any).refreshProjectPaneContextCache =
     refreshProjectPaneContextCache;
 
-  registerScreenQueuePane();
+  registerTaQueuePane();
   registerFtQueuePane();
   registerCodingPane();
 

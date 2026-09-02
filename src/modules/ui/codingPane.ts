@@ -1044,7 +1044,7 @@ export function registerCodingPane() {
     // stacked item-details sections (info/abstract/attachments/notes) as
     // the library item pane -- just switched via its sidenav's tabs instead
     // of scrolled -- so the same #zotero-view-item/.zotero-evidence-hide-
-    // native toggle used by screenQueuePane.ts/ftQueuePane.ts applies here
+    // native toggle used by taQueuePane.ts/ftQueuePane.ts applies here
     // too (a no-op if that container doesn't exist in some reader layout).
     // Goal: opening a PDF for a Coding/FT-Include item shouldn't leave Info/
     // Abstract as the only thing worth looking at in that pane.
@@ -1062,7 +1062,7 @@ export function registerCodingPane() {
       refreshLibraryNativeSectionsHidden(doc);
     },
     // Required for registerSection to actually succeed -- see
-    // screenQueuePane.ts for the empirically-confirmed reason.
+    // taQueuePane.ts for the empirically-confirmed reason.
     onRender: () => {},
     onAsyncRender: async ({ body, doc, item, tabType }) => {
       const ctx = resolveContextSync(item);

@@ -62,7 +62,7 @@ function toCandidate(itemKey: string, item: Zotero.Item): CandidateRecord {
 
 /**
  * Loads the canonical (non-duplicate) items already recorded for this
- * project, across its entire history -- not just the current Screen Queue --
+ * project, across its entire history -- not just the current TA-Screen Queue --
  * per the incremental-import dedup scope in REQUIREMENTS.md 2.1.3.
  */
 async function loadCandidateIndex(
@@ -128,7 +128,7 @@ async function recordItemSource(
 /**
  * Given freshly-imported (but not yet filed) Zotero items, decides which are
  * new vs. duplicates of items already in the project's history:
- *  - New items are filed into Sources/<sourceLabel> and Screen Queue.
+ *  - New items are filed into Sources/<sourceLabel> and TA-Screen Queue.
  *  - Duplicates are recorded for provenance (their snapshot is preserved in
  *    item_sources.original_record) and then erased, so the library doesn't
  *    accumulate orphan duplicate entries outside any project collection.
@@ -169,7 +169,7 @@ export async function processImportedItems(
       duplicateCount++;
     } else {
       await item.addToCollection(sourceCollectionId);
-      await item.addToCollection(collections.screenQueueId);
+      await item.addToCollection(collections.taQueueId);
       await item.saveTx();
       await recordItemSource(projectId, item.key, sourceLabel, snapshot, null);
       candidates.push(candidate);

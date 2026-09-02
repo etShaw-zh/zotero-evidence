@@ -118,7 +118,7 @@ export async function computePrismaData(
     [projectId],
   )) as { n: number }[] | undefined;
 
-  const taQueue = countItems(collections.screenQueueId);
+  const taQueue = countItems(collections.taQueueId);
   const taInclude = countItems(collections.taIncludeId);
   const taExclude = countItems(collections.taExcludeId);
   const taUnclear = countItems(collections.taUnclearId);

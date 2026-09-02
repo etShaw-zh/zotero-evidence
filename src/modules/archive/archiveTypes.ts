@@ -39,7 +39,7 @@ export interface ArchiveAttachment {
 export interface ArchiveItem {
   key: string;
   // Every Collection this item currently belongs to within the project
-  // tree, tagged by role (e.g. "sources:Web of Science", "screenQueue",
+  // tree, tagged by role (e.g. "sources:Web of Science", "taQueue",
   // "taInclude", ...) -- see archiveExportService.ts's ROLE_* helpers for
   // the full tag list. An item can legitimately carry more than one (e.g.
   // Sources + TA-Screen Queue at once).
