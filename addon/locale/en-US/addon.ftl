@@ -231,6 +231,7 @@ menu-codebook = Codebook
 menu-codebook-import = Import Codebook (CSV)…
 menu-codebook-add-variable = Add Codebook Variable…
 menu-codebook-view = View Codebook…
+menu-codebook-export = Export Codebook…
 
 dialog-codebook-import-title = Import Codebook (CSV)
 dialog-codebook-import-project-label = Project
@@ -253,6 +254,7 @@ error-codebook-variable-name-required = Please enter a variable name.
 progress-codebook-variable-added = Variable added to the Codebook.
 
 dialog-codebook-view-title = Current Codebook
+dialog-export-codebook-title = Export Codebook
 codebook-view-empty = No Codebook configured for this project yet.
 codebook-view-required = required
 codebook-view-multiple = multiple

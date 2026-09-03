@@ -231,6 +231,7 @@ menu-codebook = 编码手册
 menu-codebook-import = 导入编码手册 (CSV)…
 menu-codebook-add-variable = 添加编码手册变量…
 menu-codebook-view = 查看编码手册…
+menu-codebook-export = 导出编码手册…
 
 dialog-codebook-import-title = 导入编码手册 (CSV)
 dialog-codebook-import-project-label = 项目
@@ -253,6 +254,7 @@ error-codebook-variable-name-required = 请输入变量名。
 progress-codebook-variable-added = 变量已添加到编码手册。
 
 dialog-codebook-view-title = 当前编码手册
+dialog-export-codebook-title = 导出编码手册
 codebook-view-empty = 该项目还没有配置编码手册。
 codebook-view-required = 必填
 codebook-view-multiple = 多值

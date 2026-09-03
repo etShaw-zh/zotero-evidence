@@ -190,6 +190,9 @@ function onDialogEvents(type: string) {
     case "evidenceCodebookDeleteVariable":
       EvidenceCommands.codebookDeleteVariableDialog();
       break;
+    case "evidenceCodebookExport":
+      EvidenceCommands.exportCodebookDialog();
+      break;
     case "evidenceSynthesis":
       EvidenceCommands.synthesisDialog();
       break;

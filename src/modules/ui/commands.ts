@@ -24,6 +24,7 @@ import { exportProjectArchive } from "../archive/archiveExportService";
 import { importProjectArchive } from "../archive/archiveImportService";
 import {
   CodebookVariable,
+  formatCodebookCsv,
   getLatestCodebook,
   parseCodebookCsv,
   saveCodebook,
@@ -220,6 +221,13 @@ export class EvidenceCommands {
           label: getString("menu-codebook-view"),
           commandListener: () =>
             addon.hooks.onDialogEvents("evidenceCodebookView"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-export",
+          label: getString("menu-codebook-export"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookExport"),
         },
       ],
     });
@@ -5158,5 +5166,27 @@ export class EvidenceCommands {
       `${project.name}-synthesis-data.csv`,
       csv,
     );
+  }
+
+  // Counterpart to codebookImportDialog: exports the CURRENT project's
+  // latest Codebook version (whatever's in effect now, edits included) in
+  // the exact CSV shape codebookImportDialog reads back in, so a codebook
+  // built or tweaked by hand in the Add/Edit Variable dialogs can be
+  // reused for another project, or just kept as an external record --
+  // codebookViewDialog's on-screen summary doesn't show notes/
+  // extraction_hint at all, so this is the only way to get those back out.
+  static async exportCodebookDialog() {
+    const project = await EvidenceCommands.pickProjectForExport(
+      "dialog-export-codebook-title",
+    );
+    if (!project) return;
+
+    const codebook = await getLatestCodebook(project.id);
+    const csv = formatCodebookCsv(codebook?.variables ?? []);
+    if (csv.split("\n").length <= 1) {
+      ztoolkit.getGlobal("alert")(getString("error-export-no-data"));
+      return;
+    }
+    await EvidenceCommands.saveExportFile(`${project.name}-codebook.csv`, csv);
   }
 }

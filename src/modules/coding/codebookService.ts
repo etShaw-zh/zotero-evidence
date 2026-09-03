@@ -1,3 +1,4 @@
+import { toCsvLine } from "../../utils/csv";
 import { databaseService } from "../db/database";
 
 export type CodebookVariableType = "categorical" | "numeric" | "text";
@@ -151,4 +152,32 @@ export function parseCodebookCsv(csvText: string): CodebookVariable[] {
     });
   }
   return variables;
+}
+
+/**
+ * Serializes Codebook variables back to the exact CSV shape
+ * parseCodebookCsv above reads (same header, same `|`-joined `values`,
+ * same "0"/"1" flags) -- so a codebook that was edited entirely through the
+ * Add/Edit Variable dialogs (never imported from a CSV to begin with) can
+ * still be exported and handed to another project's Import Codebook, and a
+ * codebook that WAS imported round-trips losslessly after edits instead of
+ * silently dropping notes/extraction_hint (the two columns those dialogs
+ * collect but codebookViewDialog's summary list doesn't show).
+ */
+export function formatCodebookCsv(variables: CodebookVariable[]): string {
+  const lines = [
+    "name,type,values,multiple,required,notes,extraction_hint",
+    ...variables.map((v) =>
+      toCsvLine([
+        v.name,
+        v.type,
+        v.values?.join("|") ?? "",
+        v.multiple ? "1" : "0",
+        v.required ? "1" : "0",
+        v.notes ?? "",
+        v.extractionHint ?? "",
+      ]),
+    ),
+  ];
+  return lines.join("\n");
 }
