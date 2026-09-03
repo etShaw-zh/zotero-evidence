@@ -18,7 +18,7 @@
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear for each paper with reasoning; you confirm.
 - **Full-text screening** — AI checks each paper against every criterion with highlighted evidence; you confirm.
 - **Extract coding** — AI extracts data into your Codebook, backed by highlighted quotes; you confirm.
-- **Batch AI runs** — select multiple items and run TA/FT screening or Coding AI in batch.
+- **Batch AI runs** — select multiple items and run TA/FT screening or Extract coding AI in batch.
 - **Synthesis** — AI groups confirmed evidence into themes with one click.
 - **Consistency** — measure AI-human agreement (`Cohen's ϰ`), or sample a batch for two reviewers to co-screen.
 - **Export** — PRISMA data, screening log, coding data, synthesis output, and the Codebook itself (CSV).
