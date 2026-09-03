@@ -18,15 +18,16 @@
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear for each paper with reasoning; you confirm.
 - **Full-text screening** — AI checks each paper against every criterion with highlighted evidence; you confirm.
 - **Extract coding** — AI extracts data into your Codebook, backed by highlighted quotes; you confirm.
+- **Batch AI runs** — select multiple items and run TA/FT screening or Coding AI in batch.
 - **Synthesis** — AI groups confirmed evidence into themes with one click.
 - **Consistency** — measure AI-human agreement (`Cohen's ϰ`), or sample a batch for two reviewers to co-screen.
-- **Export** — PRISMA data, screening log, coding data, and synthesis output.
+- **Export** — PRISMA data, screening log, coding data, synthesis output, and the Codebook itself (CSV).
 - **Archive & share** — export a project as a `.zip` to back up or share; restore it anywhere.
 
 ## Getting started
 
 1. Install the plugin in Zotero 7 or later.
-2. **File → AI Settings → AI Provider Settings…** — set endpoint, model, API key.
+2. **File → AI Settings → AI Provider Settings…** — set endpoint, model, API key, and concurrency.
 3. **File → Evidence Project → New Project…**, then **File → Import Literature → Import to Sources…**.
 4. **File → Screening Criteria →** define one set of inclusion/exclusion criteria.
 5. **File → Codebook →** define variables (or import from CSV) before coding begins.
