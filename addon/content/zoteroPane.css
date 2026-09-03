@@ -554,3 +554,31 @@ item-pane-sidenav .inherit-flex {
   border-color: #2ea8e5;
   box-shadow: 0 0 0 1px rgba(46, 168, 229, 0.3);
 }
+
+/* Project Overview pane (projectOverviewPane.ts) -- "this stage isn't
+   configured yet" chip inside a stage row. Color reuses the same #a33
+   already used inline by ta-queue-no-criteria/ft-queue-no-criteria/
+   coding-no-codebook, just packaged as a chip with its own action button
+   instead of a bare paragraph. */
+.zotero-evidence-overview-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(170, 51, 51, 0.08);
+  color: #a33;
+  font-size: 0.9em;
+}
+
+.zotero-evidence-overview-warning button {
+  flex: 0 0 auto;
+}
+
+/* Right-aligned "go to this collection" button per stage row. */
+.zotero-evidence-overview-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}

@@ -250,9 +250,11 @@ describe("Coding item-pane section", function () {
       };
 
       let found = false;
+      let readerDoc: Document | undefined;
       for (const el of Array.from(doc.querySelectorAll("*"))) {
         if (matchesPaneId(el)) {
           found = true;
+          readerDoc = doc;
           break;
         }
       }
@@ -269,6 +271,7 @@ describe("Coding item-pane section", function () {
           for (const el of Array.from(iframeDoc.querySelectorAll("*"))) {
             if (matchesPaneId(el)) {
               found = true;
+              readerDoc = iframeDoc;
               break;
             }
           }
@@ -281,6 +284,30 @@ describe("Coding item-pane section", function () {
         "registerSection for the Coding pane should have created a DOM element " +
           "referencing its paneID somewhere in the reader UI (proves registration " +
           "succeeded, i.e. onRender was provided alongside onAsyncRender)",
+      );
+
+      // Regression check (PNL-01): every registered section's onItemChange
+      // fires for the same event, in registration order, and each one
+      // that's irrelevant to the reader tab must still avoid clobbering
+      // whichever section IS relevant there (this one, for an FT-Include
+      // item) back to "native panes visible". Adding projectOverviewPane.ts
+      // as a 4th, later-registered section broke exactly this once --
+      // its own onItemChange unconditionally called
+      // setNativeSectionsHidden(doc, body, false) for the reader tab
+      // (nothing in "other" role ever applies there), silently re-showing
+      // Info/Abstract/etc. in every reader tab regardless of which item was
+      // open. Checking is-actually-hidden here, not just "our pane exists",
+      // is what would have caught that.
+      const infoSection = readerDoc?.querySelector('[data-pane="info"]');
+      assert.isNotNull(
+        infoSection,
+        "the native Info section should exist in the reader's item pane",
+      );
+      assert.isTrue(
+        infoSection!.classList.contains("zotero-evidence-hide-native"),
+        "the native Info section should stay hidden in the reader tab for an " +
+          "Evidence project item -- if this fails, some other registered " +
+          "section's onItemChange is clobbering the hide decision back off",
       );
 
       // Zotero.Reader.open() above leaves its reader tab open and focused --

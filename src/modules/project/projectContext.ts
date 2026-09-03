@@ -14,19 +14,23 @@ export type PaneRole =
   | "ft_exclude"
   | "ft_unavailable"
   | "coding"
-  // The project's own root Collection, "1. Sources", and its per-source-
-  // database children -- none of which any pane section treats as its own
-  // relevant role (no custom UI renders for them), but an item sitting in
-  // any of them is still just as much "in this Evidence project" as one in
-  // a pipeline-stage Collection. An item lands in Sources the moment it's
-  // imported, always alongside ta_queue (see dedupService.ts, which
+  // The project's own root Collection, "1. Sources" and its per-source-
+  // database children, and the "3. TA-Screening Results"/"5. FT-Screening
+  // Results" parent Collections (as opposed to their *Include/*Exclude/
+  // *Unclear children, which each have their own dedicated role above) --
+  // none of these are ever populated by any service directly, but an item
+  // sitting in one is still just as much "in this Evidence project" as one
+  // in a pipeline-stage Collection: an item lands in Sources the moment
+  // it's imported, always alongside ta_queue (see dedupService.ts, which
   // adds both in the same operation), so in practice every project item
   // already carries a mapped role from the instant it exists -- mapping
   // "other" too just closes the (currently theoretical) gap where a user
-  // manually removes an item from every pipeline-stage Collection by hand
-  // while leaving it in Sources or the root. Exists only so
-  // setNativeSectionsHidden (native panes hidden, title read-only) still
-  // applies while browsing any of these, same as every other stage.
+  // manually drags an item into one of these parent/grouping Collections by
+  // hand. projectOverviewPane.ts is the one pane section that does treat
+  // "other" as its own relevant role (a project-wide pipeline dashboard,
+  // shown in place of an item-specific card); every other section only
+  // relies on this role for setNativeSectionsHidden (native panes hidden,
+  // title read-only), same as every pipeline-stage Collection.
   | "other";
 
 export interface ProjectPaneContext {
@@ -131,6 +135,22 @@ async function buildContextMap(): Promise<{
       role: "other",
     });
     map.set(collections.sourcesId, {
+      project,
+      collections,
+      role: "other",
+    });
+    // Same reasoning as rootId/sourcesId above: confirmDecision never adds
+    // an item to these two PARENT collections directly (only to their
+    // *Include/*Exclude/*Unclear children), but a user can still drag one
+    // in by hand -- mapping them to "other" too closes that gap the same
+    // way, rather than leaving native panes visible and the title editable
+    // there while every other stage-collection in the tree is locked down.
+    map.set(collections.taScreeningId, {
+      project,
+      collections,
+      role: "other",
+    });
+    map.set(collections.ftScreeningId, {
       project,
       collections,
       role: "other",

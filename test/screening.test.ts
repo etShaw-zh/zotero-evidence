@@ -336,18 +336,21 @@ describe("Phase 2: TA-Screening core loop", function () {
     const ftQueue = await findProjectPaneContext(collections.ftQueueId);
     assert.equal(ftQueue?.role, "ft_queue");
 
-    // Root and Sources aren't TA-Screening-pane collections (no pane
-    // section treats "other" as its own relevant role -- see PaneRole's
-    // doc comment), but they still resolve to a context so
-    // setNativeSectionsHidden (native panes hidden, title read-only)
-    // applies there too, same as every other stage -- an item lands in
-    // Sources at the same moment it lands in ta_queue (see
-    // dedupService.ts), so this isn't a new window into the project, just
-    // closing the gap for the edge case where it's later removed from
-    // every other stage collection by hand.
+    // Root, Sources, and the TA-/FT-Screening Results PARENT collections
+    // (as opposed to their *Include/*Exclude/*Unclear children, asserted
+    // above) all resolve to "other" so setNativeSectionsHidden (native
+    // panes hidden, title read-only) applies there too, same as every
+    // pipeline-stage collection -- none of these are ever populated
+    // directly by any service, but a user can still drag an item into one
+    // by hand, and projectOverviewPane.ts also renders its project-wide
+    // dashboard for this role (see PaneRole's doc comment).
     const root = await findProjectPaneContext(getRootCollectionId(project)!);
     assert.equal(root?.role, "other");
     const sources = await findProjectPaneContext(collections.sourcesId);
     assert.equal(sources?.role, "other");
+    const taScreening = await findProjectPaneContext(collections.taScreeningId);
+    assert.equal(taScreening?.role, "other");
+    const ftScreening = await findProjectPaneContext(collections.ftScreeningId);
+    assert.equal(ftScreening?.role, "other");
   });
 });

@@ -4,6 +4,7 @@ import { registerCodingPane } from "./modules/ui/codingPane";
 import { registerCollectionMenuGuard } from "./modules/ui/collectionMenuGuard";
 import { EvidenceCommands } from "./modules/ui/commands";
 import { registerFtQueuePane } from "./modules/ui/ftQueuePane";
+import { registerProjectOverviewPane } from "./modules/ui/projectOverviewPane";
 import { registerTaQueuePane } from "./modules/ui/taQueuePane";
 import { initLocale } from "./utils/locale";
 import { createZToolkit } from "./utils/ztoolkit";
@@ -38,6 +39,7 @@ async function onStartup() {
   registerTaQueuePane();
   registerFtQueuePane();
   registerCodingPane();
+  registerProjectOverviewPane();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),

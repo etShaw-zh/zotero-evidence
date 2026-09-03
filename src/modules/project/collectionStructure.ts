@@ -47,10 +47,20 @@ export interface ProjectCollectionMap {
   libraryID: number;
   sourcesId: number;
   taQueueId: number;
+  // The "3. TA-Screening Results"/"5. FT-Screening Results" parent
+  // Collections themselves -- never populated directly by any service
+  // (confirmDecision always adds to one of the *Include/*Exclude/*Unclear
+  // children below, never to the parent), but a user can still drag an
+  // item into either by hand. Exposed so projectContext.ts can map them to
+  // PaneRole "other" too, same as sourcesId/rootId, so native panes stay
+  // hidden and the title read-only there -- see that file's buildContextMap
+  // for the parallel reasoning.
+  taScreeningId: number;
   taIncludeId: number;
   taExcludeId: number;
   taUnclearId: number;
   ftQueueId: number;
+  ftScreeningId: number;
   ftIncludeId: number;
   ftExcludeId: number;
   ftUnavailableId: number;
@@ -132,10 +142,12 @@ export async function createProjectCollectionStructure(
     libraryID,
     sourcesId: sources.id,
     taQueueId: taQueue.id,
+    taScreeningId: taScreening.id,
     taIncludeId: taInclude.id,
     taExcludeId: taExclude.id,
     taUnclearId: taUnclear.id,
     ftQueueId: ftQueue.id,
+    ftScreeningId: ftScreening.id,
     ftIncludeId: ftInclude.id,
     ftExcludeId: ftExclude.id,
     ftUnavailableId: ftUnavailable.id,
@@ -214,10 +226,12 @@ export function resolveProjectCollections(
     libraryID,
     sourcesId: sources.id,
     taQueueId: taQueue.id,
+    taScreeningId: taScreening.id,
     taIncludeId: taInclude.id,
     taExcludeId: taExclude.id,
     taUnclearId: taUnclear.id,
     ftQueueId: ftQueue.id,
+    ftScreeningId: ftScreening.id,
     ftIncludeId: ftInclude.id,
     ftExcludeId: ftExclude.id,
     ftUnavailableId: ftUnavailable.id,

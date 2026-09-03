@@ -361,8 +361,18 @@ export function registerTaQueuePane() {
       // registered section's onItemChange for the same event, whichever
       // section's hook runs last would clobber the other's decision back
       // off, and the two sections don't always agree on section-specific
-      // relevance for the same collection.
-      setNativeSectionsHidden(doc, body, !!ctx);
+      // relevance for the same collection. This section has zero reader-tab
+      // relevance itself (ctx is forced null above for any non-library
+      // tabType), so it must not call this in the reader at all -- doing so
+      // unconditionally would mean this section's own false-ctx call could
+      // clobber ftQueuePane's/codingPane's real reader-tab decision if
+      // registration order ever put this section after them (see
+      // projectOverviewPane.ts's onItemChange for the same bug, once live:
+      // adding it as a 4th, later-registered section did exactly this and
+      // silently unhid Info/Abstract/etc. in every reader tab).
+      if (tabType === "library") {
+        setNativeSectionsHidden(doc, body, !!ctx);
+      }
       // Keep the cache warm for next time in case it's gone stale (e.g. a
       // project was created/renamed since the last refresh).
       void refreshProjectPaneContextCache();
