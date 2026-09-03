@@ -155,6 +155,10 @@ dialog-close = Close
 error-not-ta-queue = Select items inside an Evidence project's TA-Screen Queue collection first.
 progress-batch-running = Running AI judgment: { $done }/{ $total }
 progress-batch-done = AI judgment done: { $done }/{ $total } ({ $failed } failed)
+
+dialog-batch-failures-title = Batch Run Failures
+dialog-batch-failures-col-item = Item
+dialog-batch-failures-col-reason = Reason
 progress-batch-confirm-done = Confirmed { $confirmed } item(s), skipped { $skipped } (no pending AI suggestion).
 
 menu-batch-mark-unavailable = Mark Full Text Unavailable (Selected Items)

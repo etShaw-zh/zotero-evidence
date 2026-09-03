@@ -155,6 +155,10 @@ dialog-close = 关闭
 error-not-ta-queue = 请先在某个 Evidence 项目的标题/摘要筛选（TA-Screen Queue）集合中选中条目。
 progress-batch-running = AI 判断进行中：{ $done }/{ $total }
 progress-batch-done = AI 判断完成：{ $done }/{ $total }（{ $failed } 条失败）
+
+dialog-batch-failures-title = 批量运行失败详情
+dialog-batch-failures-col-item = 条目
+dialog-batch-failures-col-reason = 失败原因
 progress-batch-confirm-done = 已确认 { $confirmed } 条，跳过 { $skipped } 条（无待确认的 AI 建议）。
 
 menu-batch-mark-unavailable = 批量标记全文不可用（已选条目）

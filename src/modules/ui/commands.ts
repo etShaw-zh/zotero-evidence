@@ -2479,6 +2479,96 @@ export class EvidenceCommands {
     );
   }
 
+  // Shared by all three AI batch runners (TA/FT/Coding): the ProgressWindow
+  // line those runners already show stays a single short summary line no
+  // matter how many items failed -- dumping every failed title + reason
+  // into that one line would make it unreadable once more than a couple of
+  // items fail (e.g. a whole batch of items with no PDF yet). This is the
+  // on-demand detail view for that case: only opened when there's at least
+  // one failure, listing each failed item's title next to its error
+  // message so the user doesn't have to reopen every item individually or
+  // dig through the debug log to find out why.
+  private static showBatchFailuresDialog(
+    failures: { title: string; reason: string }[],
+  ) {
+    if (failures.length === 0) return;
+    // Each row here is its own independent flex hbox (see openSizedDialog's
+    // comment above) -- there's no real <table> tying column widths
+    // together across rows, so without an explicit width every row sizes
+    // itself to its own content. A long, unbroken error message in one row
+    // was stretching that row (and the whole window, since Gecko won't
+    // shrink a flex child below its content's intrinsic width by default)
+    // far past the other rows and past `openSizedDialog`'s requested
+    // width. Fixed pixel widths on every cell in a column -- not just the
+    // data rows, the header too, so the columns still visually line up --
+    // plus wrapping instead of a single unbroken line keeps every row the
+    // same width regardless of message length.
+    const ITEM_COL_WIDTH = "200px";
+    const REASON_COL_WIDTH = "380px";
+    const colStyle = (width: string) => ({
+      width,
+      maxWidth: width,
+      boxSizing: "border-box" as const,
+      wordBreak: "break-word" as const,
+      overflowWrap: "break-word" as const,
+      display: "block" as const,
+    });
+
+    const dialog = new ztoolkit.Dialog(failures.length + 2, 2).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-batch-failures-title") },
+    });
+    const headers: [string, string] = [
+      getString("dialog-batch-failures-col-item"),
+      getString("dialog-batch-failures-col-reason"),
+    ];
+    const colWidths = [ITEM_COL_WIDTH, REASON_COL_WIDTH];
+    headers.forEach((h, col) =>
+      dialog.addCell(
+        1,
+        col,
+        {
+          tag: "strong",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(h) },
+          styles: colStyle(colWidths[col]),
+        },
+        false,
+      ),
+    );
+    failures.forEach((f, i) => {
+      const row = i + 2;
+      dialog.addCell(
+        row,
+        0,
+        {
+          tag: "span",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(f.title) },
+          styles: colStyle(ITEM_COL_WIDTH),
+        },
+        false,
+      );
+      dialog.addCell(
+        row,
+        1,
+        {
+          tag: "span",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(f.reason) },
+          styles: colStyle(REASON_COL_WIDTH),
+        },
+        false,
+      );
+    });
+    dialog.addButton(getString("dialog-close"), "close");
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-batch-failures-title"),
+      620,
+    );
+  }
+
   private static async resolveTaQueueBatchContext() {
     const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
     const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
@@ -2502,7 +2592,7 @@ export class EvidenceCommands {
     const concurrency =
       getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
     let done = 0;
-    let failed = 0;
+    const failures: { title: string; reason: string }[] = [];
     const progressWin = new ztoolkit.ProgressWindow(
       addon.data.config.addonName,
       { closeOnClick: false, closeTime: -1 },
@@ -2520,7 +2610,10 @@ export class EvidenceCommands {
       try {
         await runAIJudgment(ctx.project.id, item);
       } catch (e: any) {
-        failed++;
+        failures.push({
+          title: item.getDisplayTitle(),
+          reason: e?.message ?? String(e),
+        });
         ztoolkit.log("Batch AI judgment failed", item.key, e);
       }
       done++;
@@ -2532,6 +2625,7 @@ export class EvidenceCommands {
       });
     });
 
+    const failed = failures.length;
     progressWin.changeLine({
       progress: 100,
       text: getString("progress-batch-done", {
@@ -2540,6 +2634,7 @@ export class EvidenceCommands {
       type: failed > 0 ? "error" : "success",
     });
     progressWin.startCloseTimer(5000);
+    EvidenceCommands.showBatchFailuresDialog(failures);
   }
 
   static async batchConfirmAI() {
@@ -2646,7 +2741,7 @@ export class EvidenceCommands {
     const concurrency =
       getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
     let done = 0;
-    let failed = 0;
+    const failures: { title: string; reason: string }[] = [];
     const progressWin = new ztoolkit.ProgressWindow(
       addon.data.config.addonName,
       { closeOnClick: false, closeTime: -1 },
@@ -2664,7 +2759,10 @@ export class EvidenceCommands {
       try {
         await runCriterionChecks(ctx.project.id, item);
       } catch (e: any) {
-        failed++;
+        failures.push({
+          title: item.getDisplayTitle(),
+          reason: e?.message ?? String(e),
+        });
         ztoolkit.log("Batch FT criterion check failed", item.key, e);
       }
       done++;
@@ -2676,6 +2774,7 @@ export class EvidenceCommands {
       });
     });
 
+    const failed = failures.length;
     progressWin.changeLine({
       progress: 100,
       text: getString("progress-batch-ft-done", {
@@ -2684,6 +2783,7 @@ export class EvidenceCommands {
       type: failed > 0 ? "error" : "success",
     });
     progressWin.startCloseTimer(5000);
+    EvidenceCommands.showBatchFailuresDialog(failures);
   }
 
   private static async resolveCodingBatchContext() {
@@ -2713,7 +2813,7 @@ export class EvidenceCommands {
     const concurrency =
       getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
     let done = 0;
-    let failed = 0;
+    const failures: { title: string; reason: string }[] = [];
     const progressWin = new ztoolkit.ProgressWindow(
       addon.data.config.addonName,
       { closeOnClick: false, closeTime: -1 },
@@ -2731,7 +2831,10 @@ export class EvidenceCommands {
       try {
         await generateSuggestions(ctx.project.id, item);
       } catch (e: any) {
-        failed++;
+        failures.push({
+          title: item.getDisplayTitle(),
+          reason: e?.message ?? String(e),
+        });
         ztoolkit.log("Batch Coding AI suggestion failed", item.key, e);
       }
       done++;
@@ -2743,6 +2846,7 @@ export class EvidenceCommands {
       });
     });
 
+    const failed = failures.length;
     progressWin.changeLine({
       progress: 100,
       text: getString("progress-batch-coding-done", {
@@ -2751,6 +2855,7 @@ export class EvidenceCommands {
       type: failed > 0 ? "error" : "success",
     });
     progressWin.startCloseTimer(5000);
+    EvidenceCommands.showBatchFailuresDialog(failures);
   }
 
   // Matches parseCodebookCsv's expected header/columns exactly (see
