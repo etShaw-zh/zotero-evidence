@@ -1,5 +1,6 @@
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
+import { getRunProgress } from "../ai/aiRunTracker";
 import { CodebookVariable, getLatestCodebook } from "../coding/codebookService";
 import { getNote, saveNote } from "../coding/codingNotesService";
 import {
@@ -36,6 +37,7 @@ import {
   setNativeSectionsHidden,
   shouldHideNativeSections,
   sortAnnotationsByNewest,
+  stageLabel,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-coding";
@@ -908,17 +910,35 @@ async function renderCodingArea(
 
   const buttonRow = el(doc, "div", { classList: ["zotero-evidence-buttons"] });
 
+  // A run started from a DIFFERENT render of this same area (e.g. before
+  // "刷新" rebuilt everything from scratch) may still be in flight -- ask
+  // the shared tracker instead of assuming idle, so this fresh button
+  // reflects reality instead of quietly resetting to the idle label while
+  // the real call is still going (see aiRunTracker.ts's doc comment for
+  // why that specifically is what used to invite a duplicate run).
+  const inProgress = getRunProgress(ctx.project.id, item.key);
   const generateBtn = el(doc, "button", {
-    attributes: { type: "button" },
-    properties: { innerHTML: generateLabel },
+    attributes: {
+      type: "button",
+      ...(inProgress ? { disabled: "true" } : {}),
+    },
+    properties: {
+      innerHTML: inProgress ? stageLabel(inProgress) : generateLabel,
+    },
     listeners: [
       {
         type: "click",
         listener: async () => {
           generateBtn.setAttribute("disabled", "true");
-          generateBtn.textContent = getString("coding-loading");
+          generateBtn.textContent = stageLabel({ stage: "reading" });
           try {
-            const result = await generateSuggestions(ctx.project.id, item);
+            const result = await generateSuggestions(
+              ctx.project.id,
+              item,
+              (stage, detail) => {
+                generateBtn.textContent = stageLabel({ stage, ...detail });
+              },
+            );
             item.addToCollection(ctx.collections.codingId);
             await item.saveTx();
             if (result.count === 0) {

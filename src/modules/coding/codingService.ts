@@ -1,4 +1,5 @@
 import { callChatCompletion } from "../ai/aiClient";
+import { AIRunReporter, runDeduped } from "../ai/aiRunTracker";
 import { getActiveProvider } from "../ai/providerConfig";
 import { CODING_ANNOTATION_COLOR } from "../../utils/annotationColors";
 import {
@@ -146,79 +147,104 @@ export interface GenerateSuggestionsResult {
 export async function generateSuggestions(
   projectId: number,
   item: Zotero.Item,
+  onProgress?: AIRunReporter,
 ): Promise<GenerateSuggestionsResult> {
-  const provider = getActiveProvider();
-  if (!provider) {
-    throw new Error("No AI provider configured.");
-  }
-  const codebookRow = await getLatestCodebook(projectId);
-  if (!codebookRow || codebookRow.variables.length === 0) {
-    throw new Error("No Codebook configured for this project.");
-  }
-  const fullText = await getAttachmentFullText(item);
-  if (!fullText) {
-    throw new Error("Could not read full text from the PDF attachment.");
-  }
-
-  const raw = await callChatCompletion(
-    provider,
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildPrompt(codebookRow.variables, fullText) },
-    ],
-    "coding",
-  );
-  const suggestions = parseSuggestions(raw);
-
-  // Best-effort (COD-04): try to locate each suggestion's quote in the PDF.
-  // This only records WHERE the evidence is (pending_position) -- it does
-  // NOT create a real annotation yet, so nothing shows up on the PDF for a
-  // suggestion nobody has reviewed. The highlight only gets materialized
-  // once the human actually confirms that record (see confirmRecord). One
-  // attachment lookup shared across all suggestions for this item. A miss
-  // or extraction failure just leaves pending_position unset for that row --
-  // the existing manual "choose a highlight, link" UI is still the
-  // fallback, so this must never throw out of generateSuggestions.
-  let attachment: Zotero.Item | null = null;
-  try {
-    const best = await item.getBestAttachment();
-    if (best && best.isPDFAttachment()) attachment = best;
-  } catch {
-    // fall through -- attachment stays null, no auto-placement attempted
-  }
-
-  await databaseService.init();
-  const now = new Date().toISOString();
-  for (const s of suggestions) {
-    let pendingPosition: string | null = null;
-    if (attachment && s.quote) {
-      try {
-        const located = await locateQuoteInAttachment(attachment, s.quote);
-        if (located) pendingPosition = JSON.stringify(located);
-      } catch (e) {
-        ztoolkit.log("Coding auto-locate failed", item.key, s.variable, e);
-      }
+  // Deduped per (projectId, item.key) -- see aiRunTracker.ts and
+  // ftCriterionCheckService.ts's runCriterionChecks (the same shape of
+  // call: one LLM request, then a per-result sequential PDF quote search,
+  // with nothing persisted until the very end) for why this matters: the
+  // "刷新" button re-renders this whole area from current DB state at any
+  // time, which used to silently reset the "运行 AI" button back to idle
+  // while a call was still in flight, since there was nothing to show
+  // "still running" -- inviting a genuinely concurrent second run.
+  return runDeduped(projectId, item.key, async (report) => {
+    const emit: AIRunReporter = (stage, detail) => {
+      report(stage, detail);
+      onProgress?.(stage, detail);
+    };
+    emit("reading");
+    const provider = getActiveProvider();
+    if (!provider) {
+      throw new Error("No AI provider configured.");
     }
-    await databaseService.queryAsync(
-      `INSERT INTO coding_records
-         (project_id, codebook_id, item_key, pending_position, variable_name, variable_value, quote, is_pilot, source, confirmed, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', 0, ?, ?)`,
-      [
-        projectId,
-        codebookRow.id,
-        item.key,
-        pendingPosition,
-        s.variable,
-        s.value,
-        s.quote,
-        0,
-        now,
-        now,
-      ],
-    );
-  }
+    const codebookRow = await getLatestCodebook(projectId);
+    if (!codebookRow || codebookRow.variables.length === 0) {
+      throw new Error("No Codebook configured for this project.");
+    }
+    const fullText = await getAttachmentFullText(item);
+    if (!fullText) {
+      throw new Error("Could not read full text from the PDF attachment.");
+    }
 
-  return { count: suggestions.length, codebookId: codebookRow.id };
+    emit("analyzing");
+    const raw = await callChatCompletion(
+      provider,
+      [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: buildPrompt(codebookRow.variables, fullText),
+        },
+      ],
+      "coding",
+    );
+    const suggestions = parseSuggestions(raw);
+
+    // Best-effort (COD-04): try to locate each suggestion's quote in the
+    // PDF. This only records WHERE the evidence is (pending_position) --
+    // it does NOT create a real annotation yet, so nothing shows up on the
+    // PDF for a suggestion nobody has reviewed. The highlight only gets
+    // materialized once the human actually confirms that record (see
+    // confirmRecord). One attachment lookup shared across all suggestions
+    // for this item. A miss or extraction failure just leaves
+    // pending_position unset for that row -- the existing manual "choose a
+    // highlight, link" UI is still the fallback, so this must never throw
+    // out of generateSuggestions.
+    let attachment: Zotero.Item | null = null;
+    try {
+      const best = await item.getBestAttachment();
+      if (best && best.isPDFAttachment()) attachment = best;
+    } catch {
+      // fall through -- attachment stays null, no auto-placement attempted
+    }
+
+    await databaseService.init();
+    const now = new Date().toISOString();
+    let locateIndex = 0;
+    for (const s of suggestions) {
+      locateIndex++;
+      emit("locating", { current: locateIndex, total: suggestions.length });
+      let pendingPosition: string | null = null;
+      if (attachment && s.quote) {
+        try {
+          const located = await locateQuoteInAttachment(attachment, s.quote);
+          if (located) pendingPosition = JSON.stringify(located);
+        } catch (e) {
+          ztoolkit.log("Coding auto-locate failed", item.key, s.variable, e);
+        }
+      }
+      await databaseService.queryAsync(
+        `INSERT INTO coding_records
+           (project_id, codebook_id, item_key, pending_position, variable_name, variable_value, quote, is_pilot, source, confirmed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', 0, ?, ?)`,
+        [
+          projectId,
+          codebookRow.id,
+          item.key,
+          pendingPosition,
+          s.variable,
+          s.value,
+          s.quote,
+          0,
+          now,
+          now,
+        ],
+      );
+    }
+
+    emit("saving");
+    return { count: suggestions.length, codebookId: codebookRow.id };
+  });
 }
 
 function rowToRecord(row: any): CodingRecord {

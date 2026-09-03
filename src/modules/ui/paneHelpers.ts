@@ -1,5 +1,6 @@
 import { getString } from "../../utils/locale";
 import { safeGetField } from "../../utils/zoteroItem";
+import { AIRunProgress } from "../ai/aiRunTracker";
 import {
   findProjectPaneContextSync,
   ProjectPaneContext,
@@ -312,6 +313,29 @@ export function quotePreview(text: string | null, max = 60): string {
   if (!text) return "";
   const t = text.trim();
   return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+/**
+ * Shared button/status text for an in-flight AI run (FT-Screening's
+ * runCriterionChecks, Coding's generateSuggestions) -- both go through the
+ * exact same 4 real, verifiable stages (read the cached full text, call
+ * the LLM, locate each result's quote in the PDF one at a time, write the
+ * rows), so one label mapping covers both rather than each pane inventing
+ * its own wording. Deliberately does NOT try to distinguish "thinking"
+ * from "generating" within the "analyzing" stage -- the underlying HTTP
+ * call is a single non-streamed request/response with no observable
+ * signal in between, so any finer split there would just be an invented,
+ * inaccurate progress bar. "locating" is the one stage with a real,
+ * countable total (one PDF lookup per AI-returned result), so it's the
+ * only one that gets a live N/total count.
+ */
+export function stageLabel(progress: AIRunProgress): string {
+  if (progress.stage === "locating" && progress.current && progress.total) {
+    return getString("ai-run-stage-locating", {
+      args: { current: progress.current, total: progress.total },
+    });
+  }
+  return getString(`ai-run-stage-${progress.stage}`);
 }
 
 /**

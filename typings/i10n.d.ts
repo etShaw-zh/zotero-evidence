@@ -3,6 +3,10 @@
 /* eslint-disable */
 // @ts-nocheck
 export type FluentMessageId =
+  | 'ai-run-stage-analyzing'
+  | 'ai-run-stage-locating'
+  | 'ai-run-stage-reading'
+  | 'ai-run-stage-saving'
   | 'ai-usage-purpose-coding'
   | 'ai-usage-purpose-connection-test'
   | 'ai-usage-purpose-ft-screening'
@@ -39,7 +43,6 @@ export type FluentMessageId =
   | 'coding-key-literature-flag'
   | 'coding-key-literature-unflag'
   | 'coding-link-annotation'
-  | 'coding-loading'
   | 'coding-manual-add-title'
   | 'coding-needs-manual-link'
   | 'coding-no-records'
@@ -205,7 +208,6 @@ export type FluentMessageId =
   | 'ft-queue-checklist-title'
   | 'ft-queue-checks-error'
   | 'ft-queue-checks-in-progress-note'
-  | 'ft-queue-checks-loading'
   | 'ft-queue-choose-annotation'
   | 'ft-queue-choose-annotation-optional'
   | 'ft-queue-confirmed'

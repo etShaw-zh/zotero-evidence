@@ -1,5 +1,6 @@
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
+import { getRunProgress } from "../ai/aiRunTracker";
 import { refreshProjectPaneContextCache } from "../project/projectContext";
 import { ProjectPaneContext } from "../project/projectContext";
 import {
@@ -49,6 +50,7 @@ import {
   setNativeSectionsHidden,
   shouldHideNativeSections,
   sortAnnotationsByNewest,
+  stageLabel,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-ft-queue";
@@ -1083,28 +1085,39 @@ async function renderFtChecklistArea(
     classList: ["zotero-evidence-buttons"],
   }) as HTMLElement;
 
+  const idleRunLabel = getString(
+    checks.length > 0 ? "ft-queue-rerun-checks" : "ft-queue-run-checks",
+  );
+  // A run started from a DIFFERENT render of this same area (e.g. before
+  // "刷新" rebuilt everything from scratch) may still be in flight -- ask
+  // the shared tracker instead of assuming idle, so this fresh button
+  // reflects reality instead of quietly resetting to "运行 AI" while the
+  // real call is still going (see aiRunTracker.ts's doc comment for why
+  // that specifically is what used to invite a duplicate run).
+  const inProgress = getRunProgress(ctx.project.id, item.key);
   const runBtn = el(doc, "button", {
-    attributes: { type: "button" },
+    attributes: {
+      type: "button",
+      ...(inProgress ? { disabled: "true" } : {}),
+    },
     properties: {
-      innerHTML: getString(
-        checks.length > 0 ? "ft-queue-rerun-checks" : "ft-queue-run-checks",
-      ),
+      innerHTML: inProgress ? stageLabel(inProgress) : idleRunLabel,
     },
   }) as HTMLButtonElement;
   runBtn.addEventListener("click", async () => {
     runBtn.setAttribute("disabled", "true");
-    runBtn.textContent = getString("ft-queue-checks-loading");
+    runBtn.textContent = stageLabel({ stage: "reading" });
     try {
-      await runCriterionChecks(ctx.project.id, item);
+      await runCriterionChecks(ctx.project.id, item, (stage, detail) => {
+        runBtn.textContent = stageLabel({ stage, ...detail });
+      });
       await rerender();
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
         `${getString("ft-queue-checks-error")}\n${e?.message ?? e}`,
       );
       runBtn.removeAttribute("disabled");
-      runBtn.textContent = getString(
-        checks.length > 0 ? "ft-queue-rerun-checks" : "ft-queue-run-checks",
-      );
+      runBtn.textContent = idleRunLabel;
     }
   });
   buttonRow.appendChild(runBtn);

@@ -1,4 +1,5 @@
 import { callChatCompletion } from "../ai/aiClient";
+import { AIRunReporter, runDeduped } from "../ai/aiRunTracker";
 import { getActiveProvider } from "../ai/providerConfig";
 import { FT_SCREENING_ANNOTATION_COLOR } from "../../utils/annotationColors";
 import {
@@ -270,118 +271,140 @@ async function refreshAggregate(
 export async function runCriterionChecks(
   projectId: number,
   item: Zotero.Item,
+  onProgress?: AIRunReporter,
 ): Promise<CriterionCheck[]> {
-  const provider = getActiveProvider();
-  if (!provider) {
-    throw new Error("No AI provider configured.");
-  }
-  const criteriaRow = await getLatestCriteria(projectId, "ft");
-  if (!criteriaRow) {
-    throw new Error("No screening criteria configured for this project.");
-  }
-  const state = await getScreeningState(projectId, item.key);
-  if (!state?.fulltextReady) {
-    throw new Error(
-      "Full text has not been confirmed ready for this item yet.",
+  // Deduped per (projectId, item.key): this whole call -- one LLM request
+  // over the full text, then a per-result sequential PDF quote search --
+  // used to have no persisted state at all until it finished, so clicking
+  // the unrelated "刷新" button (a full re-render from current DB state,
+  // which has nothing new yet) recreated the "运行 AI" button as if
+  // nothing were happening, and a confused re-click could genuinely start
+  // a second concurrent run. runDeduped makes that impossible regardless
+  // of how many times this gets called for the same item while one is
+  // already in flight -- see aiRunTracker.ts.
+  return runDeduped(projectId, item.key, async (report) => {
+    const emit: AIRunReporter = (stage, detail) => {
+      report(stage, detail);
+      onProgress?.(stage, detail);
+    };
+    emit("reading");
+    const provider = getActiveProvider();
+    if (!provider) {
+      throw new Error("No AI provider configured.");
+    }
+    const criteriaRow = await getLatestCriteria(projectId, "ft");
+    if (!criteriaRow) {
+      throw new Error("No screening criteria configured for this project.");
+    }
+    const state = await getScreeningState(projectId, item.key);
+    if (!state?.fulltextReady) {
+      throw new Error(
+        "Full text has not been confirmed ready for this item yet.",
+      );
+    }
+    const fullText = await getAttachmentFullText(item);
+    if (!fullText) {
+      throw new Error("Could not read full text from the PDF attachment.");
+    }
+
+    emit("analyzing");
+    const raw = await callChatCompletion(
+      provider,
+      [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildPrompt(criteriaRow.criteria, fullText) },
+      ],
+      "ft_screening",
     );
-  }
-  const fullText = await getAttachmentFullText(item);
-  if (!fullText) {
-    throw new Error("Could not read full text from the PDF attachment.");
-  }
+    const rawChecks = parseCriterionChecks(raw);
 
-  const raw = await callChatCompletion(
-    provider,
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildPrompt(criteriaRow.criteria, fullText) },
-    ],
-    "ft_screening",
-  );
-  const rawChecks = parseCriterionChecks(raw);
-
-  let attachment: Zotero.Item | null = null;
-  try {
-    const best = await item.getBestAttachment();
-    if (best && best.isPDFAttachment()) attachment = best;
-  } catch {
-    // fall through -- attachment stays null, no auto-placement attempted
-  }
-
-  await databaseService.init();
-  const now = new Date().toISOString();
-  const inserted: CriterionCheck[] = [];
-  const seen = new Set<string>();
-
-  for (const rc of rawChecks) {
-    const list =
-      rc.criterionType === "inclusion"
-        ? criteriaRow.criteria.inclusionCriteria
-        : criteriaRow.criteria.exclusionCriteria;
-    const criterionText = list[rc.criterionIndex];
-    if (!criterionText) continue; // AI hallucinated an out-of-range index
-    // Design rule: an exclusion criterion only ever produces an exclude
-    // row -- a malformed "include" verdict for one is dropped rather than
-    // trusted.
-    if (rc.criterionType === "exclusion" && rc.verdict !== "exclude") {
-      continue;
+    let attachment: Zotero.Item | null = null;
+    try {
+      const best = await item.getBestAttachment();
+      if (best && best.isPDFAttachment()) attachment = best;
+    } catch {
+      // fall through -- attachment stays null, no auto-placement attempted
     }
-    const dedupeKey = `${rc.criterionType}:${rc.criterionIndex}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
 
-    let pendingPosition: string | null = null;
-    if (attachment && rc.quote) {
-      try {
-        const located = await locateQuoteInAttachment(attachment, rc.quote);
-        if (located) pendingPosition = JSON.stringify(located);
-      } catch (e) {
-        ztoolkit.log(
-          "FT criterion check auto-locate failed",
-          item.key,
-          rc.criterionType,
-          rc.criterionIndex,
-          e,
-        );
+    await databaseService.init();
+    const now = new Date().toISOString();
+    const inserted: CriterionCheck[] = [];
+    const seen = new Set<string>();
+    let locateIndex = 0;
+
+    for (const rc of rawChecks) {
+      locateIndex++;
+      emit("locating", { current: locateIndex, total: rawChecks.length });
+      const list =
+        rc.criterionType === "inclusion"
+          ? criteriaRow.criteria.inclusionCriteria
+          : criteriaRow.criteria.exclusionCriteria;
+      const criterionText = list[rc.criterionIndex];
+      if (!criterionText) continue; // AI hallucinated an out-of-range index
+      // Design rule: an exclusion criterion only ever produces an exclude
+      // row -- a malformed "include" verdict for one is dropped rather than
+      // trusted.
+      if (rc.criterionType === "exclusion" && rc.verdict !== "exclude") {
+        continue;
       }
-    }
+      const dedupeKey = `${rc.criterionType}:${rc.criterionIndex}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
 
-    await databaseService.queryAsync(
-      `INSERT INTO ft_criterion_checks
+      let pendingPosition: string | null = null;
+      if (attachment && rc.quote) {
+        try {
+          const located = await locateQuoteInAttachment(attachment, rc.quote);
+          if (located) pendingPosition = JSON.stringify(located);
+        } catch (e) {
+          ztoolkit.log(
+            "FT criterion check auto-locate failed",
+            item.key,
+            rc.criterionType,
+            rc.criterionIndex,
+            e,
+          );
+        }
+      }
+
+      await databaseService.queryAsync(
+        `INSERT INTO ft_criterion_checks
          (project_id, item_key, criterion_type, criterion_text, verdict, reasoning, quote, pending_position, source, confirmed, model, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', 0, ?, ?, ?)`,
-      [
-        projectId,
-        item.key,
-        rc.criterionType,
+        [
+          projectId,
+          item.key,
+          rc.criterionType,
+          criterionText,
+          rc.verdict,
+          rc.reasoning,
+          rc.quote || null,
+          pendingPosition,
+          provider.model,
+          now,
+          now,
+        ],
+      );
+      const id = await databaseService.getLastInsertId();
+      inserted.push({
+        id,
+        criterionType: rc.criterionType,
         criterionText,
-        rc.verdict,
-        rc.reasoning,
-        rc.quote || null,
+        verdict: rc.verdict,
+        reasoning: rc.reasoning,
+        quote: rc.quote || null,
+        annotationKey: null,
         pendingPosition,
-        provider.model,
-        now,
-        now,
-      ],
-    );
-    const id = await databaseService.getLastInsertId();
-    inserted.push({
-      id,
-      criterionType: rc.criterionType,
-      criterionText,
-      verdict: rc.verdict,
-      reasoning: rc.reasoning,
-      quote: rc.quote || null,
-      annotationKey: null,
-      pendingPosition,
-      source: "ai",
-      confirmed: false,
-      model: provider.model,
-    });
-  }
+        source: "ai",
+        confirmed: false,
+        model: provider.model,
+      });
+    }
 
-  await refreshAggregate(projectId, item.key);
-  return inserted;
+    emit("saving");
+    await refreshAggregate(projectId, item.key);
+    return inserted;
+  });
 }
 
 /**
