@@ -40,6 +40,7 @@ async function onStartup() {
   registerFtQueuePane();
   registerCodingPane();
   registerProjectOverviewPane();
+  await registerPreferencesPane();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
@@ -48,6 +49,51 @@ async function onStartup() {
   // Mark initialized as true to confirm plugin loading status
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
+}
+
+/**
+ * Registers this plugin's one Settings pane (Zotero > Settings >
+ * <addon icon>) and exposes the api functions its script
+ * (preferencesPane.ts, bundled separately -- see zotero-plugin.config.ts)
+ * calls back into: that script runs in the Settings window's OWN sandbox,
+ * with no access to any src/modules import, so Zotero[addonInstance].api
+ * is the only bridge back to this running instance (same pattern as
+ * refreshProjectPaneContextCache above).
+ *
+ * Deliberately a small "hub" pane, not a full settings form: this plugin's
+ * real configuration (AI Provider Settings) and everything else already
+ * live in File-menu dialogs, scoped per Evidence project -- there's no
+ * "which project" picker to put in a static Settings pane. This just
+ * points users at the right place, since a plugin with zero presence in
+ * Settings reads as broken/missing to anyone who instinctively looks
+ * there first.
+ *
+ * Every static label in the pane (caption, hint, button text, the
+ * name/version/build-time "about" line) is wired declaratively via
+ * `data-l10n-id`/`data-l10n-args` in preferencesPane.xhtml itself --
+ * Zotero's preferences.js already runs `document.l10n.translateFragment()`
+ * on every pane it loads, and the `<linkset><html:link rel="localization"
+ * .../></linkset>` at that file's top registers this plugin's existing
+ * addon.ftl for it, so none of that needs a script round-trip through
+ * addon.api at all. getActiveProviderSummary is the one exception -- which
+ * provider is actually active is runtime state, not a fixed string Fluent
+ * can express on its own.
+ */
+async function registerPreferencesPane(): Promise<void> {
+  (addon.api as any).getActiveProviderSummary = () =>
+    EvidenceCommands.getActiveProviderSummary();
+  (addon.api as any).openAIProviderDialog = () =>
+    EvidenceCommands.aiProviderDialog();
+  (addon.api as any).openAIUsageDialog = () => EvidenceCommands.aiUsageDialog();
+  (addon.api as any).openUserGuide = () => EvidenceCommands.openUserGuide();
+
+  await Zotero.PreferencePanes.register({
+    pluginID: addon.data.config.addonID,
+    src: `chrome://${addon.data.config.addonRef}/content/preferencesPane.xhtml`,
+    scripts: [
+      `chrome://${addon.data.config.addonRef}/content/scripts/preferences-pane.js`,
+    ],
+  });
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {

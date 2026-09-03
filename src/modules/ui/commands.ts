@@ -1746,6 +1746,24 @@ export class EvidenceCommands {
    * there's no "switch provider mid-form" case to handle at all -- each
    * edit dialog open is for exactly one provider from the start.
    */
+  /**
+   * One-line summary of the currently active provider, for the Settings
+   * pane's status line (preferencesPane.ts, via addon.api) -- distinct
+   * from aiProviderDialog's per-SLOT status text below (5 rows, one per
+   * preset), this is just the single provider actually in effect.
+   */
+  static getActiveProviderSummary(): string {
+    const active = getActiveProvider();
+    if (!active) return getString("prefs-pane-status-unconfigured");
+    return getString("prefs-pane-status-configured", {
+      args: {
+        name: active.name,
+        model: active.model || "—",
+        concurrency: active.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+      },
+    });
+  }
+
   static async aiProviderDialog() {
     migrateLegacyProviders();
     const providers = listProviders();

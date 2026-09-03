@@ -104,6 +104,19 @@ ai-usage-purpose-total = 合计
 
 menu-user-guide = 使用说明…
 
+prefs-pane-caption =
+    .label = Zotero Evidence
+prefs-pane-status-configured = 当前 AI 提供商：{ $name } · { $model } ・并发 { $concurrency }
+prefs-pane-status-unconfigured = 尚未配置 AI 提供商。
+prefs-pane-hint = 项目相关设置（新建项目、筛选标准、编码手册、导入导出等）请在 Zotero 顶部菜单栏的 File → Evidence 相关菜单中操作。
+prefs-pane-ai-provider-btn =
+    .label = AI 提供商设置…
+prefs-pane-ai-usage-btn =
+    .label = AI 使用统计…
+prefs-pane-user-guide-btn =
+    .label = 使用说明…
+prefs-pane-about = { $name } { $version } · 构建于 { $time }
+
 ta-queue-head-text =
     .label = Evidence 筛选
 ta-queue-sidenav-tooltip =

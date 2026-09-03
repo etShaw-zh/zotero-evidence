@@ -104,6 +104,19 @@ ai-usage-purpose-total = Total
 
 menu-user-guide = User Guide…
 
+prefs-pane-caption =
+    .label = Zotero Evidence
+prefs-pane-status-configured = Active AI provider: { $name } · { $model } · concurrency { $concurrency }
+prefs-pane-status-unconfigured = No AI provider configured yet.
+prefs-pane-hint = Project-specific settings (new project, screening criteria, Codebook, import/export, ...) live under File → Evidence menus in the main Zotero window.
+prefs-pane-ai-provider-btn =
+    .label = AI Provider Settings…
+prefs-pane-ai-usage-btn =
+    .label = AI Usage Statistics…
+prefs-pane-user-guide-btn =
+    .label = User Guide…
+prefs-pane-about = { $name } { $version } · Built { $time }
+
 ta-queue-head-text =
     .label = Evidence Screening
 ta-queue-sidenav-tooltip =

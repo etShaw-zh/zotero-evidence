@@ -1,0 +1,34 @@
+<linkset>
+  <html:link rel="localization" href="zoteroEvidence-addon.ftl" />
+</linkset>
+<vbox id="zotero-evidence-prefs-pane" flex="1">
+  <groupbox>
+    <caption data-l10n-id="prefs-pane-caption" />
+    <description id="zotero-evidence-prefs-status" />
+    <hbox pack="start" style="gap: 6px; margin-top: 6px">
+      <button
+        id="zotero-evidence-prefs-ai-provider-btn"
+        data-l10n-id="prefs-pane-ai-provider-btn"
+      />
+      <button
+        id="zotero-evidence-prefs-ai-usage-btn"
+        data-l10n-id="prefs-pane-ai-usage-btn"
+      />
+    </hbox>
+  </groupbox>
+  <groupbox>
+    <description data-l10n-id="prefs-pane-hint" />
+    <hbox pack="start" style="margin-top: 6px">
+      <button
+        id="zotero-evidence-prefs-user-guide-btn"
+        data-l10n-id="prefs-pane-user-guide-btn"
+      />
+    </hbox>
+  </groupbox>
+  <separator />
+  <description
+    data-l10n-id="prefs-pane-about"
+    data-l10n-args='{"name": "__addonName__", "version": "__buildVersion__", "time": "__buildTime__"}'
+    style="font-size: 0.85em; color: #888"
+  />
+</vbox>
