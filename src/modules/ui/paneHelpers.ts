@@ -239,6 +239,39 @@ export function renderConfigWarning(
   return warning;
 }
 
+/**
+ * Compact "what do these symbols mean" caption for a card's icon-only row
+ * actions (⇄/✓/✕/↺) -- FT-Screening's checklist and Coding's suggestion
+ * cards both went from TA-Queue's full-text Include/Exclude/Unclear
+ * buttons to bare Unicode glyphs with only a hover tooltip once a card can
+ * hold a dozen+ rows (no room for text buttons on every row), which is a
+ * real interaction-paradigm jump for anyone who hasn't hovered each one
+ * yet. This doesn't change that interaction -- just spells out the icons
+ * actually present in THIS card, once, above the rows, reusing the exact
+ * strings each icon's own button `title` already uses so the legend can
+ * never drift out of sync with what a hover would tell you.
+ */
+export function renderRowActionsLegend(
+  doc: Document,
+  icons: { symbol: string; label: string }[],
+): HTMLElement {
+  return el(doc, "p", {
+    classList: ["zotero-evidence-notes-hint"],
+    properties: {
+      // A literal "·" character, NOT the &middot; HTML named entity -- this
+      // innerHTML lands in Zotero's XUL/XML item pane document (see
+      // escapeHtml's own doc comment above), where only &amp;/&lt;/&gt;/
+      // &apos;/&quot; are valid entities. &middot; is undefined there and
+      // is a hard XML parse error that aborts the whole render, not just a
+      // display glitch -- exactly what broke FT/Coding's suggestion cards
+      // the moment this shipped.
+      innerHTML: icons
+        .map((i) => `${escapeHtml(i.symbol)} ${escapeHtml(i.label)}`)
+        .join(" · "),
+    },
+  }) as HTMLElement;
+}
+
 /** Shared "does this item have a usable PDF attachment" lookup (Coding's
  * reader sidebar and FT-Screening's annotation linker both need it). */
 export async function resolveAttachment(

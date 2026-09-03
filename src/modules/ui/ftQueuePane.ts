@@ -43,6 +43,7 @@ import {
   renderCardHeader,
   renderConfigWarning,
   renderPaneError,
+  renderRowActionsLegend,
   resolveAttachment,
   resolveContextSync,
   setNativeSectionsHidden,
@@ -528,6 +529,13 @@ function renderFtPendingCard(
       },
     }),
   );
+  card.appendChild(
+    renderRowActionsLegend(doc, [
+      { symbol: "⇄", label: getString("ft-queue-verdict-flip") },
+      { symbol: "✓", label: getString("ft-queue-check-confirm") },
+      { symbol: "✕", label: getString("coding-reject-one") },
+    ]),
+  );
 
   for (const check of pending) {
     card.appendChild(
@@ -637,6 +645,13 @@ function renderFtConfirmedList(
       properties: { innerHTML: getString("coding-confirmed-title") },
     }),
   );
+  if (onChanged) {
+    container.appendChild(
+      renderRowActionsLegend(doc, [
+        { symbol: "↺", label: getString("coding-undo-confirm") },
+      ]),
+    );
+  }
 
   const list = el(doc, "div", {
     classList: ["zotero-evidence-confirmed-list"],

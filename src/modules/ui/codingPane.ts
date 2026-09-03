@@ -30,6 +30,7 @@ import {
   renderCardHeader,
   renderConfigWarning,
   renderPaneError,
+  renderRowActionsLegend,
   resolveAttachment,
   resolveContextSync,
   setNativeSectionsHidden,
@@ -398,6 +399,12 @@ function renderPendingSuggestionsCard(
       },
     }),
   );
+  card.appendChild(
+    renderRowActionsLegend(doc, [
+      { symbol: "✓", label: getString("coding-confirm-one") },
+      { symbol: "✕", label: getString("coding-reject-one") },
+    ]),
+  );
 
   for (const record of pending) {
     card.appendChild(
@@ -505,6 +512,13 @@ function renderConfirmedList(
       properties: { innerHTML: getString("coding-confirmed-title") },
     }),
   );
+  if (onChanged) {
+    container.appendChild(
+      renderRowActionsLegend(doc, [
+        { symbol: "↺", label: getString("coding-undo-confirm") },
+      ]),
+    );
+  }
 
   const list = el(doc, "div", {
     classList: ["zotero-evidence-confirmed-list"],
@@ -875,11 +889,28 @@ async function renderCodingArea(
     await renderCodingArea(container, doc, ctx, item);
   };
 
+  // Fetched up front (not just below, where the list itself needs it) so
+  // the generate button can tell "first run" from "there's already
+  // something here" -- same run/rerun distinction, and now the same verb
+  // ("运行"/"重新运行"), as TA-Queue's and FT-Queue's own AI buttons. This
+  // button used to always say "生成 AI 建议" regardless of whether records
+  // already existed, and used a different verb ("生成") entirely -- both
+  // gaps are what coding-generate-suggestions/coding-regenerate-suggestions
+  // close now, even though the key NAMES still say "generate" (left alone
+  // deliberately -- renaming them is an internal detail, not something a
+  // user sees; only the displayed strings needed to match).
+  const records = await getCodingRecords(ctx.project.id, item.key);
+  const generateLabel = getString(
+    records.length > 0
+      ? "coding-regenerate-suggestions"
+      : "coding-generate-suggestions",
+  );
+
   const buttonRow = el(doc, "div", { classList: ["zotero-evidence-buttons"] });
 
   const generateBtn = el(doc, "button", {
     attributes: { type: "button" },
-    properties: { innerHTML: getString("coding-generate-suggestions") },
+    properties: { innerHTML: generateLabel },
     listeners: [
       {
         type: "click",
@@ -900,7 +931,7 @@ async function renderCodingArea(
               `${getString("coding-error-generate")}\n${e?.message ?? e}`,
             );
             generateBtn.removeAttribute("disabled");
-            generateBtn.textContent = getString("coding-generate-suggestions");
+            generateBtn.textContent = generateLabel;
           }
         },
       },
@@ -917,7 +948,6 @@ async function renderCodingArea(
   container.appendChild(buttonRow);
 
   const annotations = attachment ? attachment.getAnnotations() : [];
-  const records = await getCodingRecords(ctx.project.id, item.key);
 
   const listArea = el(doc, "div", {
     classList: ["zotero-evidence-coding-list"],
