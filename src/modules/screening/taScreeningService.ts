@@ -15,12 +15,20 @@ export type TADecision = "include" | "exclude" | "unclear";
 export interface AIJudgmentResult {
   decision: TADecision;
   reasoning: string;
+  /** Short verbatim substrings copied from the title/abstract that most
+   * directly support `decision`, for taQueuePane.ts to highlight in place
+   * -- see buildPrompt's instruction to copy them exactly, same "must be
+   * verbatim" requirement ftCriterionCheckService.ts's `quote` field
+   * already enforces for FT-Screening. Empty when the model didn't return
+   * any, or none survived parsing -- never blocks the decision itself. */
+  keywords: string[];
 }
 
 export interface ScreeningState {
   id: number;
   aiDecision: TADecision | null;
   aiReasoning: string | null;
+  aiKeywords: string[];
   decision: TADecision | null;
   exclusionReason: string | null;
 }
@@ -43,7 +51,12 @@ const SYSTEM_PROMPT =
   "review can check it properly. Reserve 'exclude' for when the abstract itself states something " +
   "that plainly conflicts with the criteria (e.g. an explicitly wrong population, study design, or " +
   "publication type). " +
-  'Respond with ONLY a JSON object, no markdown and no extra text: {"decision": "include"|"exclude"|"unclear", "reasoning": "one or two sentences"}.';
+  "Also return up to 5 short keywords/phrases that most directly support your decision, copied " +
+  "VERBATIM character-for-character from the title or abstract text given below -- do not " +
+  "paraphrase, translate, or fix typos. Only include a keyword if it's copied exactly; omit it " +
+  "entirely rather than guess. These are used to highlight the supporting text for a human " +
+  "reviewer, so favor short, distinctive phrases (a few words) over long spans. " +
+  'Respond with ONLY a JSON object, no markdown and no extra text: {"decision": "include"|"exclude"|"unclear", "reasoning": "one or two sentences", "keywords": ["...", ...]}.';
 
 function buildPrompt(
   criteria: ScreeningCriteria,
@@ -65,6 +78,22 @@ function normalizeDecision(value: unknown): TADecision | null {
 }
 
 /**
+ * Tolerant like the rest of this parser: a missing/malformed `keywords`
+ * array just yields no highlights rather than failing the whole judgment.
+ * Capped at 8 (the prompt asks for up to 5; a little slack for a model
+ * that slightly overshoots isn't worth discarding the whole judgment
+ * over) and each entry sanitized/trimmed the same way `reasoning` is.
+ */
+function parseKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => sanitizeDbText(v).trim())
+    .filter((v) => v.length > 0)
+    .slice(0, 8);
+}
+
+/**
  * A response that isn't valid/parseable JSON is treated as TA-Unclear with
  * the raw text kept as the reasoning, rather than throwing -- an odd model
  * response shouldn't be worse than "needs a human look", and it shouldn't
@@ -81,12 +110,13 @@ export function parseJudgment(raw: string): AIJudgmentResult {
       return {
         decision,
         reasoning: sanitizeDbText(String(obj.reasoning ?? "")),
+        keywords: parseKeywords(obj.keywords),
       };
     }
   } catch {
     // fall through to the unclear fallback below
   }
-  return { decision: "unclear", reasoning: sanitizeDbText(raw) };
+  return { decision: "unclear", reasoning: sanitizeDbText(raw), keywords: [] };
 }
 
 export async function runAIJudgment(
@@ -123,14 +153,15 @@ export async function runAIJudgment(
 
   await databaseService.init();
   await databaseService.queryAsync(
-    `INSERT INTO screening_records (project_id, item_key, stage, criteria_id, ai_decision, ai_reasoning, ai_model)
-     VALUES (?, ?, 'ta_screening', ?, ?, ?, ?)`,
+    `INSERT INTO screening_records (project_id, item_key, stage, criteria_id, ai_decision, ai_reasoning, ai_keywords, ai_model)
+     VALUES (?, ?, 'ta_screening', ?, ?, ?, ?, ?)`,
     [
       projectId,
       item.key,
       criteriaRow.id,
       judgment.decision,
       judgment.reasoning,
+      JSON.stringify(judgment.keywords),
       provider.model,
     ],
   );
@@ -145,7 +176,7 @@ export async function getScreeningState(
 ): Promise<ScreeningState | null> {
   await databaseService.init();
   const rows = (await databaseService.queryAsync(
-    `SELECT id, ai_decision, ai_reasoning, decision, exclusion_reason FROM screening_records
+    `SELECT id, ai_decision, ai_reasoning, ai_keywords, decision, exclusion_reason FROM screening_records
      WHERE project_id = ? AND item_key = ? AND stage = 'ta_screening'
      ORDER BY id DESC LIMIT 1`,
     [projectId, itemKey],
@@ -154,6 +185,7 @@ export async function getScreeningState(
         id: number;
         ai_decision: TADecision | null;
         ai_reasoning: string | null;
+        ai_keywords: string | null;
         decision: TADecision | null;
         exclusion_reason: string | null;
       }[]
@@ -164,9 +196,23 @@ export async function getScreeningState(
     id: row.id,
     aiDecision: row.ai_decision,
     aiReasoning: row.ai_reasoning,
+    aiKeywords: parseKeywords(safeJsonParse(row.ai_keywords)),
     decision: row.decision,
     exclusionReason: row.exclusion_reason,
   };
+}
+
+/** Tolerant JSON.parse for a column that's either null (row predates this
+ * column, or the judgment returned no keywords) or a JSON array string --
+ * anything else (corrupt data, a future format change) degrades to no
+ * highlights rather than throwing out of getScreeningState. */
+function safeJsonParse(value: string | null): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 /**

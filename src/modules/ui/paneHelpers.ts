@@ -355,6 +355,60 @@ export function escapeHtml(s: string): string {
 }
 
 /**
+ * Same as escapeHtml, but wraps every case-insensitive occurrence of any
+ * `keywords` entry in `<mark>` first -- used by renderCardHeader to surface
+ * TA-Screening's AI-supplied keywords (taScreeningService.ts's
+ * ScreeningState.aiKeywords) directly in the title/abstract text, so a
+ * reviewer can see at a glance which part of the abstract the AI's
+ * decision was based on. Matching happens on the RAW text before
+ * escaping -- escaping first would corrupt match offsets (e.g. a literal
+ * "&" becomes "&amp;", shifting every later index) and keywords are never
+ * HTML anyway (they're copied verbatim from plain item metadata).
+ * Overlapping matches are merged into one <mark> rather than nesting tags.
+ * Falls back to plain escapeHtml when there's nothing to highlight or
+ * nothing matched, so this is always safe to call unconditionally.
+ */
+export function highlightKeywords(text: string, keywords: string[]): string {
+  if (!text || keywords.length === 0) return escapeHtml(text);
+
+  const lowerText = text.toLowerCase();
+  const ranges: { start: number; end: number }[] = [];
+  for (const keyword of keywords) {
+    const needle = keyword.toLowerCase();
+    if (!needle) continue;
+    let from = 0;
+    while (from <= lowerText.length) {
+      const idx = lowerText.indexOf(needle, from);
+      if (idx === -1) break;
+      ranges.push({ start: idx, end: idx + needle.length });
+      from = idx + needle.length;
+    }
+  }
+  if (ranges.length === 0) return escapeHtml(text);
+
+  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: { start: number; end: number }[] = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) {
+      last.end = Math.max(last.end, range.end);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+
+  let html = "";
+  let cursor = 0;
+  for (const { start, end } of merged) {
+    html += escapeHtml(text.slice(cursor, start));
+    html += `<mark>${escapeHtml(text.slice(start, end))}</mark>`;
+    cursor = end;
+  }
+  html += escapeHtml(text.slice(cursor));
+  return html;
+}
+
+/**
  * Identifies who made a screening decision, for decided_by/fulltext_ready_by
  * -- Zotero's own numeric account ID when the user is signed into Zotero
  * sync (stable across devices/renames, unlike a display name), falling back
@@ -467,12 +521,17 @@ export function renderPaneError(
 /**
  * Renders the shared card header (title, authors/year, collapsible
  * abstract) and returns the empty content area below it for the caller to
- * fill in with stage-specific controls.
+ * fill in with stage-specific controls. `keywords` (only ever passed by
+ * TA-Queue, which is the only stage that has any -- see
+ * taScreeningService.ts's ScreeningState.aiKeywords) highlights every
+ * occurrence in both the title and abstract via highlightKeywords;
+ * omitted/empty is a no-op, same as calling escapeHtml directly.
  */
 export function renderCardHeader(
   body: HTMLDivElement,
   doc: Document,
   item: Zotero.Item,
+  keywords: string[] = [],
 ): HTMLElement {
   const title = safeGetField(item, "title") || getString("ta-queue-untitled");
   const creators = item
@@ -486,7 +545,9 @@ export function renderCardHeader(
   body.classList.add("zotero-evidence-card");
 
   body.appendChild(
-    el(doc, "h2", { properties: { innerHTML: escapeHtml(title) } }),
+    el(doc, "h2", {
+      properties: { innerHTML: highlightKeywords(title, keywords) },
+    }),
   );
   body.appendChild(
     el(doc, "div", {
@@ -501,7 +562,7 @@ export function renderCardHeader(
     classList: ["zotero-evidence-abstract"],
     properties: {
       innerHTML: abstract
-        ? escapeHtml(abstract)
+        ? highlightKeywords(abstract, keywords)
         : getString("ta-queue-no-abstract"),
     },
   }) as HTMLElement;

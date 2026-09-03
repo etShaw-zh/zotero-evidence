@@ -145,6 +145,16 @@ item-pane-sidenav .inherit-flex {
   max-height: none;
 }
 
+/* TA-Screening's AI-supplied keyword highlights (paneHelpers.ts's
+   highlightKeywords) in the title/abstract -- a plain <mark> already
+   contrasts fine against both light and dark Zotero themes on its own
+   (opaque background, dark text), this just softens the corners/padding
+   to read as intentional rather than a raw browser default. */
+.zotero-evidence-card mark {
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
 .zotero-evidence-judgment {
   margin: 8px 0;
   padding: 8px;

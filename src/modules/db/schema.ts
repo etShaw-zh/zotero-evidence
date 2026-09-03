@@ -265,4 +265,12 @@ export const COLUMN_MIGRATIONS: {
   // Export Screening Log with an empty ai_model while TA-stage rows (which
   // always had it) did not.
   { table: "ft_criterion_checks", column: "model", definition: "TEXT" },
+  // TA-Screening's counterpart to ft_criterion_checks.quote: short verbatim
+  // substrings the AI judgment says it based its decision on, copied
+  // exactly from the title/abstract (JSON string array) so taQueuePane.ts
+  // can highlight them in place -- see aiClient.ts's reasoningLanguageInstruction
+  // for the parallel "keep this verbatim" prompt requirement. Nullable/not
+  // backfilled -- a judgment run before this column existed simply has no
+  // keywords to highlight, same precedent as ai_model above.
+  { table: "screening_records", column: "ai_keywords", definition: "TEXT" },
 ];

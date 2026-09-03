@@ -34,6 +34,8 @@ async function renderJudgmentArea(
   doc: Document,
   ctx: ProjectPaneContext,
   item: Zotero.Item,
+  state: ScreeningState | null,
+  body: HTMLDivElement,
 ) {
   container.innerHTML = "";
 
@@ -45,15 +47,14 @@ async function renderJudgmentArea(
         buttonLabel: getString("config-warning-set-criteria-button"),
         onClick: async () => {
           await EvidenceCommands.criteriaDialog();
-          await renderJudgmentArea(container, doc, ctx, item);
+          await renderJudgmentArea(container, doc, ctx, item, state, body);
         },
       }),
     );
     return;
   }
 
-  const state = await getScreeningState(ctx.project.id, item.key);
-  await renderJudgmentContent(container, doc, ctx, item, state);
+  await renderJudgmentContent(container, doc, ctx, item, state, body);
 }
 
 async function renderJudgmentContent(
@@ -62,6 +63,7 @@ async function renderJudgmentContent(
   ctx: ProjectPaneContext,
   item: Zotero.Item,
   state: ScreeningState | null,
+  body: HTMLDivElement,
 ) {
   container.innerHTML = "";
 
@@ -74,10 +76,31 @@ async function renderJudgmentContent(
         id: result.screeningRecordId,
         aiDecision: result.decision,
         aiReasoning: result.reasoning,
+        aiKeywords: result.keywords,
         decision: null,
         exclusionReason: null,
       };
-      await renderJudgmentContent(container, doc, ctx, item, newState);
+      // Re-render the whole card, not just this judgment area -- the
+      // title/abstract above (already painted before this AI run existed)
+      // needs the freshly-returned keywords highlighted too, and
+      // renderCardHeader is the only thing that draws those. This does
+      // collapse an expanded abstract back to its default height; a minor
+      // cosmetic cost judged not worth threading expand-state through just
+      // to avoid.
+      const newContentArea = renderCardHeader(
+        body,
+        doc,
+        item,
+        newState.aiKeywords,
+      );
+      await renderJudgmentContent(
+        newContentArea,
+        doc,
+        ctx,
+        item,
+        newState,
+        body,
+      );
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
         `${getString("ta-queue-error-run-ai")}\n${e?.message ?? e}`,
@@ -254,9 +277,9 @@ async function renderHistoryArea(
   doc: Document,
   ctx: ProjectPaneContext,
   item: Zotero.Item,
+  state: ScreeningState | null,
 ) {
   container.innerHTML = "";
-  const state = await getScreeningState(ctx.project.id, item.key);
 
   container.appendChild(
     el(doc, "h3", {
@@ -394,12 +417,31 @@ export function registerTaQueuePane() {
       ) {
         return;
       }
-      const contentArea = renderCardHeader(body, doc, item);
+      // Fetched once up front (rather than inside renderJudgmentArea/
+      // renderHistoryArea, which used to each fetch their own copy) so
+      // renderCardHeader can highlight aiKeywords in the title/abstract
+      // from the very first paint, before either of those run.
+      let state: ScreeningState | null = null;
+      try {
+        state = await getScreeningState(ctx.project.id, item.key);
+      } catch (e) {
+        ztoolkit.log(
+          "TA Queue pane: screening state fetch failed",
+          item.key,
+          e,
+        );
+      }
+      const contentArea = renderCardHeader(
+        body,
+        doc,
+        item,
+        state?.aiKeywords ?? [],
+      );
       try {
         if (ctx.role === "ta_queue") {
-          await renderJudgmentArea(contentArea, doc, ctx, item);
+          await renderJudgmentArea(contentArea, doc, ctx, item, state, body);
         } else {
-          await renderHistoryArea(contentArea, doc, ctx, item);
+          await renderHistoryArea(contentArea, doc, ctx, item, state);
         }
       } catch (e) {
         ztoolkit.log("TA Queue pane render failed", item.key, e);

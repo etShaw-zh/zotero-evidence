@@ -63,6 +63,7 @@ describe("Phase 2: TA-Screening core loop", function () {
     const good = parseJudgment('{"decision": "include", "reasoning": "fits"}');
     assert.equal(good.decision, "include");
     assert.equal(good.reasoning, "fits");
+    assert.deepEqual(good.keywords, []);
 
     const fenced = parseJudgment(
       '```json\n{"decision": "exclude", "reasoning": "no"}\n```',
@@ -72,6 +73,39 @@ describe("Phase 2: TA-Screening core loop", function () {
     const garbage = parseJudgment("not json at all");
     assert.equal(garbage.decision, "unclear");
     assert.equal(garbage.reasoning, "not json at all");
+    assert.deepEqual(garbage.keywords, []);
+  });
+
+  it("parseJudgment extracts and sanitizes verbatim keywords, dropping non-string/blank entries and capping at 8", function () {
+    const result = parseJudgment(
+      JSON.stringify({
+        decision: "include",
+        reasoning: "fits",
+        keywords: [
+          "randomized controlled trial",
+          "  ",
+          42,
+          "children aged 6-12",
+          "k1",
+          "k2",
+          "k3",
+          "k4",
+          "k5",
+          "k6",
+          "k7",
+        ],
+      }),
+    );
+    assert.deepEqual(result.keywords, [
+      "randomized controlled trial",
+      "children aged 6-12",
+      "k1",
+      "k2",
+      "k3",
+      "k4",
+      "k5",
+      "k6",
+    ]);
   });
 
   it("confirmDecision(include) moves the item to TA-Include and FT-Queue", async function () {
