@@ -52,6 +52,28 @@ collapsible-section {
   min-width: 0;
 }
 
+/* This whole chain was built from the Reader context pane's DOM, where
+   #zotero-view-item-container's parent chain up to the resizable column
+   is entirely covered (Zotero itself puts min-width:0 on the vbox
+   wrapping #zotero-context-pane-inner). The library window's own item
+   pane has a DIFFERENT parent above #zotero-view-item-container:
+   <item-details id="zotero-item-details"> (a plain layout custom element,
+   not tied to any splitter/collapse/persisted-width machinery -- that
+   machinery lives one level further up, on <item-pane>/<deck>, which
+   must NOT be touched here: adding min-width:0 directly to #zotero-item-
+   pane was tried and reverted, since it broke the item pane splitter's
+   own drag/collapse threshold and made the whole pane render wider than
+   its persisted width, not just our content). <item-details> is the same
+   tag in both Reader and library (see paneHelpers.ts's note on the
+   duplicated #zotero-view-item id), so this rule applies to both, but
+   only the library side was ever missing this link -- confirmed live:
+   .zotero-view-item-main still overflowed even with its own min-width:0
+   above, because ITS containing block (this element) was never
+   constrained to shrink in the first place. */
+item-details {
+  min-width: 0;
+}
+
 /* item-pane-sidenav's own base rule (.inherit-flex, its icon-button strip
    container -- see itemPaneSidenav.js's `this._buttonContainer`) sets
    `gap: inherit`, pulling in whatever gap the parent sidenav element
