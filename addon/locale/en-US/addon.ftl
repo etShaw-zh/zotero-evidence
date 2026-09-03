@@ -102,6 +102,8 @@ ai-usage-purpose-synthesis = Synthesis
 ai-usage-purpose-connection-test = Connection test
 ai-usage-purpose-total = Total
 
+menu-user-guide = User Guide…
+
 ta-queue-head-text =
     .label = Evidence Screening
 ta-queue-sidenav-tooltip =

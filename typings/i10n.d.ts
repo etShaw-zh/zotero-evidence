@@ -312,6 +312,7 @@ export type FluentMessageId =
   | 'menu-progress'
   | 'menu-restore-archive'
   | 'menu-synthesis'
+  | 'menu-user-guide'
   | 'overview-button-enter'
   | 'overview-button-view'
   | 'overview-coding-progress'

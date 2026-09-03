@@ -325,6 +325,17 @@ export class EvidenceCommands {
         },
       ],
     });
+    // Standalone menuitem, not a submenu -- a single action doesn't need
+    // one, and it's the same "just register a plain menuitem directly"
+    // shape registerItemMenus below already uses for the right-click menu.
+    ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menuitem",
+      id: "zotero-evidence-user-guide",
+      label: getString("menu-user-guide"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      commandListener: () => addon.hooks.onDialogEvents("evidenceUserGuide"),
+    });
   }
 
   static registerItemMenus() {
@@ -370,6 +381,17 @@ export class EvidenceCommands {
       commandListener: () =>
         addon.hooks.onDialogEvents("evidenceBatchRunCodingAI"),
     });
+  }
+
+  // A brand-new project's Collection tree is empty until the user imports
+  // literature -- every item-pane section (including Project Overview)
+  // needs a selected ITEM to render at all, so there's nothing for this
+  // plugin to show at that point no matter what. Rather than fabricate an
+  // item just to have something on-screen, this just opens the README in
+  // the user's browser -- always current, no per-project item to maintain
+  // or exclude from exports/archives.
+  static openUserGuide() {
+    Zotero.launchURL("https://github.com/etShaw-zh/zotero-evidence#readme");
   }
 
   // ztoolkit.Dialog builds every content row as an XUL <hbox flex="1">

@@ -214,6 +214,9 @@ function onDialogEvents(type: string) {
     case "evidenceExportSynthesis":
       EvidenceCommands.exportSynthesisDataDialog();
       break;
+    case "evidenceUserGuide":
+      EvidenceCommands.openUserGuide();
+      break;
     default:
       break;
   }

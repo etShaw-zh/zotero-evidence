@@ -102,6 +102,8 @@ ai-usage-purpose-synthesis = 主题综合
 ai-usage-purpose-connection-test = 连接测试
 ai-usage-purpose-total = 合计
 
+menu-user-guide = 使用说明…
+
 ta-queue-head-text =
     .label = Evidence 筛选
 ta-queue-sidenav-tooltip =
