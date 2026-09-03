@@ -309,11 +309,38 @@ function renderFtCheckRow(
     }),
   );
 
+  // A compact type badge (纳/排 or I/E) instead of the old "[纳入标准]"/
+  // "[排除标准]" bracketed text prefix -- this row is already tight on
+  // width (badge + label + status + action icons all sharing one line in
+  // a narrow sidebar), and the bracketed label ate space the actual
+  // criterion text needed more. Full wording still reaches the user via
+  // this badge's own tooltip, same pattern as the verdict badge right
+  // next to it. Deliberately a neutral grey, not red/green like the
+  // verdict badge -- this is metadata about which list the criterion came
+  // from, not a second judgment signal competing with the verdict.
   const typeLabel = getString(
     check.criterionType === "inclusion"
       ? "ft-queue-criterion-type-inclusion"
       : "ft-queue-criterion-type-exclusion",
   );
+  const typeShort = getString(
+    check.criterionType === "inclusion"
+      ? "ft-queue-criterion-type-inclusion-short"
+      : "ft-queue-criterion-type-exclusion-short",
+  );
+  row.appendChild(
+    el(doc, "span", {
+      classList: ["zotero-evidence-coding-badge"],
+      attributes: { title: typeLabel },
+      properties: { innerHTML: escapeHtml(typeShort) },
+      styles: {
+        color: "#666",
+        borderColor: "#666",
+        backgroundColor: "rgba(0, 0, 0, 0.05)",
+      },
+    }),
+  );
+
   const titleText = check.reasoning
     ? `${check.criterionText}\n\n${check.reasoning}`
     : check.criterionText;
@@ -322,7 +349,7 @@ function renderFtCheckRow(
       classList: ["zotero-evidence-coding-row-label"],
       attributes: { title: titleText },
       properties: {
-        innerHTML: `<strong>[${escapeHtml(typeLabel)}]</strong> ${escapeHtml(quotePreview(check.criterionText, 60))}`,
+        innerHTML: escapeHtml(quotePreview(check.criterionText, 60)),
       },
     }),
   );
