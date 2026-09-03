@@ -433,6 +433,24 @@ describe("FT-Queue item-pane section", function () {
           );
         });
 
+        // A PDF is already attached here -- "mark unavailable" (meaning
+        // "we could not obtain the full text") no longer makes sense once
+        // one's been found, and shouldn't be offered alongside "mark
+        // ready".
+        const unavailableLabel = await pluginString(
+          "ft-queue-mark-unavailable",
+        );
+        assert.isUndefined(
+          (
+            Array.from(
+              readyBtn
+                .closest(".zotero-evidence-card")
+                ?.querySelectorAll("button") ?? [],
+            ) as HTMLButtonElement[]
+          ).find((b) => b.textContent === unavailableLabel),
+          "mark-unavailable should not be offered once a PDF is already attached",
+        );
+
         readyBtn.click();
         const readyNote = await pluginString("ft-queue-ready-note");
         const card = await waitForValue(() => {

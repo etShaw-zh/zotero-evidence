@@ -48,6 +48,29 @@ function applyNativeSectionsHidden(root: ParentNode, hidden: boolean) {
     }
   }
 
+  // 2b. Sidenav icon strip: the narrow column of per-section icon buttons
+  // (item-pane-sidenav's own .btn[data-pane="..."] elements) is NOT a
+  // descendant of <item-details> -- it's a SIBLING, set up by ItemPane's
+  // own init() as `itemDetails.sidenav = <item-pane-sidenav>` (confirmed
+  // against Zotero's real source, chrome://zotero/content/elements/
+  // itemPane.js) -- so the #1/#2 selectors above, scoped to `root`
+  // (an <item-details> instance), never reach it regardless of matching
+  // `[data-pane]`. Without this, a native section's own content
+  // disappears but its icon stays clickable in the strip, which just
+  // shows an empty/broken-looking pane if clicked -- confusing, since
+  // every OTHER hidden thing in this pane (the section itself) look
+  // consistently gone. Reuses the exact same NATIVE_HIDE_CLASS the plain
+  // `[data-pane="x"].zotero-evidence-hide-native` CSS rules already match
+  // unscoped, so no new CSS is needed -- toggling the class here is
+  // enough for those existing rules to also hide these buttons.
+  const sidenav = (root as unknown as { sidenav?: ParentNode }).sidenav;
+  if (sidenav) {
+    for (const paneId of BUILTIN_PANE_IDS) {
+      const button = sidenav.querySelector(`.btn[data-pane="${paneId}"]`);
+      button?.classList.toggle(NATIVE_HIDE_CLASS, hidden);
+    }
+  }
+
   // 3. Title field: Zotero's own <item-pane-header> exposes an `editable`
   //    property (chrome://zotero/content/elements/itemPaneHeader.js) that
   //    sets the title textarea's `readOnly` attribute -- readOnly still

@@ -176,6 +176,23 @@ describe("TA Queue item-pane section", function () {
         container!.classList.contains("zotero-evidence-hide-native"),
         "native sections should be hidden while viewing TA Queue",
       );
+      // The sidenav icon strip is a SIBLING of #zotero-view-item, not a
+      // descendant -- its own per-pane buttons need their own explicit
+      // hide-class toggle (see paneHelpers.ts's applyNativeSectionsHidden,
+      // step 2b) or they'd stay clickable for a section whose content just
+      // disappeared, which reads as broken rather than intentionally
+      // hidden.
+      const infoSidenavButton = doc
+        .getElementById("zotero-view-item-sidenav")
+        ?.querySelector('.btn[data-pane="info"]');
+      assert.isNotNull(
+        infoSidenavButton,
+        "the native Info sidenav icon should exist",
+      );
+      assert.isTrue(
+        infoSidenavButton!.classList.contains("zotero-evidence-hide-native"),
+        "the native Info sidenav icon should be hidden along with its section",
+      );
       // Built-in sections carry a data-pane attribute; plugin-registered
       // sections render as <item-pane-custom-section> wrapping our own
       // markup, so match on our own card class instead.

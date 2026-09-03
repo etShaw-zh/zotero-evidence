@@ -935,39 +935,48 @@ async function renderFtPreScreenArea(
     );
   }
 
-  container.appendChild(
-    el(doc, "button", {
-      attributes: { type: "button" },
-      classList: ["zotero-evidence-unavailable-button"],
-      properties: { innerHTML: getString("ft-queue-mark-unavailable") },
-      listeners: [
-        {
-          type: "click",
-          listener: async () => {
-            try {
-              await markUnavailable(
-                ctx.project.id,
-                item,
-                ctx.collections,
-                currentDeciderId(),
-              );
-              new ztoolkit.ProgressWindow(config.addonName)
-                .createLine({
-                  text: getString("ft-queue-marked-unavailable"),
-                  type: "success",
-                  progress: 100,
-                })
-                .show();
-            } catch (e: any) {
-              ztoolkit.getGlobal("alert")(
-                `${getString("ft-queue-error-unavailable")}\n${e?.message ?? e}`,
-              );
-            }
+  // A PDF is already sitting right there -- "mark unavailable" (meaning
+  // "we could not obtain the full text") no longer applies once it's been
+  // found, and offering it anyway invited exactly the kind of accidental
+  // misclick this button's own confirmationless, immediate action doesn't
+  // forgive easily (unlike markFulltextReady above, undoing a wrongful
+  // "unavailable" call means going through undoDecision from the
+  // FT-Unavailable collection instead of just clicking again here).
+  if (!attachment) {
+    container.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        classList: ["zotero-evidence-unavailable-button"],
+        properties: { innerHTML: getString("ft-queue-mark-unavailable") },
+        listeners: [
+          {
+            type: "click",
+            listener: async () => {
+              try {
+                await markUnavailable(
+                  ctx.project.id,
+                  item,
+                  ctx.collections,
+                  currentDeciderId(),
+                );
+                new ztoolkit.ProgressWindow(config.addonName)
+                  .createLine({
+                    text: getString("ft-queue-marked-unavailable"),
+                    type: "success",
+                    progress: 100,
+                  })
+                  .show();
+              } catch (e: any) {
+                ztoolkit.getGlobal("alert")(
+                  `${getString("ft-queue-error-unavailable")}\n${e?.message ?? e}`,
+                );
+              }
+            },
           },
-        },
-      ],
-    }),
-  );
+        ],
+      }),
+    );
+  }
 }
 
 /**
