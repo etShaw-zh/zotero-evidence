@@ -28,6 +28,26 @@ export function extractProviderErrorMessage(body: unknown): string | null {
 }
 
 /**
+ * A sentence to append to a screening prompt's system message so its
+ * free-text `reasoning` comes back in whatever language Zotero's own UI is
+ * currently set to (Zotero.locale, e.g. "zh-CN"), rather than whatever the
+ * model defaults to (usually English, or an inconsistent mix that follows
+ * the source text). `Zotero.Locale.availableLocales` is the exact same
+ * locale-code -> native-name table Zotero's own language picker uses, so
+ * this needs no separate mapping to maintain. Deliberately does NOT touch
+ * `quote` fields elsewhere in these prompts -- those must stay verbatim
+ * copies of the source text, never translated.
+ */
+export function reasoningLanguageInstruction(): string {
+  const name = Zotero.Locale.availableLocales?.[Zotero.locale];
+  if (!name) return "";
+  return (
+    ` Write the "reasoning" field in ${name} (${Zotero.locale}), regardless ` +
+    "of what language the source text is in."
+  );
+}
+
+/**
  * Single non-streaming chat completion call against an OpenAI-compatible
  * endpoint. TA-Screening only needs one finished JSON answer per item, so
  * there's no need for SSE/streaming handling here.

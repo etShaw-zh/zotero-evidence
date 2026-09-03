@@ -1,4 +1,7 @@
-import { callChatCompletion } from "../ai/aiClient";
+import {
+  callChatCompletion,
+  reasoningLanguageInstruction,
+} from "../ai/aiClient";
 import { AIRunReporter, runDeduped } from "../ai/aiRunTracker";
 import { getActiveProvider } from "../ai/providerConfig";
 import { FT_SCREENING_ANNOTATION_COLOR } from "../../utils/annotationColors";
@@ -311,7 +314,10 @@ export async function runCriterionChecks(
     const raw = await callChatCompletion(
       provider,
       [
-        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "system",
+          content: SYSTEM_PROMPT + reasoningLanguageInstruction(),
+        },
         { role: "user", content: buildPrompt(criteriaRow.criteria, fullText) },
       ],
       "ft_screening",

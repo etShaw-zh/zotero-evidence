@@ -1,6 +1,9 @@
 import { safeGetField } from "../../utils/zoteroItem";
 import { sanitizeDbText } from "../../utils/sanitize";
-import { callChatCompletion } from "../ai/aiClient";
+import {
+  callChatCompletion,
+  reasoningLanguageInstruction,
+} from "../ai/aiClient";
 import { getActiveProvider } from "../ai/providerConfig";
 import { setDisagreementFlag } from "../consistency/disagreementFlagService";
 import { databaseService } from "../db/database";
@@ -105,7 +108,10 @@ export async function runAIJudgment(
   const raw = await callChatCompletion(
     provider,
     [
-      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "system",
+        content: SYSTEM_PROMPT + reasoningLanguageInstruction(),
+      },
       {
         role: "user",
         content: buildPrompt(criteriaRow.criteria, title, abstract),
