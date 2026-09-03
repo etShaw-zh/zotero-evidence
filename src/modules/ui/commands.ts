@@ -3953,11 +3953,18 @@ export class EvidenceCommands {
         projectId: String(projectId),
       };
 
+      // Same phantom-empty-column fix as humanConsistencyDialog() below --
+      // ztoolkit.Dialog(5, 2) gives every row a real 2-column grid whether
+      // addCell() ever fills column 1 or not (an untouched cell still
+      // defaults to flex:1 and claims half the row's width). Rows 0 and 2
+      // here only ever used column 0, so column 1 needs to be explicitly
+      // collapsed to cellFlex=false for each of them.
       const dialog = new ztoolkit.Dialog(5, 2)
         .addCell(0, 0, {
           tag: "h1",
           properties: { innerHTML: getString("dialog-consistency-title") },
         })
+        .addCell(0, 1, { tag: "div" }, false)
         .addCell(1, 0, {
           tag: "label",
           namespace: "html",
@@ -3988,6 +3995,7 @@ export class EvidenceCommands {
           id: "evidence-consistency-results",
           styles: { maxHeight: "440px", overflow: "auto", marginTop: "6px" },
         })
+        .addCell(2, 1, { tag: "div" }, false)
         .addCell(
           3,
           0,
@@ -4226,6 +4234,19 @@ export class EvidenceCommands {
         projectId: String(projectId),
       };
 
+      // ztoolkit.Dialog(4, 2) allocates a real 2-column grid for ALL 4
+      // rows unconditionally (every cell defaults to <vbox flex="1">,
+      // whether addCell() ever fills it or not -- see zotero-plugin-
+      // toolkit's DialogHelper constructor). Only row 1 (project label +
+      // select) actually needs 2 columns; rows 0/2/3 each only ever call
+      // addCell for column 0, leaving column 1 an untouched, empty,
+      // STILL flex:1 cell that claims an equal half of the row's width as
+      // blank space -- this is exactly what made the content area (row 2)
+      // only ever get the left half of the window, with the project
+      // dropdown (row 1's own compact, non-flex column 1) floating alone
+      // in the far corner above a wide empty gap. Explicitly neutralizing
+      // column 1 to cellFlex=false for those three rows collapses it back
+      // to zero width instead of silently taking half the row.
       const dialog = new ztoolkit.Dialog(4, 2)
         .addCell(0, 0, {
           tag: "h1",
@@ -4233,6 +4254,7 @@ export class EvidenceCommands {
             innerHTML: getString("dialog-human-consistency-title"),
           },
         })
+        .addCell(0, 1, { tag: "div" }, false)
         .addCell(1, 0, {
           tag: "label",
           namespace: "html",
@@ -4263,6 +4285,7 @@ export class EvidenceCommands {
           id: "evidence-human-consistency-content",
           styles: { maxHeight: "460px", overflow: "auto", marginTop: "6px" },
         })
+        .addCell(2, 1, { tag: "div" }, false)
         .addCell(
           3,
           0,
@@ -4273,12 +4296,18 @@ export class EvidenceCommands {
           },
           false,
         )
+        .addCell(3, 1, { tag: "div" }, false)
         .addButton(getString("dialog-close"), "close")
         .setDialogData(dialogData);
       EvidenceCommands.openSizedDialog(
         dialog,
         getString("dialog-human-consistency-title"),
-        820,
+        // Same width as consistencyDialog()'s human-AI counterpart, by
+        // request -- now that both dialogs' phantom-empty-column layout
+        // bug is fixed (see the addCell(_, 1, ..., false) calls above),
+        // matching this starting width actually produces matching
+        // rendered widths instead of just matching numbers.
+        720,
       );
 
       await Zotero.Promise.delay(50);
@@ -4287,6 +4316,30 @@ export class EvidenceCommands {
         "evidence-human-consistency-content",
       );
       const statusEl = doc?.getElementById("evidence-human-consistency-status");
+
+      // ztoolkit.Dialog opens a plain HTML document (about:blank), not
+      // XUL chrome -- its scrollbars are whatever Gecko's HTML content
+      // area default is, NOT the thin, Zotero-styled scrollbar the rest
+      // of the app uses everywhere else (e.g. collapsible-section's own
+      // .body, which sets scrollbar-width/scrollbar-color explicitly).
+      // #evidence-human-consistency-content is the one INTENTIONALLY
+      // scrollable region (bounded to 460px so the dialog's total height
+      // stays predictable); the outer window is meant to just size-to-
+      // content around it and never scroll itself, but the same styling
+      // is applied to the document root too in case this dialog's total
+      // height ever does exceed the screen on a smaller display -- so if
+      // both ever show a scrollbar at once, they're at least the same
+      // (Zotero-native) width instead of two visibly different ones.
+      if (doc) {
+        (doc.documentElement as HTMLElement).style.scrollbarWidth = "thin";
+        (doc.documentElement as HTMLElement).style.scrollbarColor =
+          "var(--color-scrollbar) var(--color-scrollbar-background)";
+      }
+      if (contentEl) {
+        (contentEl as HTMLElement).style.scrollbarWidth = "thin";
+        (contentEl as HTMLElement).style.scrollbarColor =
+          "var(--color-scrollbar) var(--color-scrollbar-background)";
+      }
 
       const setStatus = (text: string) => {
         if (statusEl) statusEl.textContent = text;
