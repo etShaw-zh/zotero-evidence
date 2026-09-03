@@ -70,6 +70,9 @@ dialog-ai-provider-status-unconfigured = 未配置
 dialog-ai-provider-custom-option = 自定义
 dialog-ai-provider-baseurl-label = API 端点（chat/completions 地址）
 dialog-ai-provider-model-label = 模型
+dialog-ai-provider-concurrency-label = 并发数（同时进行的 AI 请求数）
+dialog-ai-provider-concurrency-hint = 建议 1–10，数值过高可能触发服务商限流。
+dialog-ai-provider-status-concurrency-suffix = ・并发 { $concurrency }
 dialog-ai-provider-fetch-models = 获取模型列表
 dialog-ai-provider-fetching = 获取中…
 dialog-ai-provider-fetch-models-error = 获取模型列表失败。
@@ -133,7 +136,7 @@ ta-queue-undo-done = 已撤销该筛选结果。
 ta-queue-error-undo = 撤销失败。
 
 menu-progress = 项目进度统计…
-menu-batch-run-ai = 批量运行 AI 判断（已选条目）
+menu-batch-run-ai = 批量运行标题/摘要筛选 AI（已选条目）
 menu-batch-confirm-ai = 批量确认 AI 建议（已选条目）
 
 dialog-progress-title = 项目进度统计
@@ -157,6 +160,15 @@ progress-batch-confirm-done = 已确认 { $confirmed } 条，跳过 { $skipped }
 menu-batch-mark-unavailable = 批量标记全文不可用（已选条目）
 error-not-ft-queue = 请先在某个 Evidence 项目的全文筛选（FT-Screen Queue）集合中选中条目。
 progress-batch-unavailable-done = 已将 { $marked } 条条目标记为全文不可用，跳过 { $skipped } 条（已检测到 PDF）。
+
+menu-batch-run-ft-ai = 批量运行全文筛选 AI（已选条目）
+progress-batch-ft-running = 全文筛选 AI 判断进行中：{ $done }/{ $total }
+progress-batch-ft-done = 全文筛选 AI 判断完成：{ $done }/{ $total }（{ $failed } 条失败）
+
+menu-batch-run-coding-ai = 批量生成编码 AI 建议（已选条目）
+error-not-coding = 请先在某个 Evidence 项目的证据编码（Extract Coding）集合中选中条目。
+progress-batch-coding-running = 编码 AI 建议生成进行中：{ $done }/{ $total }
+progress-batch-coding-done = 编码 AI 建议生成完成：{ $done }/{ $total }（{ $failed } 条失败）
 
 ft-queue-head-text =
     .label = Evidence 全文筛选

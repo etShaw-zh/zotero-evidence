@@ -70,6 +70,9 @@ dialog-ai-provider-status-unconfigured = Not configured
 dialog-ai-provider-custom-option = Custom
 dialog-ai-provider-baseurl-label = API endpoint (chat/completions URL)
 dialog-ai-provider-model-label = Model
+dialog-ai-provider-concurrency-label = Concurrency (simultaneous AI requests)
+dialog-ai-provider-concurrency-hint = Recommended 1-10; higher values may trigger provider rate limits.
+dialog-ai-provider-status-concurrency-suffix = · concurrency { $concurrency }
 dialog-ai-provider-fetch-models = Fetch models
 dialog-ai-provider-fetching = Fetching…
 dialog-ai-provider-fetch-models-error = Failed to fetch the model list.
@@ -133,7 +136,7 @@ ta-queue-undo-done = Decision undone.
 ta-queue-error-undo = Failed to undo the decision.
 
 menu-progress = Project Progress Statistics…
-menu-batch-run-ai = Run AI Judgment (Selected Items)
+menu-batch-run-ai = Run TA-Screening AI (Selected Items)
 menu-batch-confirm-ai = Confirm AI Suggestions (Selected Items)
 
 dialog-progress-title = Project Progress Statistics
@@ -157,6 +160,15 @@ progress-batch-confirm-done = Confirmed { $confirmed } item(s), skipped { $skipp
 menu-batch-mark-unavailable = Mark Full Text Unavailable (Selected Items)
 error-not-ft-queue = Select items inside an Evidence project's FT-Screen Queue collection first.
 progress-batch-unavailable-done = Marked { $marked } item(s) as full-text unavailable, skipped { $skipped } (PDF already detected).
+
+menu-batch-run-ft-ai = Run FT-Screening AI (Selected Items)
+progress-batch-ft-running = Running FT-Screening AI: { $done }/{ $total }
+progress-batch-ft-done = FT-Screening AI done: { $done }/{ $total } ({ $failed } failed)
+
+menu-batch-run-coding-ai = Generate Coding AI Suggestions (Selected Items)
+error-not-coding = Select items inside an Evidence project's Extract Coding collection first.
+progress-batch-coding-running = Generating coding AI suggestions: { $done }/{ $total }
+progress-batch-coding-done = Coding AI suggestions done: { $done }/{ $total } ({ $failed } failed)
 
 ft-queue-head-text =
     .label = Evidence Full-Text Screening

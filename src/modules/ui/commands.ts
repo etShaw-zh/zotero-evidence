@@ -1,10 +1,10 @@
 import { FluentMessageId } from "../../../typings/i10n";
 import { config } from "../../../package.json";
-import { getPref } from "../../utils/prefs";
 import { getString } from "../../utils/locale";
 import { runWithConcurrency } from "../../utils/concurrency";
 import {
   AIProviderConfig,
+  DEFAULT_PROVIDER_CONCURRENCY,
   deleteProvider,
   getActiveProvider,
   listProviders,
@@ -28,7 +28,10 @@ import {
   parseCodebookCsv,
   saveCodebook,
 } from "../coding/codebookService";
-import { computeCodingStats } from "../coding/codingService";
+import {
+  computeCodingStats,
+  generateSuggestions,
+} from "../coding/codingService";
 import {
   getSynthesisRows,
   runSynthesis,
@@ -79,6 +82,7 @@ import {
   runAIJudgment,
 } from "../screening/taScreeningService";
 import { markUnavailable } from "../screening/ftScreeningService";
+import { runCriterionChecks } from "../screening/ftCriterionCheckService";
 import {
   getFinalVerdictConsistency,
   ScreeningConsistencyStats,
@@ -342,6 +346,21 @@ export class EvidenceCommands {
       icon,
       commandListener: () =>
         addon.hooks.onDialogEvents("evidenceBatchMarkUnavailable"),
+    });
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-evidence-batch-run-ft-ai",
+      label: getString("menu-batch-run-ft-ai"),
+      icon,
+      commandListener: () => addon.hooks.onDialogEvents("evidenceBatchRunFtAI"),
+    });
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-evidence-batch-run-coding-ai",
+      label: getString("menu-batch-run-coding-ai"),
+      icon,
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceBatchRunCodingAI"),
     });
   }
 
@@ -1664,6 +1683,7 @@ export class EvidenceCommands {
     apiKey: "evidence-ai-apikey-input",
     testBtn: "evidence-ai-test-btn",
     testStatus: "evidence-ai-test-status",
+    concurrency: "evidence-ai-concurrency-input",
   } as const;
 
   /** All 5 provider slots this dialog manages -- 4 named presets plus one
@@ -1710,7 +1730,7 @@ export class EvidenceCommands {
     slots.forEach((slot, i) => {
       const saved = providers.find((p) => p.id === slot.id);
       const isActive = active?.id === slot.id;
-      const statusText = isActive
+      const baseStatusText = isActive
         ? saved?.model
           ? getString("dialog-ai-provider-status-active-model", {
               args: { model: saved.model },
@@ -1723,6 +1743,21 @@ export class EvidenceCommands {
               })
             : getString("dialog-ai-provider-status-configured")
           : getString("dialog-ai-provider-status-unconfigured");
+      // Concurrency only means anything once a provider is actually saved
+      // (an unconfigured slot has no key to rate-limit against) -- appended
+      // as a suffix onto whichever of the 4 base status strings above
+      // applies, rather than quadrupling the fluent strings with a
+      // concurrency-bearing variant of each.
+      const statusText = saved
+        ? `${baseStatusText}${getString(
+            "dialog-ai-provider-status-concurrency-suffix",
+            {
+              args: {
+                concurrency: saved.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+              },
+            },
+          )}`
+        : baseStatusText;
       dialog.addCell(
         i + 1,
         0,
@@ -1819,11 +1854,14 @@ export class EvidenceCommands {
       baseURL: existing?.baseURL ?? preset?.baseURL ?? "",
       apiKey: existing?.apiKey ?? "",
       model: existing?.model ?? "",
+      concurrency: String(
+        existing?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+      ),
     };
 
     const ID = EvidenceCommands.AI_DLG;
 
-    const dialog = new ztoolkit.Dialog(8, 2)
+    const dialog = new ztoolkit.Dialog(9, 2)
       .addCell(0, 0, {
         tag: "h1",
         properties: {
@@ -2176,6 +2214,47 @@ export class EvidenceCommands {
         },
         false,
       )
+      .addCell(8, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-ai-provider-concurrency-label"),
+        },
+      })
+      .addCell(
+        8,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: { display: "flex", flexDirection: "column", gap: "2px" },
+          children: [
+            {
+              tag: "input",
+              namespace: "html",
+              id: ID.concurrency,
+              attributes: {
+                "data-bind": "concurrency",
+                "data-prop": "value",
+                type: "number",
+                min: "1",
+                max: "10",
+                step: "1",
+              },
+              styles: { width: "60px" },
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              properties: {
+                innerHTML: getString("dialog-ai-provider-concurrency-hint"),
+              },
+              styles: { fontSize: "0.8em", color: "#888" },
+            },
+          ],
+        },
+        false,
+      )
       .addButton(getString("dialog-ai-provider-clear"), "clear", {
         noClose: true,
         callback: () => {
@@ -2201,12 +2280,24 @@ export class EvidenceCommands {
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
 
+    const parsedConcurrency = Number(dialogData.concurrency);
+    const concurrency = Math.min(
+      10,
+      Math.max(
+        1,
+        Number.isFinite(parsedConcurrency)
+          ? Math.round(parsedConcurrency)
+          : DEFAULT_PROVIDER_CONCURRENCY,
+      ),
+    );
+
     upsertProvider({
       id: slotId,
       name: slotName,
       baseURL: String(dialogData.baseURL || ""),
       apiKey: String(dialogData.apiKey || ""),
       model: String(dialogData.model || ""),
+      concurrency,
     });
     setActiveProviderId(slotId);
 
@@ -2408,7 +2499,8 @@ export class EvidenceCommands {
     if (!resolved) return;
     const { ctx, items } = resolved;
 
-    const concurrency = Number(getPref("aiConcurrency")) || 3;
+    const concurrency =
+      getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
     let done = 0;
     let failed = 0;
     const progressWin = new ztoolkit.ProgressWindow(
@@ -2537,6 +2629,128 @@ export class EvidenceCommands {
         progress: 100,
       })
       .show();
+  }
+
+  // FT's counterpart to batchRunAI (TA): same runWithConcurrency shape,
+  // but drives runCriterionChecks (FT criterion checks against the item's
+  // full text) instead of runAIJudgment (TA title/abstract). A single item
+  // that isn't ready for FT-Screening yet (no full text available) just
+  // fails and counts toward `failed` -- same as any other per-item error --
+  // rather than being pre-filtered here, so the failure reason still
+  // surfaces via runCriterionChecks's own error message in the log.
+  static async batchRunFtAI() {
+    const resolved = await EvidenceCommands.resolveFtQueueBatchContext();
+    if (!resolved) return;
+    const { ctx, items } = resolved;
+
+    const concurrency =
+      getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
+    let done = 0;
+    let failed = 0;
+    const progressWin = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+      { closeOnClick: false, closeTime: -1 },
+    )
+      .createLine({
+        text: getString("progress-batch-ft-running", {
+          args: { done: 0, total: items.length },
+        }),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+
+    await runWithConcurrency(items, concurrency, async (item) => {
+      try {
+        await runCriterionChecks(ctx.project.id, item);
+      } catch (e: any) {
+        failed++;
+        ztoolkit.log("Batch FT criterion check failed", item.key, e);
+      }
+      done++;
+      progressWin.changeLine({
+        progress: Math.round((done / items.length) * 100),
+        text: getString("progress-batch-ft-running", {
+          args: { done, total: items.length },
+        }),
+      });
+    });
+
+    progressWin.changeLine({
+      progress: 100,
+      text: getString("progress-batch-ft-done", {
+        args: { done, total: items.length, failed },
+      }),
+      type: failed > 0 ? "error" : "success",
+    });
+    progressWin.startCloseTimer(5000);
+  }
+
+  private static async resolveCodingBatchContext() {
+    const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
+    const ctx = await findProjectPaneContext(collectionId ?? null);
+    if (!ctx || ctx.role !== "coding") {
+      ztoolkit.getGlobal("alert")(getString("error-not-coding"));
+      return null;
+    }
+    const items = (ZoteroPaneGlobal.getSelectedItems() as Zotero.Item[]).filter(
+      (i) => i.isRegularItem(),
+    );
+    if (items.length === 0) return null;
+    return { ctx, items };
+  }
+
+  // Coding's counterpart to batchRunAI/batchRunFtAI: drives
+  // generateSuggestions (one LLM call over the item's full text against the
+  // project's Codebook, plus a best-effort PDF quote locate per suggestion)
+  // across every selected item in the Extract Coding collection.
+  static async batchRunCodingAI() {
+    const resolved = await EvidenceCommands.resolveCodingBatchContext();
+    if (!resolved) return;
+    const { ctx, items } = resolved;
+
+    const concurrency =
+      getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
+    let done = 0;
+    let failed = 0;
+    const progressWin = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+      { closeOnClick: false, closeTime: -1 },
+    )
+      .createLine({
+        text: getString("progress-batch-coding-running", {
+          args: { done: 0, total: items.length },
+        }),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+
+    await runWithConcurrency(items, concurrency, async (item) => {
+      try {
+        await generateSuggestions(ctx.project.id, item);
+      } catch (e: any) {
+        failed++;
+        ztoolkit.log("Batch Coding AI suggestion failed", item.key, e);
+      }
+      done++;
+      progressWin.changeLine({
+        progress: Math.round((done / items.length) * 100),
+        text: getString("progress-batch-coding-running", {
+          args: { done, total: items.length },
+        }),
+      });
+    });
+
+    progressWin.changeLine({
+      progress: 100,
+      text: getString("progress-batch-coding-done", {
+        args: { done, total: items.length, failed },
+      }),
+      type: failed > 0 ? "error" : "success",
+    });
+    progressWin.startCloseTimer(5000);
   }
 
   // Matches parseCodebookCsv's expected header/columns exactly (see

@@ -15,7 +15,18 @@ export interface AIProviderConfig {
   baseURL: string;
   apiKey: string;
   model: string;
+  /** Max simultaneous in-flight requests a batch run is allowed to make
+   * against this provider (FT/Coding/TA batch runners in commands.ts).
+   * Per-provider rather than global -- different providers/keys have
+   * different rate limits. Optional so providers saved before this field
+   * existed still parse; DEFAULT_CONCURRENCY below is the fallback. */
+  concurrency?: number;
 }
+
+/** Fallback used wherever `provider.concurrency` is missing -- either an
+ * older saved provider from before this field existed, or a fresh slot the
+ * user hasn't touched the concurrency input on yet. */
+export const DEFAULT_PROVIDER_CONCURRENCY = 3;
 
 function readProviders(): AIProviderConfig[] {
   const raw = getPref("aiProviders");

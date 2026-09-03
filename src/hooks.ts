@@ -169,6 +169,12 @@ function onDialogEvents(type: string) {
     case "evidenceBatchMarkUnavailable":
       EvidenceCommands.batchMarkUnavailable();
       break;
+    case "evidenceBatchRunFtAI":
+      EvidenceCommands.batchRunFtAI();
+      break;
+    case "evidenceBatchRunCodingAI":
+      EvidenceCommands.batchRunCodingAI();
+      break;
     case "evidenceCodebookImport":
       EvidenceCommands.codebookImportDialog();
       break;
