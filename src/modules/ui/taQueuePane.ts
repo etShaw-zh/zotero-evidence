@@ -34,7 +34,6 @@ async function renderJudgmentArea(
   doc: Document,
   ctx: ProjectPaneContext,
   item: Zotero.Item,
-  state: ScreeningState | null,
   body: HTMLDivElement,
 ) {
   container.innerHTML = "";
@@ -47,14 +46,29 @@ async function renderJudgmentArea(
         buttonLabel: getString("config-warning-set-criteria-button"),
         onClick: async () => {
           await EvidenceCommands.criteriaDialog();
-          await renderJudgmentArea(container, doc, ctx, item, state, body);
+          await renderJudgmentArea(container, doc, ctx, item, body);
         },
       }),
     );
     return;
   }
 
-  await renderJudgmentContent(container, doc, ctx, item, state, body);
+  // Fetched here, same as before keyword highlighting existed -- NOT
+  // hoisted up into onAsyncRender's critical path (that was tried and
+  // reverted: it added an extra await before the very first synchronous
+  // renderCardHeader call, widening the window for a stale, still-
+  // in-flight render from a PREVIOUSLY selected item to land after this
+  // one's, which is exactly the class of race this test suite's own
+  // comments already document as CI-flaky -- see
+  // test/taQueuePane.test.ts's dumpPaneDiagnostics comment). Re-render the
+  // header with highlights ONLY when there's something to highlight, so
+  // the common "no AI run yet" path -- most renders -- is byte-for-byte
+  // the same timing as before this feature existed.
+  const state = await getScreeningState(ctx.project.id, item.key);
+  const target = state?.aiKeywords.length
+    ? renderCardHeader(body, doc, item, state.aiKeywords)
+    : container;
+  await renderJudgmentContent(target, doc, ctx, item, state, body);
 }
 
 async function renderJudgmentContent(
@@ -277,18 +291,27 @@ async function renderHistoryArea(
   doc: Document,
   ctx: ProjectPaneContext,
   item: Zotero.Item,
-  state: ScreeningState | null,
+  body: HTMLDivElement,
 ) {
   container.innerHTML = "";
 
-  container.appendChild(
+  // Fetched here rather than hoisted into onAsyncRender -- see
+  // renderJudgmentArea's comment for why (a documented CI-flaky render
+  // race this test suite already has a history of, made easier to hit by
+  // adding latency before the critical path's first synchronous render).
+  const state = await getScreeningState(ctx.project.id, item.key);
+  const target = state?.aiKeywords.length
+    ? renderCardHeader(body, doc, item, state.aiKeywords)
+    : container;
+
+  target.appendChild(
     el(doc, "h3", {
       properties: { innerHTML: getString("ta-queue-history-title") },
     }),
   );
 
   if (!state) {
-    container.appendChild(
+    target.appendChild(
       el(doc, "p", {
         properties: { innerHTML: getString("ta-queue-history-none") },
       }),
@@ -297,7 +320,7 @@ async function renderHistoryArea(
   }
 
   if (state.aiDecision) {
-    container.appendChild(
+    target.appendChild(
       el(doc, "div", {
         classList: ["zotero-evidence-judgment"],
         children: [
@@ -319,7 +342,7 @@ async function renderHistoryArea(
   }
 
   if (state.decision) {
-    container.appendChild(
+    target.appendChild(
       el(doc, "p", {
         properties: {
           innerHTML: `${getString("ta-queue-history-human")} ${decisionLabel(state.decision)}`,
@@ -352,7 +375,7 @@ async function renderHistoryArea(
         },
       ],
     });
-    container.appendChild(undoBtn);
+    target.appendChild(undoBtn);
   }
 }
 
@@ -417,31 +440,18 @@ export function registerTaQueuePane() {
       ) {
         return;
       }
-      // Fetched once up front (rather than inside renderJudgmentArea/
-      // renderHistoryArea, which used to each fetch their own copy) so
-      // renderCardHeader can highlight aiKeywords in the title/abstract
-      // from the very first paint, before either of those run.
-      let state: ScreeningState | null = null;
-      try {
-        state = await getScreeningState(ctx.project.id, item.key);
-      } catch (e) {
-        ztoolkit.log(
-          "TA Queue pane: screening state fetch failed",
-          item.key,
-          e,
-        );
-      }
-      const contentArea = renderCardHeader(
-        body,
-        doc,
-        item,
-        state?.aiKeywords ?? [],
-      );
+      // renderCardHeader stays the first, synchronous thing this does (no
+      // keywords yet) -- exactly the timing this had before AI-keyword
+      // highlighting existed. renderJudgmentArea/renderHistoryArea each
+      // fetch screening state themselves and re-render the header (via
+      // `body`) ONLY when there's something to highlight; see their own
+      // comments for why that fetch isn't hoisted up here instead.
+      const contentArea = renderCardHeader(body, doc, item);
       try {
         if (ctx.role === "ta_queue") {
-          await renderJudgmentArea(contentArea, doc, ctx, item, state, body);
+          await renderJudgmentArea(contentArea, doc, ctx, item, body);
         } else {
-          await renderHistoryArea(contentArea, doc, ctx, item, state);
+          await renderHistoryArea(contentArea, doc, ctx, item, body);
         }
       } catch (e) {
         ztoolkit.log("TA Queue pane render failed", item.key, e);
