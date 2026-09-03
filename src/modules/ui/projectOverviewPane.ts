@@ -13,6 +13,7 @@ import {
   el,
   escapeHtml,
   refreshLibraryNativeSectionsHidden,
+  renderConfigWarning,
   renderPaneError,
   resolveContextSync,
   setNativeSectionsHidden,
@@ -85,27 +86,7 @@ function renderStageRow(doc: Document, opts: StageRowOptions): HTMLElement {
   }
 
   if (opts.warning) {
-    const warning = opts.warning;
-    section.appendChild(
-      el(doc, "div", {
-        classList: ["zotero-evidence-overview-warning"],
-        children: [
-          {
-            tag: "span",
-            namespace: "html",
-            properties: { innerHTML: escapeHtml(warning.text) },
-          },
-        ],
-      }),
-    );
-    const warningRow = section.lastElementChild as HTMLElement;
-    warningRow.appendChild(
-      el(doc, "button", {
-        attributes: { type: "button" },
-        properties: { innerHTML: escapeHtml(warning.buttonLabel) },
-        listeners: [{ type: "click", listener: () => void warning.onClick() }],
-      }),
-    );
+    section.appendChild(renderConfigWarning(doc, opts.warning));
   }
 
   const footer = el(doc, "div", {
@@ -203,8 +184,8 @@ async function renderOverviewArea(
       warning: taCriteria
         ? null
         : {
-            text: getString("overview-warning-no-criteria"),
-            buttonLabel: getString("overview-warning-set-criteria-button"),
+            text: getString("config-warning-no-criteria"),
+            buttonLabel: getString("config-warning-set-criteria-button"),
             onClick: async () => {
               await EvidenceCommands.criteriaDialog();
               await rerender();
@@ -236,8 +217,8 @@ async function renderOverviewArea(
       warning: ftCriteria
         ? null
         : {
-            text: getString("overview-warning-no-criteria"),
-            buttonLabel: getString("overview-warning-set-criteria-button"),
+            text: getString("config-warning-no-criteria"),
+            buttonLabel: getString("config-warning-set-criteria-button"),
             onClick: async () => {
               await EvidenceCommands.criteriaDialog();
               await rerender();
@@ -275,8 +256,8 @@ async function renderOverviewArea(
       warning:
         !codebook || codebook.variables.length === 0
           ? {
-              text: getString("overview-warning-no-codebook"),
-              buttonLabel: getString("overview-warning-import-codebook-button"),
+              text: getString("config-warning-no-codebook"),
+              buttonLabel: getString("config-warning-import-codebook-button"),
               onClick: async () => {
                 await EvidenceCommands.codebookImportDialog();
                 await rerender();

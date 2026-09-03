@@ -19,6 +19,7 @@ import {
 } from "../coding/codingService";
 import { ProjectPaneContext } from "../project/projectContext";
 import { safeGetField } from "../../utils/zoteroItem";
+import { EvidenceCommands } from "./commands";
 import {
   annotationOptionLabel,
   el,
@@ -27,6 +28,7 @@ import {
   refreshAnnotationOptions,
   refreshLibraryNativeSectionsHidden,
   renderCardHeader,
+  renderConfigWarning,
   renderPaneError,
   resolveAttachment,
   resolveContextSync,
@@ -829,9 +831,13 @@ async function renderCodingArea(
   const codebookRow = await getLatestCodebook(ctx.project.id);
   if (!codebookRow || codebookRow.variables.length === 0) {
     container.appendChild(
-      el(doc, "p", {
-        properties: { innerHTML: getString("coding-no-codebook") },
-        styles: { color: "var(--fill-secondary, #a33)" },
+      renderConfigWarning(doc, {
+        text: getString("config-warning-no-codebook"),
+        buttonLabel: getString("config-warning-import-codebook-button"),
+        onClick: async () => {
+          await EvidenceCommands.codebookImportDialog();
+          await renderCodingArea(container, doc, ctx, item);
+        },
       }),
     );
     return;

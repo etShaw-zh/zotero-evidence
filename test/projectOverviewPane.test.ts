@@ -189,15 +189,15 @@ describe("Project Overview item-pane section", function () {
       );
 
       const warnings = Array.from(
-        card.querySelectorAll(".zotero-evidence-overview-warning"),
+        card.querySelectorAll(".zotero-evidence-config-warning"),
       ).filter(visible);
       assert.equal(
         warnings.length,
         3,
         "TA criteria, FT criteria, and Codebook are all unconfigured -- 3 warnings expected",
       );
-      const noCriteriaText = await pluginString("overview-warning-no-criteria");
-      const noCodebookText = await pluginString("overview-warning-no-codebook");
+      const noCriteriaText = await pluginString("config-warning-no-criteria");
+      const noCodebookText = await pluginString("config-warning-no-codebook");
       assert.equal(
         warnings.filter((w) => w.textContent?.includes(noCriteriaText)).length,
         2,
@@ -312,9 +312,7 @@ describe("Project Overview item-pane section", function () {
         ).includes("2"),
       );
 
-      const warnings = card.querySelectorAll(
-        ".zotero-evidence-overview-warning",
-      );
+      const warnings = card.querySelectorAll(".zotero-evidence-config-warning");
       assert.equal(
         warnings.length,
         0,

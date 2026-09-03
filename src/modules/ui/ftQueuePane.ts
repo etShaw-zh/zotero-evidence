@@ -30,6 +30,7 @@ import {
   markUnavailable,
   undoDecision,
 } from "../screening/ftScreeningService";
+import { EvidenceCommands } from "./commands";
 import {
   annotationOptionLabel,
   currentDeciderId,
@@ -40,6 +41,7 @@ import {
   refreshAnnotationOptions,
   refreshLibraryNativeSectionsHidden,
   renderCardHeader,
+  renderConfigWarning,
   renderPaneError,
   resolveAttachment,
   resolveContextSync,
@@ -971,9 +973,13 @@ async function renderFtChecklistArea(
   const criteriaRow = await getLatestCriteria(ctx.project.id, "ft");
   if (!criteriaRow) {
     container.appendChild(
-      el(doc, "p", {
-        properties: { innerHTML: getString("ft-queue-no-criteria") },
-        styles: { color: "var(--fill-secondary, #a33)" },
+      renderConfigWarning(doc, {
+        text: getString("config-warning-no-criteria"),
+        buttonLabel: getString("config-warning-set-criteria-button"),
+        onClick: async () => {
+          await EvidenceCommands.criteriaDialog();
+          await renderFtChecklistArea(container, doc, ctx, item);
+        },
       }),
     );
     return;

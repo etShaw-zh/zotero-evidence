@@ -12,6 +12,7 @@ import {
   TADecision,
   undoDecision,
 } from "../screening/taScreeningService";
+import { EvidenceCommands } from "./commands";
 import {
   currentDeciderId,
   decisionLabel,
@@ -19,6 +20,7 @@ import {
   escapeHtml,
   refreshLibraryNativeSectionsHidden,
   renderCardHeader,
+  renderConfigWarning,
   renderPaneError,
   resolveContextSync,
   setNativeSectionsHidden,
@@ -38,9 +40,13 @@ async function renderJudgmentArea(
   const criteriaRow = await getLatestCriteria(ctx.project.id, "ta");
   if (!criteriaRow) {
     container.appendChild(
-      el(doc, "p", {
-        properties: { innerHTML: getString("ta-queue-no-criteria") },
-        styles: { color: "var(--fill-secondary, #a33)" },
+      renderConfigWarning(doc, {
+        text: getString("config-warning-no-criteria"),
+        buttonLabel: getString("config-warning-set-criteria-button"),
+        onClick: async () => {
+          await EvidenceCommands.criteriaDialog();
+          await renderJudgmentArea(container, doc, ctx, item);
+        },
       }),
     );
     return;

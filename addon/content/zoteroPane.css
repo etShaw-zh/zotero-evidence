@@ -555,12 +555,13 @@ item-pane-sidenav .inherit-flex {
   box-shadow: 0 0 0 1px rgba(46, 168, 229, 0.3);
 }
 
-/* Project Overview pane (projectOverviewPane.ts) -- "this stage isn't
-   configured yet" chip inside a stage row. Color reuses the same #a33
-   already used inline by ta-queue-no-criteria/ft-queue-no-criteria/
-   coding-no-codebook, just packaged as a chip with its own action button
-   instead of a bare paragraph. */
-.zotero-evidence-overview-warning {
+/* Shared "this stage isn't configured yet" chip (paneHelpers.ts's
+   renderConfigWarning) -- used by TA-Queue/FT-Queue's missing-criteria
+   message, Coding's missing-codebook message, and every stage row in the
+   Project Overview pane, so the same underlying condition looks and
+   behaves identically no matter which pane shows it. Color is the same
+   #a33 all of those used individually before this was unified. */
+.zotero-evidence-config-warning {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -572,7 +573,7 @@ item-pane-sidenav .inherit-flex {
   font-size: 0.9em;
 }
 
-.zotero-evidence-overview-warning button {
+.zotero-evidence-config-warning button {
   flex: 0 0 auto;
 }
 

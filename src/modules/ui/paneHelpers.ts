@@ -198,6 +198,47 @@ export function el(doc: Document, tag: string, props: any = {}): any {
   return ztoolkit.UI.createElement(doc, tag, { namespace: "html", ...props });
 }
 
+/**
+ * Shared "this stage isn't configured yet" chip -- a short message plus a
+ * button that jumps straight to fixing it (opens the criteria/codebook
+ * dialog and re-renders on close). Used by every pane section that has a
+ * dependency it can't proceed without (TA-/FT-Queue's screening criteria,
+ * Coding's codebook): before this existed, each of those three rendered
+ * its own bare, non-actionable paragraph (colored text only, no button --
+ * the user had to already know which File menu item to use), while
+ * projectOverviewPane.ts's project-wide dashboard got a nicer actionable
+ * treatment for the exact same underlying condition. Unifying on this one
+ * makes every stage's "not configured" state look and behave the same way,
+ * regardless of which pane it's shown in.
+ */
+export function renderConfigWarning(
+  doc: Document,
+  opts: {
+    text: string;
+    buttonLabel: string;
+    onClick: () => void | Promise<void>;
+  },
+): HTMLElement {
+  const warning = el(doc, "div", {
+    classList: ["zotero-evidence-config-warning"],
+    children: [
+      {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: escapeHtml(opts.text) },
+      },
+    ],
+  }) as HTMLElement;
+  warning.appendChild(
+    el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: escapeHtml(opts.buttonLabel) },
+      listeners: [{ type: "click", listener: () => void opts.onClick() }],
+    }),
+  );
+  return warning;
+}
+
 /** Shared "does this item have a usable PDF attachment" lookup (Coding's
  * reader sidebar and FT-Screening's annotation linker both need it). */
 export async function resolveAttachment(
