@@ -31,6 +31,7 @@ import {
   resolveAttachment,
   resolveContextSync,
   setNativeSectionsHidden,
+  shouldHideNativeSections,
   sortAnnotationsByNewest,
 } from "./paneHelpers";
 
@@ -1056,7 +1057,13 @@ export function registerCodingPane() {
           (ctx.role === "ft_include" || ctx.role === "coding")) ||
         (tabType === "library" && !!ctx && ctx.role === "coding");
       setEnabled(relevant);
-      setNativeSectionsHidden(doc, body, !!ctx);
+      // Deliberately calling shouldHideNativeSections(item) here rather
+      // than reusing `ctx` above (even though they happen to agree in this
+      // section, since this section's own relevance was never tabType-
+      // gated) -- every registered section computing native-hide the exact
+      // same way is what keeps this correct regardless of registration
+      // order or how many sections exist; see that function's doc comment.
+      setNativeSectionsHidden(doc, body, shouldHideNativeSections(item));
     },
     onDestroy: ({ doc }) => {
       refreshLibraryNativeSectionsHidden(doc);

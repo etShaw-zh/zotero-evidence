@@ -169,6 +169,31 @@ export function resolveContextSync(
   return findProjectPaneContextSync(collectionId ?? null);
 }
 
+/**
+ * Whether native Info/Abstract/etc. sections should be hidden (and the
+ * title locked read-only) for this item -- call this, unconditionally,
+ * from EVERY registered pane section's onItemChange, regardless of
+ * tabType. Do NOT gate this by tabType (e.g. `tabType === "library" ?
+ * resolveContextSync(item) : null`) even if the section itself has no
+ * reader-tab content: Zotero calls every registered section's onItemChange
+ * for the same event, and whichever one runs last wins on this shared
+ * decision (there's no per-section scoping -- it's one class toggled on
+ * one shared container). If a section computes this from a tabType-gated
+ * ctx meant for its OWN setEnabled() relevance check, it can disagree with
+ * sections that don't gate it, and depending on registration order can
+ * silently re-show the native panes in the reader -- this happened twice
+ * in this codebase's history (once when Project Overview was added as a
+ * 4th, later-registered section, once latent in TA-Queue that only never
+ * surfaced because it was never the last-registered section). Computing it
+ * here, the same way, independent of any section's own relevance, is what
+ * makes every section's onItemChange agree regardless of order or count.
+ */
+export function shouldHideNativeSections(
+  item: Zotero.Item | undefined,
+): boolean {
+  return !!resolveContextSync(item);
+}
+
 export function el(doc: Document, tag: string, props: any = {}): any {
   return ztoolkit.UI.createElement(doc, tag, { namespace: "html", ...props });
 }

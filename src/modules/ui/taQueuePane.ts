@@ -22,6 +22,7 @@ import {
   renderPaneError,
   resolveContextSync,
   setNativeSectionsHidden,
+  shouldHideNativeSections,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-ta-queue";
@@ -354,25 +355,14 @@ export function registerTaQueuePane() {
           ctx.role === "ta_exclude" ||
           ctx.role === "ta_unclear");
       setEnabled(relevant);
-      // Native-hide is a single shared class on the pane container that
-      // both this section and ftQueuePane's toggle. Base it on "is this
-      // item in ANY of our project collections" (ctx truthy) rather than
-      // this section's own relevance -- otherwise, since Zotero calls every
-      // registered section's onItemChange for the same event, whichever
-      // section's hook runs last would clobber the other's decision back
-      // off, and the two sections don't always agree on section-specific
-      // relevance for the same collection. This section has zero reader-tab
-      // relevance itself (ctx is forced null above for any non-library
-      // tabType), so it must not call this in the reader at all -- doing so
-      // unconditionally would mean this section's own false-ctx call could
-      // clobber ftQueuePane's/codingPane's real reader-tab decision if
-      // registration order ever put this section after them (see
-      // projectOverviewPane.ts's onItemChange for the same bug, once live:
-      // adding it as a 4th, later-registered section did exactly this and
-      // silently unhid Info/Abstract/etc. in every reader tab).
-      if (tabType === "library") {
-        setNativeSectionsHidden(doc, body, !!ctx);
-      }
+      // Deliberately NOT derived from `ctx` above -- that's gated by
+      // tabType for this section's OWN relevance (it has no reader-tab
+      // content), but native-hide is a single shared class every
+      // registered section's onItemChange can independently set, so it
+      // must be computed the same way regardless of which section or
+      // tabType is asking -- see shouldHideNativeSections's doc comment
+      // for why mixing the two once silently broke reader-tab hiding.
+      setNativeSectionsHidden(doc, body, shouldHideNativeSections(item));
       // Keep the cache warm for next time in case it's gone stale (e.g. a
       // project was created/renamed since the last refresh).
       void refreshProjectPaneContextCache();

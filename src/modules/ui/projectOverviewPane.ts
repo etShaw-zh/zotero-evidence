@@ -16,6 +16,7 @@ import {
   renderPaneError,
   resolveContextSync,
   setNativeSectionsHidden,
+  shouldHideNativeSections,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-project-overview";
@@ -308,22 +309,16 @@ export function registerProjectOverviewPane() {
     onItemChange: ({ item, doc, body, setEnabled, tabType }) => {
       const ctx = tabType === "library" ? resolveContextSync(item) : null;
       setEnabled(!!ctx && ctx.role === "other");
-      // Unlike TA-Queue/FT-Queue/Coding, this section has ZERO reader-tab
-      // relevance (role "other" never applies there), so it must not call
-      // setNativeSectionsHidden at all for tabType "reader" -- Zotero calls
-      // every registered section's onItemChange per event, in registration
-      // order, and this is the LAST-registered of the four (see hooks.ts).
-      // Calling it unconditionally here with a forced-null ctx would mean
-      // this section's setNativeSectionsHidden(doc, body, false) always
-      // runs last and clobbers whatever Coding's own onItemChange (which
-      // DOES apply in the reader, for ft_include/coding items) just decided
-      // -- which is exactly the regression this comment is here to prevent
-      // a repeat of: it silently unhid Info/Abstract/etc. in every reader
-      // tab the moment this section was added. Only touch it for the tab
-      // type this section actually owns a decision for.
-      if (tabType === "library") {
-        setNativeSectionsHidden(doc, body, !!ctx);
-      }
+      // Deliberately NOT derived from `ctx` above -- that's gated by
+      // tabType for this section's OWN relevance (role "other" never
+      // applies in the reader), but native-hide must be computed the same
+      // way regardless of which section or tabType is asking. This
+      // section used to skip the call entirely for tabType "reader" to
+      // avoid clobbering Coding's decision there (registration order made
+      // it the last to run) -- shouldHideNativeSections replaces that
+      // order-dependent workaround: every section computing the identical
+      // value means order stops mattering at all.
+      setNativeSectionsHidden(doc, body, shouldHideNativeSections(item));
       void refreshProjectPaneContextCache();
     },
     onDestroy: ({ doc }) => {

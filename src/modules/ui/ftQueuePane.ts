@@ -44,6 +44,7 @@ import {
   resolveAttachment,
   resolveContextSync,
   setNativeSectionsHidden,
+  shouldHideNativeSections,
   sortAnnotationsByNewest,
 } from "./paneHelpers";
 
@@ -1349,11 +1350,13 @@ export function registerFtQueuePane() {
           ctx.role === "ft_exclude" ||
           ctx.role === "ft_unavailable");
       setEnabled(relevant);
-      // See taQueuePane.ts for why this must be based on ctx truthiness
-      // rather than this section's own relevance -- both sections share one
-      // class and Zotero calls every section's onItemChange per event, so
-      // whichever runs last must not clobber the other's decision.
-      setNativeSectionsHidden(doc, body, !!ctx);
+      // Deliberately calling shouldHideNativeSections(item) here rather
+      // than reusing `ctx` above (even though they happen to agree in this
+      // section, since this section's own relevance was never tabType-
+      // gated) -- every registered section computing native-hide the exact
+      // same way is what keeps this correct regardless of registration
+      // order or how many sections exist; see that function's doc comment.
+      setNativeSectionsHidden(doc, body, shouldHideNativeSections(item));
       void refreshProjectPaneContextCache();
     },
     onDestroy: ({ doc }) => {
