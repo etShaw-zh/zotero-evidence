@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="doc/zotero-evidence-social-preview.png" alt="Zotero Evidence" width="800">
-</p>
-
 # Zotero Evidence
 
 [![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-square&logo=github)](https://github.com/windingwind/zotero-plugin-template)
@@ -9,8 +5,16 @@
 [![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
 
-> [!WARNING]
-> Under high-frequency development — features and data formats can still change between releases.
+Zotero Evidence transforms research papers into **structured, traceable evidence datasets** with AI-assisted screening, extraction, and synthesis.
+
+Define a **Codebook**, and Zotero Evidence extracts evidence from your literature into a structured **Tableau**:
+
+| Study | Population | Intervention | Sample | Outcome |
+|---|---|---|---:|---|
+| Smith 2024 | Adults with T2DM | CBT | 248 | HbA1c |
+| Lee 2023 | Older adults | Exercise | 126 | QoL |
+
+Each value remains traceable to its supporting evidence in the original paper.
 
 ## Features
 
