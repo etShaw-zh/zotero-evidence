@@ -9,10 +9,10 @@ Zotero Evidence transforms research papers into **structured, traceable evidence
 
 Define a **Codebook**, and Zotero Evidence extracts evidence from your literature into a structured **Tableau**:
 
-| Study | Population | Intervention | Sample | Outcome |
-|---|---|---|---:|---|
-| Smith 2024 | Adults with T2DM | CBT | 248 | HbA1c |
-| Lee 2023 | Older adults | Exercise | 126 | QoL |
+| Study      | Population       | Intervention | Sample | Outcome |
+| ---------- | ---------------- | ------------ | -----: | ------- |
+| Smith 2024 | Adults with T2DM | CBT          |    248 | HbA1c   |
+| Lee 2023   | Older adults     | Exercise     |    126 | QoL     |
 
 Each value remains traceable to its supporting evidence in the original paper.
 
