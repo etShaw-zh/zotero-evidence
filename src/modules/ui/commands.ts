@@ -4799,6 +4799,14 @@ export class EvidenceCommands {
       // doc comment) but the sample archive and reviewers' CSVs still exist
       // as separate files: reconstructs the round from those instead of
       // resampling and losing the reviewers' already-completed work.
+      // Three separate, clearly-labeled steps (archive, then each reviewer's
+      // CSV) rather than chaining three OS file pickers back-to-back behind
+      // one button -- a user has no way to tell what an unlabeled second and
+      // third picker are even for once they're already staring at one. Same
+      // "one button per file, filename shown once chosen" shape as
+      // renderCollectForm's makeImportRow below, just with an extra (also
+      // optional-looking) archive row in front and a final button that
+      // actually runs the recovery once the archive is in hand.
       const renderRecoverForm = () => {
         if (!contentEl) return;
         const wrapper = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
@@ -4811,41 +4819,97 @@ export class EvidenceCommands {
         p.textContent = getString("human-consistency-recover-intro");
         wrapper.appendChild(p);
 
+        let archivePath: string | null = null;
+        let csvAPath: string | null = null;
+        let csvBPath: string | null = null;
+
+        const fileName = (path: string) =>
+          path.split(/[\\/]/).pop() || path;
+
+        const makeChooseRow = (
+          buttonLabel: string,
+          pickerTitle: string,
+          filter: [string, string],
+          onChosen: (path: string) => void,
+        ) => {
+          const row = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+          row.style.cssText = "margin:6px 0;";
+          const btn = doc!.createElementNS(
+            HTML_NS,
+            "button",
+          ) as HTMLButtonElement;
+          btn.setAttribute("type", "button");
+          btn.textContent = buttonLabel;
+          row.appendChild(btn);
+          const label = doc!.createElementNS(HTML_NS, "span") as HTMLElement;
+          label.style.cssText =
+            "margin-left:8px;color:#666;font-size:0.85em;";
+          label.textContent = getString("human-consistency-recover-not-chosen");
+          row.appendChild(label);
+          btn.addEventListener("click", async () => {
+            const path = await new ztoolkit.FilePicker(pickerTitle, "open", [
+              filter,
+            ]).open();
+            if (!path || typeof path !== "string") return;
+            onChosen(path);
+            label.textContent = fileName(path);
+          });
+          return row;
+        };
+
+        wrapper.appendChild(
+          makeChooseRow(
+            getString("human-consistency-recover-choose-archive-button"),
+            getString("human-consistency-recover-archive-title"),
+            ["Zip Archive (*.zip)", "*.zip"],
+            (path) => {
+              archivePath = path;
+            },
+          ),
+        );
+        wrapper.appendChild(
+          makeChooseRow(
+            getString("human-consistency-recover-choose-csv-a-button"),
+            getString("human-consistency-import-csv-title"),
+            ["CSV (*.csv)", "*.csv"],
+            (path) => {
+              csvAPath = path;
+            },
+          ),
+        );
+        wrapper.appendChild(
+          makeChooseRow(
+            getString("human-consistency-recover-choose-csv-b-button"),
+            getString("human-consistency-import-csv-title"),
+            ["CSV (*.csv)", "*.csv"],
+            (path) => {
+              csvBPath = path;
+            },
+          ),
+        );
+
         const recoverBtn = doc!.createElementNS(
           HTML_NS,
           "button",
         ) as HTMLButtonElement;
         recoverBtn.setAttribute("type", "button");
+        recoverBtn.style.cssText = "display:block;margin-top:6px;";
         recoverBtn.textContent = getString("human-consistency-recover-button");
         wrapper.appendChild(recoverBtn);
 
         recoverBtn.addEventListener("click", async () => {
-          const archivePath = await new ztoolkit.FilePicker(
-            getString("human-consistency-recover-archive-title"),
-            "open",
-            [["Zip Archive (*.zip)", "*.zip"]],
-          ).open();
-          if (!archivePath || typeof archivePath !== "string") return;
-
-          const csvAPath = await new ztoolkit.FilePicker(
-            getString("human-consistency-recover-csv-a-title"),
-            "open",
-            [["CSV (*.csv)", "*.csv"]],
-          ).open();
-          const csvBPath = await new ztoolkit.FilePicker(
-            getString("human-consistency-recover-csv-b-title"),
-            "open",
-            [["CSV (*.csv)", "*.csv"]],
-          ).open();
-
+          if (!archivePath) {
+            setError(new Error(getString("human-consistency-recover-need-archive")));
+            return;
+          }
           recoverBtn.setAttribute("disabled", "true");
           setStatus(getString("consistency-loading"));
           try {
             const result = await recoverRoundFromArchive(
               Number(dialogData.projectId),
               archivePath,
-              typeof csvAPath === "string" ? csvAPath : null,
-              typeof csvBPath === "string" ? csvBPath : null,
+              csvAPath,
+              csvBPath,
             );
             setStatus("");
             ztoolkit.getGlobal("alert")(
