@@ -131,16 +131,16 @@ describe("Phase 6: codingExport", function () {
       const lines = csv.split("\n");
       assert.equal(
         lines[0],
-        "item_key,authors,year,title,doi,study_design,sample_size,outcome",
+        "item_key,project_item_id,authors,year,title,doi,study_design,sample_size,outcome",
       );
       assert.equal(lines.length, 3);
       assert.equal(
         lines[1],
-        `${item.key},"Lovelace, Ada",2024,Coding Export Paper,,RCT,156,Outcome Y1`,
+        `${item.key},,"Lovelace, Ada",2024,Coding Export Paper,,RCT,156,Outcome Y1`,
       );
       assert.equal(
         lines[2],
-        `${item.key},"Lovelace, Ada",2024,Coding Export Paper,,RCT,156,Outcome Y2`,
+        `${item.key},,"Lovelace, Ada",2024,Coding Export Paper,,RCT,156,Outcome Y2`,
       );
     });
 
@@ -216,9 +216,12 @@ describe("Phase 6: codingExport", function () {
 
       const csv = await exportCodingData(project.id);
       const lines = csv.split("\n");
-      assert.equal(lines[0], "item_key,authors,year,title,doi,Study Design");
+      assert.equal(
+        lines[0],
+        "item_key,project_item_id,authors,year,title,doi,Study Design",
+      );
       assert.equal(lines.length, 2);
-      assert.equal(lines[1], `${item.key},,2024,Casing Paper,,RCT`);
+      assert.equal(lines[1], `${item.key},,,2024,Casing Paper,,RCT`);
     });
 
     it("matches a record against a '<code> — <description>' Codebook column by its code lead-in alone", async function () {
@@ -258,12 +261,12 @@ describe("Phase 6: codingExport", function () {
       const lines = csv.split("\n");
       assert.equal(
         lines[0],
-        "item_key,authors,year,title,doi,B01 / QA1 — Design rationale & conjecturing",
+        "item_key,project_item_id,authors,year,title,doi,B01 / QA1 — Design rationale & conjecturing",
       );
       assert.equal(lines.length, 2);
       assert.equal(
         lines[1],
-        `${item.key},,2024,Alias Paper,,2 = Explicit/Coherent`,
+        `${item.key},,,2024,Alias Paper,,2 = Explicit/Coherent`,
       );
     });
   });

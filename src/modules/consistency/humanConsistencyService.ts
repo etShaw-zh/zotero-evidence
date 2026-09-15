@@ -15,13 +15,16 @@
  * multi-stage journey collapses into one verdict.
  */
 import { exportProjectArchive } from "../archive/archiveExportService";
+import { MANIFEST_FILENAME, ArchiveManifest } from "../archive/archiveTypes";
+import { unzipToDirectory } from "../archive/zipUtil";
 import { databaseService } from "../db/database";
 import { resolveProjectCollections } from "../project/collectionStructure";
 import { getRootCollectionId } from "../project/projectContext";
 import { getProjectById } from "../project/projectManager";
 import { splitCsvLine } from "../../utils/csv";
-import { normalizeDOI } from "../dedup/normalize";
+import { normalizeDOI, normalizeTitle } from "../dedup/normalize";
 import { safeGetField } from "../../utils/zoteroItem";
+import { getStableItemId } from "../../utils/stableItemId";
 import { confirmDecision as confirmFtDecision } from "../screening/ftScreeningService";
 import {
   addManualCheck,
@@ -118,16 +121,16 @@ async function insertRound(
      VALUES (?, ?, ?, 'sampled', ?, ?, ?)`,
     [projectId, ROUND_STAGE, ROUND_PHASE, JSON.stringify(itemKeys), now, now],
   );
-  const id = await databaseService.getLastInsertId();
-  return {
-    id,
-    projectId,
-    status: "sampled",
-    itemKeys,
-    reviewerACsvPath: null,
-    reviewerBCsvPath: null,
-    updatedAt: now,
-  };
+  // Re-fetched scoped by project_id + stage (same pattern getLatestRound
+  // uses) rather than trusted from getLastInsertId()'s connection-global
+  // last_insert_rowid() -- this project's own newest round is unambiguous
+  // regardless of whatever else might have written to this table via the
+  // same shared connection in between the INSERT above and this read.
+  const rows = (await databaseService.queryAsync(
+    `SELECT * FROM consistency_rounds WHERE project_id = ? AND stage = ? ORDER BY id DESC LIMIT 1`,
+    [projectId, ROUND_STAGE],
+  )) as any[];
+  return rowToRound(rows[0]);
 }
 
 /** The most recently started round for a project, or null if none has ever
@@ -228,6 +231,12 @@ export async function recordCollectedCsv(
 }
 
 interface ParsedReviewerRow {
+  // "" when the CSV predates the project_item_id column, or the item was
+  // never exported through exportProjectArchive (which is what mints one --
+  // see stableItemId.ts). The most reliable match key when present: unlike
+  // item_key it survives being independently imported into a different
+  // reviewer's own library, and unlike doi/title it can't drift or collide.
+  stableId: string;
   title: string;
   // "" when the CSV predates the doi column (old export) or the item had no
   // DOI -- callers must treat that as "no DOI available", never match two
@@ -265,6 +274,7 @@ function parseReviewerCsv(csvText: string): ParsedReviewerRow[] {
   if (lines.length === 0) return [];
   const header = splitCsvLine(lines[0]);
   const col = (name: string) => header.indexOf(name);
+  const stableIdCol = col("project_item_id");
   const titleCol = col("title");
   const doiCol = col("doi");
   const stageCol = col("stage");
@@ -285,6 +295,7 @@ function parseReviewerCsv(csvText: string): ParsedReviewerRow[] {
     const humanDecision = fields[decisionCol]?.trim();
     if (!humanDecision) continue;
     rows.push({
+      stableId: stableIdCol >= 0 ? (fields[stableIdCol]?.trim() ?? "") : "",
       title: fields[titleCol]?.trim() ?? "",
       doi: doiCol >= 0 ? (normalizeDOI(fields[doiCol]) ?? "") : "",
       stage,
@@ -299,36 +310,48 @@ function parseReviewerCsv(csvText: string): ParsedReviewerRow[] {
   return rows;
 }
 
-/** Indexes one reviewer's rows for one stage by DOI and by title, for
- * lookupRow below. */
+/** Indexes one reviewer's rows for one stage by stable id, DOI, and
+ * (normalized) title, for lookupRow below. */
 function indexRowsByStage(
   rows: ParsedReviewerRow[],
   stage: "ta_screening" | "ft_screening",
 ): {
+  byStableId: Map<string, ParsedReviewerRow>;
   byDoi: Map<string, ParsedReviewerRow>;
   byTitle: Map<string, ParsedReviewerRow>;
 } {
+  const byStableId = new Map<string, ParsedReviewerRow>();
   const byDoi = new Map<string, ParsedReviewerRow>();
   const byTitle = new Map<string, ParsedReviewerRow>();
   for (const r of rows) {
     if (r.stage !== stage) continue;
+    if (r.stableId && !byStableId.has(r.stableId))
+      byStableId.set(r.stableId, r);
     if (r.doi && !byDoi.has(r.doi)) byDoi.set(r.doi, r);
-    if (!byTitle.has(r.title)) byTitle.set(r.title, r);
+    const normTitle = normalizeTitle(r.title);
+    if (!byTitle.has(normTitle)) byTitle.set(normTitle, r);
   }
-  return { byDoi, byTitle };
+  return { byStableId, byDoi, byTitle };
 }
 
-/** DOI first, falling back to title -- same matching precedence as the
- * rest of this file (see computeRoundConsistency's doc comment). */
+/** Stable id first (see ParsedReviewerRow.stableId), then DOI, falling back
+ * to normalized title -- same matching precedence as the rest of this file
+ * (see computeRoundConsistency's doc comment). */
 function lookupRow(
   index: {
+    byStableId: Map<string, ParsedReviewerRow>;
     byDoi: Map<string, ParsedReviewerRow>;
     byTitle: Map<string, ParsedReviewerRow>;
   },
+  stableId: string,
   doi: string,
   title: string,
 ): ParsedReviewerRow | undefined {
-  return (doi && index.byDoi.get(doi)) || index.byTitle.get(title);
+  return (
+    (stableId && index.byStableId.get(stableId)) ||
+    (doi && index.byDoi.get(doi)) ||
+    index.byTitle.get(normalizeTitle(title))
+  );
 }
 
 /**
@@ -477,18 +500,19 @@ export async function computeRoundConsistency(
   const pairs: [string, string][] = [];
   for (const itemKey of round.itemKeys) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
+    const stableId = await getStableItemId(round.projectId, itemKey);
     const title = item ? safeGetField(item as Zotero.Item, "title") : "";
     const doi = item
       ? (normalizeDOI(safeGetField(item as Zotero.Item, "DOI")) ?? "")
       : "";
 
     const aVerdict = deriveFinalVerdict(
-      lookupRow(taA, doi, title),
-      lookupRow(ftA, doi, title),
+      lookupRow(taA, stableId, doi, title),
+      lookupRow(ftA, stableId, doi, title),
     );
     const bVerdict = deriveFinalVerdict(
-      lookupRow(taB, doi, title),
-      lookupRow(ftB, doi, title),
+      lookupRow(taB, stableId, doi, title),
+      lookupRow(ftB, stableId, doi, title),
     );
 
     items.push({ itemKey, title, aDecision: aVerdict, bDecision: bVerdict });
@@ -554,9 +578,25 @@ export interface ApplyAgreedResultsSummary {
  * A disagreement is deliberately left untouched -- it simply stays wherever
  * it already was (TA-Screen Queue, since a round only ever samples from
  * there), for a third reviewer to resolve through the normal Screening
- * pane. Every item, agreed or not, gets its snapshot written to
- * consistency_item_results so taQueuePane.ts can show both reviewers'
- * calls next to a still-pending disagreement.
+ * pane. Every item still in the queue, agreed or not, gets its snapshot
+ * written to consistency_item_results so taQueuePane.ts can show both
+ * reviewers' calls next to a still-pending disagreement.
+ *
+ * Safe to call more than once on the SAME round (e.g. after
+ * recoverRoundFromArchive re-collects an updated CSV once a reviewer
+ * finishes screening more of their sampled items): an item that's already
+ * left TA-Screen Queue -- meaning an earlier call already resolved it, or
+ * it was screened normally in the meantime -- is skipped entirely rather
+ * than reprocessed. That's not just an optimization: confirmTaDecision /
+ * confirmFtDecision / addManualCheck all INSERT a fresh row rather than
+ * update an existing one, so re-running them on an already-resolved item
+ * would leave duplicate screening_records/ft_criterion_checks rows behind
+ * -- for an FT-origin agreed exclude specifically, that means literally
+ * double-counting its reasons in PRISMA's itemized breakdown (see
+ * getFtReasonCounts in screeningExport.ts). Skipping keeps every re-run
+ * strictly additive: only items still actually waiting for a decision get
+ * one, and applied/disagreed only ever count items this call itself acted
+ * on, not the round's running total.
  */
 export async function applyAgreedResults(
   round: ConsistencyRound,
@@ -592,16 +632,19 @@ export async function applyAgreedResults(
   for (const itemKey of round.itemKeys) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
     if (!item) continue;
+    // Idempotency guard -- see this function's own doc comment above.
+    if (!(item as Zotero.Item).inCollection(collections.taQueueId)) continue;
+    const stableId = await getStableItemId(round.projectId, itemKey);
     const title = safeGetField(item as Zotero.Item, "title");
     const doi = normalizeDOI(safeGetField(item as Zotero.Item, "DOI")) ?? "";
 
     const aDetail = deriveFinalVerdictDetail(
-      lookupRow(taA, doi, title),
-      lookupRow(ftA, doi, title),
+      lookupRow(taA, stableId, doi, title),
+      lookupRow(ftA, stableId, doi, title),
     );
     const bDetail = deriveFinalVerdictDetail(
-      lookupRow(taB, doi, title),
-      lookupRow(ftB, doi, title),
+      lookupRow(taB, stableId, doi, title),
+      lookupRow(ftB, stableId, doi, title),
     );
 
     await saveConsistencyItemResult(round.projectId, {
@@ -713,4 +756,137 @@ export async function applyAgreedResults(
   );
 
   return { applied, disagreed };
+}
+
+/** Every item currently anywhere in the project's Collection tree (Sources
+ * through Coding), deduplicated -- the pool recoverRoundFromArchive matches
+ * a sample archive's items against. Deliberately not just TA-Screen Queue
+ * (unlike resolveSamplePool): by the time a round needs recovering, some of
+ * its sampled items may well have already been screened (moved out of the
+ * queue) in the reconciled project. */
+async function resolveProjectItemPool(projectId: number): Promise<Zotero.Item[]> {
+  const project = await getProjectById(projectId);
+  if (!project) throw new Error("Project not found.");
+  const rootId = getRootCollectionId(project);
+  if (rootId === null) throw new Error("Project collection not found.");
+  const root = Zotero.Collections.get(rootId) as Zotero.Collection;
+  const seen = new Set<number>();
+  const items: Zotero.Item[] = [];
+  for (const d of root.getDescendents(false, "item", false)) {
+    if (seen.has(d.id)) continue;
+    seen.add(d.id);
+    const item = Zotero.Items.get(d.id) as Zotero.Item;
+    if (item && !item.deleted) items.push(item);
+  }
+  return items;
+}
+
+export interface RecoverRoundResult {
+  round: ConsistencyRound;
+  matchedCount: number;
+  totalSampled: number;
+  // Archived items that couldn't be matched to anything in the current
+  // project (title text, for whoever's fixing this up by hand) -- e.g. the
+  // item was deleted, or its DOI/title changed enough that even the
+  // normalized-title fallback misses it.
+  unmatchedTitles: string[];
+}
+
+/**
+ * Reconstructs a consistency_rounds row for a sample archive (produced by
+ * an earlier startRound() call) whose own round bookkeeping was lost --
+ * typically because the project it was sampled from was later backed up
+ * and restored (on this machine or a different one) using a plugin version
+ * that didn't yet archive consistency_rounds/consistency_item_results (see
+ * archiveTypes.ts's ArchiveConsistencyRound), so the round itself never
+ * made it into that backup even though the sample archive and the
+ * reviewers' returned CSVs both still exist as independent files.
+ *
+ * Reads the sample archive's own manifest -- the exact item set startRound()
+ * sampled, frozen at sample time -- and matches each item, by DOI then
+ * normalized title, against the pool of items now living in the CURRENT
+ * project (see resolveProjectItemPool): a re-imported copy of the original
+ * project has an entirely different key space, and a sample archive
+ * predating the stable-id column (stableItemId.ts) has nothing else to
+ * match on. Once matched, this is just startRound()'s own insertRound()
+ * plus recordCollectedCsv() for whichever reviewer CSVs are already in
+ * hand -- so the resulting round works with computeRoundConsistency /
+ * applyAgreedResults exactly like a normal one, including their own
+ * (stableId ->) doi -> title fallback when matching the CSVs' rows.
+ */
+export async function recoverRoundFromArchive(
+  projectId: number,
+  sampleArchivePath: string,
+  reviewerACsvPath?: string | null,
+  reviewerBCsvPath?: string | null,
+): Promise<RecoverRoundResult> {
+  await databaseService.init();
+  const stagingDir = Zotero.getTempDirectory() as any;
+  stagingDir.append(`evidence-recover-${Date.now()}`);
+  await (Zotero.File as any).createDirectoryIfMissingAsync(stagingDir.path, {
+    ignoreExisting: true,
+  });
+
+  let manifest: ArchiveManifest;
+  try {
+    unzipToDirectory(sampleArchivePath, stagingDir.path);
+    const manifestFile = Zotero.File.pathToFile(stagingDir.path) as any;
+    manifestFile.append(MANIFEST_FILENAME);
+    if (!manifestFile.exists()) {
+      throw new Error(
+        "This file doesn't look like a Zotero Evidence archive (manifest.json missing).",
+      );
+    }
+    manifest = JSON.parse(
+      (await Zotero.File.getContentsAsync(manifestFile.path)) as string,
+    ) as ArchiveManifest;
+  } finally {
+    if (stagingDir.exists()) stagingDir.remove(true);
+  }
+
+  const pool = await resolveProjectItemPool(projectId);
+  const byStableId = new Map<string, Zotero.Item>();
+  const byDoi = new Map<string, Zotero.Item>();
+  const byTitle = new Map<string, Zotero.Item>();
+  for (const item of pool) {
+    const stableId = await getStableItemId(projectId, item.key);
+    if (stableId && !byStableId.has(stableId)) byStableId.set(stableId, item);
+    const doi = normalizeDOI(safeGetField(item, "DOI"));
+    if (doi && !byDoi.has(doi)) byDoi.set(doi, item);
+    const title = normalizeTitle(safeGetField(item, "title"));
+    if (!byTitle.has(title)) byTitle.set(title, item);
+  }
+
+  const itemKeys: string[] = [];
+  const unmatchedTitles: string[] = [];
+  for (const archiveItem of manifest.items) {
+    const json = archiveItem.json as Record<string, unknown>;
+    const stableId = archiveItem.stableId || "";
+    const doi = normalizeDOI((json.DOI as string) ?? "") ?? "";
+    const title = normalizeTitle((json.title as string) ?? "");
+    const match =
+      (stableId && byStableId.get(stableId)) ||
+      (doi && byDoi.get(doi)) ||
+      byTitle.get(title);
+    if (match) {
+      itemKeys.push(match.key);
+    } else {
+      unmatchedTitles.push((json.title as string) || "(untitled)");
+    }
+  }
+
+  let round = await insertRound(projectId, itemKeys);
+  if (reviewerACsvPath) {
+    round = await recordCollectedCsv(round.id, "a", reviewerACsvPath);
+  }
+  if (reviewerBCsvPath) {
+    round = await recordCollectedCsv(round.id, "b", reviewerBCsvPath);
+  }
+
+  return {
+    round,
+    matchedCount: itemKeys.length,
+    totalSampled: manifest.items.length,
+    unmatchedTitles,
+  };
 }

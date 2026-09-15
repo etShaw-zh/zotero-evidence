@@ -12,6 +12,7 @@ import {
   listProjects,
 } from "../project/projectManager";
 import { databaseService } from "../db/database";
+import { recordStableItemId } from "../../utils/stableItemId";
 import { ArchiveManifest, MANIFEST_FILENAME } from "./archiveTypes";
 import { unzipToDirectory } from "./zipUtil";
 
@@ -136,6 +137,13 @@ export async function importProjectArchive(
       newItem.fromJSON(json);
       await newItem.saveTx();
       itemKeyMap.set(archiveItem.key, newItem.key);
+      // Carries the SAME stable id through, under this new project's own
+      // id + the freshly-assigned key -- never regenerated, so a
+      // reviewer's later CSV export still matches back up. "" for an
+      // archive written before ArchiveItem.stableId existed; that item
+      // simply gets one the next time it's exported (see
+      // ensureStableItemId's backstop call in archiveExportService.ts).
+      await recordStableItemId(project.id, newItem.key, archiveItem.stableId);
 
       for (const role of archiveItem.roles) {
         const collectionId = collectionIdForRole(role, collections);
@@ -318,6 +326,62 @@ export async function importProjectArchive(
         `INSERT INTO synthesis_themes (coding_record_id, theme, created_at, updated_at)
          VALUES (?, ?, ?, ?)`,
         [codingRecordId, theme.theme, theme.createdAt, theme.updatedAt],
+      );
+    }
+
+    // Human-human consistency round history (see archiveTypes.ts's
+    // ArchiveConsistencyRound doc comment). item_keys is remapped through
+    // itemKeyMap same as every other item reference above, dropping any key
+    // that didn't survive (e.g. the item was since deleted); an item's own
+    // stable id (stableItemId.ts) travels automatically as part of its JSON,
+    // no remapping needed there. reviewer_a/b_csv_path are always left NULL
+    // here -- they were local filesystem paths on whatever machine ran the
+    // round, meaningless on this one; the round's actual outcome data
+    // (itemKeys, status, and every item's snapshot below) is preserved
+    // regardless, and recoverRoundFromArchive can re-attach fresh CSV paths
+    // if a 'sampled' round still needs them collected.
+    const roundIdByIndex = new Map<number, number>();
+    for (const [i, r] of (manifest.consistencyRounds ?? []).entries()) {
+      const newItemKeys = r.itemKeys
+        .map((k) => itemKeyMap.get(k))
+        .filter((k): k is string => Boolean(k));
+      await databaseService.queryAsync(
+        `INSERT INTO consistency_rounds
+          (project_id, stage, phase, status, item_keys, reviewer_a_csv_path, reviewer_b_csv_path, created_at, updated_at)
+         VALUES (?, 'full_pipeline', 'pilot', ?, ?, NULL, NULL, ?, ?)`,
+        [
+          project.id,
+          r.status,
+          JSON.stringify(newItemKeys),
+          r.createdAt,
+          r.updatedAt,
+        ],
+      );
+      roundIdByIndex.set(i, await databaseService.getLastInsertId());
+    }
+
+    for (const result of manifest.consistencyItemResults ?? []) {
+      const newItemKey = itemKeyMap.get(result.itemKey);
+      const newRoundId = roundIdByIndex.get(result.roundIndex);
+      if (!newItemKey || !newRoundId) continue;
+      await databaseService.queryAsync(
+        `INSERT INTO consistency_item_results
+          (project_id, item_key, round_id, a_reviewer, a_verdict, a_exclusion_reason,
+           b_reviewer, b_verdict, b_exclusion_reason, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          project.id,
+          newItemKey,
+          newRoundId,
+          result.aReviewer,
+          result.aVerdict,
+          result.aExclusionReason,
+          result.bReviewer,
+          result.bVerdict,
+          result.bExclusionReason,
+          result.createdAt,
+          result.updatedAt,
+        ],
       );
     }
 

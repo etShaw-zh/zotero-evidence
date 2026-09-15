@@ -1,5 +1,6 @@
 import { toCsvLine } from "../../utils/csv";
 import { safeGetField } from "../../utils/zoteroItem";
+import { getStableItemId } from "../../utils/stableItemId";
 import { databaseService } from "../db/database";
 import { resolveProjectCollections } from "../project/collectionStructure";
 import { getRootCollectionId } from "../project/projectContext";
@@ -270,6 +271,14 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
   lines.push(
     toCsvLine([
       "item_key",
+      // A stable id (stableItemId.ts) that -- unlike item_key -- survives
+      // being independently imported into a different reviewer's own
+      // library: humanConsistencyService.ts matches on this first, falling
+      // back to doi then title only for a CSV that predates this column or
+      // an item that predates the id being assigned. "" when the item was
+      // never exported through exportProjectArchive (which is what mints
+      // one -- see ensureStableItemId).
+      "project_item_id",
       "title",
       "doi",
       "stage",
@@ -285,11 +294,13 @@ export async function exportScreeningLog(projectId: number): Promise<string> {
   );
   for (const row of rows || []) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, row.item_key);
+    const stableId = await getStableItemId(projectId, row.item_key);
     const title = item ? safeGetField(item as Zotero.Item, "title") : "";
     const doi = item ? safeGetField(item as Zotero.Item, "DOI") : "";
     lines.push(
       toCsvLine([
         row.item_key,
+        stableId,
         title,
         doi,
         row.stage,

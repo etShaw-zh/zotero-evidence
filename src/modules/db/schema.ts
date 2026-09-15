@@ -206,6 +206,27 @@ export const SCHEMA_STATEMENTS: string[] = [
     UNIQUE(project_id, item_key),
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
   )`,
+  // A stable, plugin-owned identifier per item, independent of Zotero's own
+  // item `key` (which is reassigned every time an item is recreated from
+  // JSON -- both on this project's own backup/restore, and, critically,
+  // when a sample archive is independently imported into a different
+  // reviewer's own library, where there's no shared database at all to
+  // keep a key-map in). See stableItemId.ts for the full story. Lives
+  // entirely in THIS plugin's own database and archive format -- never
+  // written into the Zotero item itself (no Extra field, no tags), so it
+  // can never collide with Better BibTeX or any other plugin's own use of
+  // those fields. `stable_id` is minted once (crypto.randomUUID()) and
+  // then just carried, unchanged, through every export/import round trip
+  // via ArchiveItem.stableId (a sibling of `key`, not part of `json`).
+  `CREATE TABLE IF NOT EXISTS item_stable_ids (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    stable_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(project_id, item_key),
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on

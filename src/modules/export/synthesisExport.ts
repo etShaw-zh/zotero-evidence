@@ -1,5 +1,6 @@
 import { toCsvLine } from "../../utils/csv";
 import { safeGetField } from "../../utils/zoteroItem";
+import { getStableItemId } from "../../utils/stableItemId";
 import { databaseService } from "../db/database";
 import { getProjectById } from "../project/projectManager";
 
@@ -36,6 +37,9 @@ export async function exportSynthesisData(projectId: number): Promise<string> {
   lines.push(
     toCsvLine([
       "item_key",
+      // See stableItemId.ts / exportScreeningLog's own column of the same
+      // name.
+      "project_item_id",
       "title",
       "doi",
       "variable_name",
@@ -49,11 +53,13 @@ export async function exportSynthesisData(projectId: number): Promise<string> {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, r.item_key) as
       | Zotero.Item
       | false;
+    const stableId = await getStableItemId(projectId, r.item_key);
     const title = item ? safeGetField(item, "title") : "";
     const doi = item ? safeGetField(item, "DOI") : "";
     lines.push(
       toCsvLine([
         r.item_key,
+        stableId,
         title,
         doi,
         r.variable_name,

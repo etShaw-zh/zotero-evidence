@@ -38,6 +38,15 @@ export interface ArchiveAttachment {
 
 export interface ArchiveItem {
   key: string;
+  // This plugin's own cross-library-stable id for the item (see
+  // stableItemId.ts) -- deliberately a SIBLING of `json`, not a field
+  // inside it: it lives only in this plugin's own item_stable_ids table on
+  // each side, never in the item's own bibliographic data (Extra field,
+  // tags), so it can never collide with Better BibTeX or any other
+  // plugin's own use of those fields, or be touched by a user editing the
+  // item normally. "" for an item that somehow has none yet (shouldn't
+  // happen -- exportProjectArchive always calls ensureStableItemId first).
+  stableId: string;
   // Every Collection this item currently belongs to within the project
   // tree, tagged by role (e.g. "sources:Web of Science", "taQueue",
   // "taInclude", ...) -- see archiveExportService.ts's ROLE_* helpers for
@@ -130,6 +139,41 @@ export interface ArchiveSynthesisTheme {
   updatedAt: string;
 }
 
+// A human-human consistency round (humanConsistencyService.ts), archived
+// only alongside a FULL project export (never a scoped sample archive --
+// see archiveExportService.ts's exportProjectArchive) since it's the
+// coordinator's own bookkeeping, meaningless in a reviewer's independently-
+// imported copy. `itemKeys` here are archive-local (the original item
+// `key`s, same convention as every other itemKey in this file) --
+// importProjectArchive remaps them through its itemKeyMap like everything
+// else. reviewerACsvPath/reviewerBCsvPath are intentionally NOT carried
+// here: they're local filesystem paths on the machine that ran the round,
+// meaningless (and potentially misleading) on whatever machine later
+// imports this archive -- see importProjectArchive's own comment.
+export interface ArchiveConsistencyRound {
+  status: "sampled" | "collected" | "reconciled";
+  itemKeys: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ArchiveConsistencyItemResult {
+  itemKey: string;
+  // Position in the manifest's consistencyRounds array -- same
+  // archive-local-index convention as ArchiveSynthesisTheme.codingRecordIndex,
+  // since the live round_id it references is a local DB id that gets
+  // reassigned on import same as everything else here.
+  roundIndex: number;
+  aReviewer: string;
+  aVerdict: string | null;
+  aExclusionReason: string;
+  bReviewer: string;
+  bVerdict: string | null;
+  bExclusionReason: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ArchiveManifest {
   formatVersion: 1;
   exportedAt: string;
@@ -146,6 +190,12 @@ export interface ArchiveManifest {
   codebooks: ArchiveCodebook[];
   codingRecords: ArchiveCodingRecord[];
   synthesisThemes: ArchiveSynthesisTheme[];
+  // Optional, same reasoning as ftCriterionChecks -- absent in archives
+  // written before human-human consistency rounds were archived at all
+  // (importProjectArchive treats a missing array as empty), and always
+  // absent from a scoped sample archive (see ArchiveConsistencyRound).
+  consistencyRounds?: ArchiveConsistencyRound[];
+  consistencyItemResults?: ArchiveConsistencyItemResult[];
 }
 
 export const MANIFEST_FILENAME = "manifest.json";

@@ -11,6 +11,13 @@ import { ensureSourceCollection } from "../src/modules/project/collectionStructu
 import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
 import { saveCriteria } from "../src/modules/screening/criteriaService";
+import { getStableItemId } from "../src/utils/stableItemId";
+import {
+  recordCollectedCsv,
+  startRound,
+} from "../src/modules/consistency/humanConsistencyService";
+import { saveConsistencyItemResult } from "../src/modules/consistency/consistencyItemResultsService";
+import { unzipToDirectory } from "../src/modules/archive/zipUtil";
 
 const MINIMAL_PDF = `%PDF-1.4
 1 0 obj
@@ -222,6 +229,143 @@ describe("Archive & Share (export/restore round trip)", function () {
     )) as any[];
     assert.equal(themeRows.length, 1);
     assert.equal(themeRows[0].theme, "Population characteristics");
+  });
+
+  it("exportProjectArchive assigns each item a stable id (surviving the restore's fresh item_key), and a FULL export round-trips human-human consistency round history while a SCOPED (sampled) export omits it entirely", async function () {
+    const project = await createProject(`Archive Consistency Test ${Date.now()}`);
+    const collections = resolveProjectCollections(getRootCollectionId(project)!);
+
+    const itemA = new Zotero.Item("journalArticle");
+    itemA.libraryID = collections.libraryID;
+    itemA.setField("title", "Consistency Archive Item A");
+    await itemA.saveTx();
+    itemA.addToCollection(collections.taQueueId);
+    await itemA.saveTx();
+
+    const itemB = new Zotero.Item("journalArticle");
+    itemB.libraryID = collections.libraryID;
+    itemB.setField("title", "Consistency Archive Item B");
+    await itemB.saveTx();
+    itemB.addToCollection(collections.taQueueId);
+    await itemB.saveTx();
+
+    assert.equal(
+      await getStableItemId(project.id, itemA.key),
+      "",
+      "no stable id until the item is actually exported",
+    );
+
+    // A round covering both items, with a snapshot recorded for one of
+    // them (as applyAgreedResults would leave behind for a disagreement --
+    // see humanConsistencyService.ts).
+    const sampleZip = Zotero.File.pathToFile(Zotero.DataDirectory.dir) as any;
+    sampleZip.append(`archive-consistency-sample-${Date.now()}.zip`);
+    const round = await startRound(project.id, 100, sampleZip.path);
+    assert.equal(round.itemKeys.length, 2);
+    await recordCollectedCsv(round.id, "a", "/tmp/does-not-need-to-exist-a.csv");
+    await recordCollectedCsv(round.id, "b", "/tmp/does-not-need-to-exist-b.csv");
+    await saveConsistencyItemResult(project.id, {
+      itemKey: itemA.key,
+      roundId: round.id,
+      aReviewer: "111",
+      aVerdict: "exclude",
+      aExclusionReason: "",
+      bReviewer: "222",
+      bVerdict: "include",
+      bExclusionReason: "",
+    });
+
+    // startRound()'s own sample archive is scoped (itemKeys given) --
+    // this plugin's round bookkeeping is the coordinator's business, not
+    // something to hand to a reviewer, so it must NOT appear there even
+    // though a round now exists in the DB by the time this ran.
+    const sampleManifestDir = Zotero.getTempDirectory() as any;
+    sampleManifestDir.append(`archive-consistency-sample-check-${Date.now()}`);
+    unzipToDirectory(sampleZip.path, sampleManifestDir.path);
+    const sampleManifestFile = Zotero.File.pathToFile(
+      sampleManifestDir.path,
+    ) as any;
+    sampleManifestFile.append("manifest.json");
+    const sampleManifest = JSON.parse(
+      (await Zotero.File.getContentsAsync(
+        sampleManifestFile.path,
+      )) as string,
+    );
+    assert.deepEqual(sampleManifest.consistencyRounds, []);
+    assert.deepEqual(sampleManifest.consistencyItemResults, []);
+    // But every exported item DID get a stable id minted -- carried as its
+    // own ArchiveItem.stableId field, a sibling of `json` rather than
+    // something stuffed inside the item's own bibliographic data (Extra
+    // field/tags) -- this is what lets a reviewer's later CSV export be
+    // matched back up without relying on item_key, and without ever
+    // touching data another plugin (e.g. Better BibTeX) might also keep in
+    // Extra.
+    for (const archived of sampleManifest.items) {
+      assert.isString(archived.stableId);
+      assert.notEqual(archived.stableId, "");
+      assert.notInclude(
+        (archived.json as any).extra ?? "",
+        "Zotero Evidence ID",
+      );
+    }
+    const stableIdA = await getStableItemId(project.id, itemA.key);
+    const stableIdB = await getStableItemId(project.id, itemB.key);
+    assert.equal(stableIdA, await getStableItemId(project.id, itemA.key));
+    assert.notEqual(stableIdA, "");
+    assert.notEqual(stableIdA, stableIdB);
+
+    // Now a FULL backup -- this one DOES carry the round history.
+    const fullZip = Zotero.File.pathToFile(Zotero.DataDirectory.dir) as any;
+    fullZip.append(`archive-consistency-full-${Date.now()}.zip`);
+    await exportProjectArchive(project.id, fullZip.path);
+
+    const restored = await importProjectArchive(fullZip.path);
+    const restoredRounds = (await databaseService.queryAsync(
+      `SELECT * FROM consistency_rounds WHERE project_id = ?`,
+      [restored.id],
+    )) as any[];
+    assert.equal(restoredRounds.length, 1);
+    assert.equal(restoredRounds[0].status, "collected");
+    // CSV paths are local-machine paths, deliberately never carried
+    // through a restore -- see archiveImportService.ts's own comment.
+    assert.isNull(restoredRounds[0].reviewer_a_csv_path);
+    assert.isNull(restoredRounds[0].reviewer_b_csv_path);
+    const restoredItemKeys = JSON.parse(restoredRounds[0].item_keys);
+    assert.equal(restoredItemKeys.length, 2);
+
+    // The restored item_keys are the RESTORED project's own fresh keys,
+    // not the original ones -- and each restored item still carries the
+    // SAME stable id as its original, now recorded under the restored
+    // project's own id + its own fresh key (see recordStableItemId).
+    const restoredCollections = resolveProjectCollections(
+      getRootCollectionId(restored)!,
+    );
+    const restoredItems = (
+      Zotero.Collections.get(
+        restoredCollections.taQueueId,
+      ) as Zotero.Collection
+    ).getChildItems();
+    assert.equal(restoredItems.length, 2);
+    for (const key of restoredItemKeys) {
+      assert.isTrue(restoredItems.some((it) => it.key === key));
+    }
+    const restoredItemA = restoredItems.find(
+      (it) => it.getField("title") === "Consistency Archive Item A",
+    )!;
+    assert.equal(
+      await getStableItemId(restored.id, restoredItemA.key),
+      stableIdA,
+    );
+
+    const restoredResults = (await databaseService.queryAsync(
+      `SELECT * FROM consistency_item_results WHERE project_id = ?`,
+      [restored.id],
+    )) as any[];
+    assert.equal(restoredResults.length, 1);
+    assert.equal(restoredResults[0].item_key, restoredItemA.key);
+    assert.equal(restoredResults[0].a_verdict, "exclude");
+    assert.equal(restoredResults[0].b_verdict, "include");
+    assert.equal(restoredResults[0].round_id, restoredRounds[0].id);
   });
 
   it("restoring the same archive twice auto-suffixes the project name instead of colliding", async function () {

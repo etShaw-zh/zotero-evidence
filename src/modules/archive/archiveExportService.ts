@@ -5,11 +5,14 @@ import {
 import { getRootCollectionId } from "../project/projectContext";
 import { EvidenceProject, getProjectById } from "../project/projectManager";
 import { databaseService } from "../db/database";
+import { ensureStableItemId } from "../../utils/stableItemId";
 import {
   ArchiveAnnotation,
   ArchiveAttachment,
   ArchiveCodebook,
   ArchiveCodingRecord,
+  ArchiveConsistencyItemResult,
+  ArchiveConsistencyRound,
   ArchiveFtCriterionCheck,
   ArchiveItem,
   ArchiveManifest,
@@ -50,6 +53,7 @@ async function ensureDir(dir: any): Promise<void> {
 }
 
 async function buildItems(
+  projectId: number,
   collections: ProjectCollectionMap,
   stagingDir: any,
   itemKeys: Set<string> | null,
@@ -74,6 +78,12 @@ async function buildItems(
     const item = Zotero.Items.get(itemId) as Zotero.Item;
     if (!item || item.deleted) continue;
     if (itemKeys && !itemKeys.has(item.key)) continue;
+
+    // Mints one the first time this project_id + item_key is ever exported
+    // (idempotent afterward, and a backstop for an item added before
+    // dedupService.ts started assigning one at import time) -- see
+    // stableItemId.ts.
+    const stableId = await ensureStableItemId(projectId, item.key);
 
     const attachments: ArchiveAttachment[] = [];
     for (const attId of item.getAttachments(false)) {
@@ -115,6 +125,7 @@ async function buildItems(
 
     items.push({
       key: item.key,
+      stableId,
       roles: Array.from(itemRoles),
       json: item.toJSON(),
       attachments,
@@ -277,6 +288,57 @@ async function buildCodingTables(
 }
 
 /**
+ * Human-human consistency round history (humanConsistencyService.ts).
+ * Unlike every other builder in this file, this one is NEVER filtered by
+ * itemKeys -- it's only ever called for a full project export in the first
+ * place (see exportProjectArchive), since a round's own bookkeeping is the
+ * coordinator's business, not something a reviewer's scoped sample archive
+ * should carry.
+ */
+async function buildConsistencyTables(projectId: number): Promise<{
+  consistencyRounds: ArchiveConsistencyRound[];
+  consistencyItemResults: ArchiveConsistencyItemResult[];
+}> {
+  const roundRows = (await databaseService.queryAsync(
+    `SELECT * FROM consistency_rounds WHERE project_id = ? AND stage = 'full_pipeline' ORDER BY id`,
+    [projectId],
+  )) as any[];
+  const roundIndexById = new Map<number, number>();
+  const consistencyRounds: ArchiveConsistencyRound[] = roundRows.map(
+    (row, i) => {
+      roundIndexById.set(row.id, i);
+      return {
+        status: row.status,
+        itemKeys: JSON.parse(row.item_keys || "[]"),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    },
+  );
+
+  const resultRows = (await databaseService.queryAsync(
+    `SELECT * FROM consistency_item_results WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const consistencyItemResults: ArchiveConsistencyItemResult[] = resultRows
+    .filter((row) => roundIndexById.has(row.round_id))
+    .map((row) => ({
+      itemKey: row.item_key,
+      roundIndex: roundIndexById.get(row.round_id)!,
+      aReviewer: row.a_reviewer,
+      aVerdict: row.a_verdict,
+      aExclusionReason: row.a_exclusion_reason,
+      bReviewer: row.b_reviewer,
+      bVerdict: row.b_verdict,
+      bExclusionReason: row.b_exclusion_reason,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+  return { consistencyRounds, consistencyItemResults };
+}
+
+/**
  * Archives a project into a single .zip: every item's bibliographic data +
  * PDF attachments + annotations across the whole Collection tree, plus this
  * plugin's own screening/coding/synthesis data for it. See archiveTypes.ts
@@ -311,7 +373,7 @@ export async function exportProjectArchive(
   await ensureDir(stagingDir);
 
   try {
-    const items = await buildItems(collections, stagingDir, itemKeySet);
+    const items = await buildItems(projectId, collections, stagingDir, itemKeySet);
     const { criteria, records } = await buildScreeningTables(
       projectId,
       itemKeySet,
@@ -322,6 +384,10 @@ export async function exportProjectArchive(
     );
     const { codebooks, codingRecords, synthesisThemes } =
       await buildCodingTables(projectId, itemKeySet);
+    // Only for a full export -- see buildConsistencyTables's doc comment.
+    const { consistencyRounds, consistencyItemResults } = itemKeySet
+      ? { consistencyRounds: [], consistencyItemResults: [] }
+      : await buildConsistencyTables(projectId);
 
     const manifest: ArchiveManifest = {
       formatVersion: 1,
@@ -334,6 +400,8 @@ export async function exportProjectArchive(
       codebooks,
       codingRecords,
       synthesisThemes,
+      consistencyRounds,
+      consistencyItemResults,
     };
 
     const manifestFile = Zotero.File.pathToFile(stagingDir.path) as any;

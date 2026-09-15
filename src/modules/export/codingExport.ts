@@ -1,5 +1,6 @@
 import { toCsvLine } from "../../utils/csv";
 import { safeGetField } from "../../utils/zoteroItem";
+import { getStableItemId } from "../../utils/stableItemId";
 import { getLatestCodebook } from "../coding/codebookService";
 import {
   getCodingRecords,
@@ -55,6 +56,12 @@ export async function exportCodingData(projectId: number): Promise<string> {
   lines.push(
     toCsvLine([
       "item_key",
+      // See stableItemId.ts / exportScreeningLog's own column of the same
+      // name -- lets coding results from an independently-worked copy
+      // (e.g. a second coder's own project) be matched back up by item
+      // without depending on item_key, which isn't stable across a
+      // separate import.
+      "project_item_id",
       "authors",
       "year",
       "title",
@@ -68,6 +75,7 @@ export async function exportCodingData(projectId: number): Promise<string> {
       | Zotero.Item
       | false;
     if (!item) continue;
+    const stableId = await getStableItemId(projectId, itemKey);
 
     const authors = item
       .getCreators()
@@ -91,7 +99,9 @@ export async function exportCodingData(projectId: number): Promise<string> {
 
     const rows = expandRecordsToRows(variableNames, valuesByVariable);
     for (const row of rows) {
-      lines.push(toCsvLine([itemKey, authors, year, title, doi, ...row]));
+      lines.push(
+        toCsvLine([itemKey, stableId, authors, year, title, doi, ...row]),
+      );
     }
   }
 

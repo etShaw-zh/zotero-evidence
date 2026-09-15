@@ -95,6 +95,7 @@ import {
   getAllRounds,
   HumanConsistencyResult,
   recordCollectedCsv,
+  recoverRoundFromArchive,
   startRound,
 } from "../consistency/humanConsistencyService";
 
@@ -4792,6 +4793,79 @@ export class EvidenceCommands {
         });
       };
 
+      // For a round whose own bookkeeping was lost (e.g. the project was
+      // backed up/restored on a plugin version that didn't yet archive
+      // consistency_rounds -- see archiveTypes.ts's ArchiveConsistencyRound
+      // doc comment) but the sample archive and reviewers' CSVs still exist
+      // as separate files: reconstructs the round from those instead of
+      // resampling and losing the reviewers' already-completed work.
+      const renderRecoverForm = () => {
+        if (!contentEl) return;
+        const wrapper = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        wrapper.style.cssText =
+          "padding-bottom:10px;border-bottom:1px solid #eee;margin-bottom:10px;";
+        contentEl.appendChild(wrapper);
+
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.style.cssText = "margin:2px 0 6px 0;color:#666;font-size:0.9em;";
+        p.textContent = getString("human-consistency-recover-intro");
+        wrapper.appendChild(p);
+
+        const recoverBtn = doc!.createElementNS(
+          HTML_NS,
+          "button",
+        ) as HTMLButtonElement;
+        recoverBtn.setAttribute("type", "button");
+        recoverBtn.textContent = getString("human-consistency-recover-button");
+        wrapper.appendChild(recoverBtn);
+
+        recoverBtn.addEventListener("click", async () => {
+          const archivePath = await new ztoolkit.FilePicker(
+            getString("human-consistency-recover-archive-title"),
+            "open",
+            [["Zip Archive (*.zip)", "*.zip"]],
+          ).open();
+          if (!archivePath || typeof archivePath !== "string") return;
+
+          const csvAPath = await new ztoolkit.FilePicker(
+            getString("human-consistency-recover-csv-a-title"),
+            "open",
+            [["CSV (*.csv)", "*.csv"]],
+          ).open();
+          const csvBPath = await new ztoolkit.FilePicker(
+            getString("human-consistency-recover-csv-b-title"),
+            "open",
+            [["CSV (*.csv)", "*.csv"]],
+          ).open();
+
+          recoverBtn.setAttribute("disabled", "true");
+          setStatus(getString("consistency-loading"));
+          try {
+            const result = await recoverRoundFromArchive(
+              Number(dialogData.projectId),
+              archivePath,
+              typeof csvAPath === "string" ? csvAPath : null,
+              typeof csvBPath === "string" ? csvBPath : null,
+            );
+            setStatus("");
+            ztoolkit.getGlobal("alert")(
+              getString("human-consistency-recover-done", {
+                args: {
+                  matched: result.matchedCount,
+                  total: result.totalSampled,
+                  unmatched: result.unmatchedTitles.length,
+                },
+              }),
+            );
+            await renderState();
+          } catch (e: any) {
+            setError(e);
+          } finally {
+            recoverBtn.removeAttribute("disabled");
+          }
+        });
+      };
+
       const renderCollectForm = (round: ConsistencyRound) => {
         if (!contentEl) return;
         const wrapper = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
@@ -5011,6 +5085,7 @@ export class EvidenceCommands {
         // Always available, regardless of any existing round's state --
         // see startRound's doc comment.
         renderStartForm();
+        renderRecoverForm();
 
         const rounds = await getAllRounds(Number(dialogData.projectId));
         if (rounds.length === 0) return;

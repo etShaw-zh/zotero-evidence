@@ -411,6 +411,12 @@ human-consistency-apply-note = 两人结果一致的条目，将作为本项目�
 human-consistency-apply-button = 应用一致结果
 human-consistency-apply-done = 已应用 { $applied } 条一致结果。还有 { $disagreed } 条分歧留在 TA 待筛选队列中，等待第三人裁定。
 human-consistency-error = 人-人一致性步骤失败
+human-consistency-recover-intro = 某一轮的记录丢失了（例如项目从备份恢复之后）？如果你还保留着当初分发给筛选人员的抽样存档，以及他们回传的 CSV，可以用这些文件重建该轮次，而不必重新抽样。
+human-consistency-recover-button = 从抽样存档恢复轮次…
+human-consistency-recover-archive-title = 选择抽样存档（.zip）
+human-consistency-recover-csv-a-title = 选择筛选人员 A 的 CSV（可选 — 点击取消可跳过）
+human-consistency-recover-csv-b-title = 选择筛选人员 B 的 CSV（可选 — 点击取消可跳过）
+human-consistency-recover-done = 已恢复 { $total } 篇抽样文献中的 { $matched } 篇。有 { $unmatched } 篇未能与本项目中的条目匹配。
 
 overview-head-text =
     .label = 项目总览

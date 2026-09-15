@@ -32,12 +32,12 @@ describe("Phase 8: synthesisExport", function () {
     const lines = csv.split("\n");
     assert.equal(
       lines[0],
-      "item_key,title,doi,variable_name,variable_value,quote,theme",
+      "item_key,project_item_id,title,doi,variable_name,variable_value,quote,theme",
     );
     assert.equal(lines.length, 2);
     assert.equal(
       lines[1],
-      `${item.key},Synthesis Export Paper,,Population,Adults,adults only,`,
+      `${item.key},,Synthesis Export Paper,,Population,Adults,adults only,`,
     );
   });
 

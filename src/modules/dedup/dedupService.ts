@@ -1,4 +1,5 @@
 import { safeGetField } from "../../utils/zoteroItem";
+import { ensureStableItemId } from "../../utils/stableItemId";
 import { databaseService } from "../db/database";
 import {
   ensureSourceCollection,
@@ -168,6 +169,16 @@ export async function processImportedItems(
       await item.eraseTx();
       duplicateCount++;
     } else {
+      // Assigned here -- the moment an item actually enters a project --
+      // rather than lazily at export time (exportProjectArchive still
+      // calls this too, as a backstop for any item that predates this
+      // line, e.g. an already-existing project on upgrade). See
+      // stableItemId.ts for why every item needs one: it's what lets a
+      // reviewer's independently-imported copy be matched back up without
+      // depending on item_key, which is never stable across a separate
+      // library's own import. Lives in this plugin's own DB, never in the
+      // item itself.
+      await ensureStableItemId(projectId, item.key);
       await item.addToCollection(sourceCollectionId);
       await item.addToCollection(collections.taQueueId);
       await item.saveTx();

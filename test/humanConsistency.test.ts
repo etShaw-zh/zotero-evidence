@@ -1,4 +1,6 @@
 import { assert } from "chai";
+import { toCsvLine } from "../src/utils/csv";
+import { databaseService } from "../src/modules/db/database";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
@@ -6,6 +8,11 @@ import { getCriterionChecks } from "../src/modules/screening/ftCriterionCheckSer
 import { computePrismaData } from "../src/modules/export/screeningExport";
 import { getConsistencyItemResult } from "../src/modules/consistency/consistencyItemResultsService";
 import { isDisagreementFlagged } from "../src/modules/consistency/disagreementFlagService";
+import { exportProjectArchive } from "../src/modules/archive/archiveExportService";
+import { importProjectArchive } from "../src/modules/archive/archiveImportService";
+import { unzipToDirectory } from "../src/modules/archive/zipUtil";
+import { MANIFEST_FILENAME } from "../src/modules/archive/archiveTypes";
+import { getStableItemId } from "../src/utils/stableItemId";
 import {
   applyAgreedResults,
   computeRoundConsistency,
@@ -13,6 +20,7 @@ import {
   getLatestRound,
   HumanConsistencyResult,
   recordCollectedCsv,
+  recoverRoundFromArchive,
   sampleRandom,
   startRound,
 } from "../src/modules/consistency/humanConsistencyService";
@@ -41,17 +49,34 @@ function reviewerCsv(
   rows: {
     title: string;
     doi?: string;
+    // "" (the default) exercises the same doi/title fallback path as a CSV
+    // exported before this column existed -- see stableItemId.ts.
+    stableId?: string;
     stage: "ta_screening" | "ft_screening";
     decision: string;
     exclusionReason?: string;
   }[],
 ): string {
   const lines = [
-    "item_key,title,doi,stage,ai_decision,ai_reasoning,ai_model,human_decision,exclusion_reason,decided_by,decided_at,fulltext_ready",
+    "item_key,project_item_id,title,doi,stage,ai_decision,ai_reasoning,ai_model,human_decision,exclusion_reason,decided_by,decided_at,fulltext_ready",
   ];
   for (const r of rows) {
     lines.push(
-      `,${r.title},${r.doi ?? ""},${r.stage},,,,${r.decision},${r.exclusionReason ?? ""},${decidedBy},2026-01-01T00:00:00.000Z,0`,
+      toCsvLine([
+        "",
+        r.stableId ?? "",
+        r.title,
+        r.doi ?? "",
+        r.stage,
+        "",
+        "",
+        "",
+        r.decision,
+        r.exclusionReason ?? "",
+        decidedBy,
+        "2026-01-01T00:00:00.000Z",
+        "0",
+      ]),
     );
   }
   return lines.join("\n");
@@ -500,5 +525,355 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
       threw = true;
     }
     assert.isTrue(threw);
+  });
+
+  it("computeRoundConsistency matches by stable id (project_item_id) even when BOTH title and DOI disagree between the two reviewers' CSVs and the item itself", async function () {
+    const project = await createProject(
+      `Human Consistency Stable Id Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeTestItem("Original Title", "10.1000/original");
+    item.addToCollection(collections.taQueueId);
+    await item.saveTx();
+
+    const zip = tempPath(`hc-stableid-${Date.now()}.zip`);
+    const round = await startRound(project.id, 100, zip);
+    // startRound's export (via exportProjectArchive) is what mints the
+    // item's stable id in the first place -- see stableItemId.ts.
+    const stableId = await getStableItemId(project.id, item.key);
+    assert.notEqual(stableId, "");
+
+    const csvAPath = tempPath(`hc-stableid-a-${Date.now()}.csv`);
+    const csvBPath = tempPath(`hc-stableid-b-${Date.now()}.csv`);
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvAPath),
+      reviewerCsv("111", [
+        {
+          title: "A totally different, garbled title",
+          doi: "10.9999/not-the-real-doi",
+          stableId,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: "A's garbled FT title",
+          doi: "10.9999/not-the-real-doi",
+          stableId,
+          stage: "ft_screening",
+          decision: "include",
+        },
+      ]),
+    );
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvBPath),
+      reviewerCsv("222", [
+        {
+          title: "Yet another different garbled title",
+          doi: "10.8888/also-not-the-real-doi",
+          stableId,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: "B's garbled FT title",
+          doi: "10.8888/also-not-the-real-doi",
+          stableId,
+          stage: "ft_screening",
+          decision: "include",
+        },
+      ]),
+    );
+
+    await recordCollectedCsv(round.id, "a", csvAPath);
+    const finalRound = await recordCollectedCsv(round.id, "b", csvBPath);
+    const result = await computeRoundConsistency(finalRound);
+
+    const itemResult = result.items.find((it) => it.itemKey === item.key)!;
+    assert.equal(itemResult.aDecision, "include");
+    assert.equal(itemResult.bDecision, "include");
+  });
+
+  it("recoverRoundFromArchive reconstructs a round (against a DIFFERENT, independently re-imported copy of the project) from a sample archive and reviewer CSVs whose own round bookkeeping was lost -- matching by DOI/title exactly like a pre-stable-id sample archive would have to", async function () {
+    const origin = await createProject(
+      `Human Consistency Recover Origin ${Date.now()}`,
+    );
+    const originCollections = resolveProjectCollections(
+      getRootCollectionId(origin)!,
+    );
+    const withDoi = await makeTestItem(
+      "Recoverable Item With DOI",
+      "10.1000/recoverable",
+    );
+    const withoutDoi = await makeTestItem("Recoverable Item No DOI");
+    for (const item of [withDoi, withoutDoi]) {
+      item.addToCollection(originCollections.taQueueId);
+      await item.saveTx();
+    }
+
+    const sampleZipPath = tempPath(`hc-recover-sample-${Date.now()}.zip`);
+    const originRound = await startRound(origin.id, 100, sampleZipPath);
+    assert.equal(originRound.itemKeys.length, 2);
+
+    // Strips the stable id back out of the sample archive's own manifest,
+    // so this test actually exercises the doi/title fallback -- the
+    // situation a sample archive made before ArchiveItem.stableId existed
+    // (e.g. the user's real archived sample) is permanently stuck in.
+    const stagingDir = Zotero.getTempDirectory() as any;
+    stagingDir.append(`hc-recover-strip-${Date.now()}`);
+    unzipToDirectory(sampleZipPath, stagingDir.path);
+    const manifestFile = Zotero.File.pathToFile(stagingDir.path) as any;
+    manifestFile.append(MANIFEST_FILENAME);
+    const manifest = JSON.parse(
+      (await Zotero.File.getContentsAsync(manifestFile.path)) as string,
+    );
+    for (const archived of manifest.items) {
+      archived.stableId = "";
+    }
+    await Zotero.File.putContentsAsync(
+      manifestFile.path,
+      JSON.stringify(manifest),
+    );
+    const strippedSampleZipPath = tempPath(
+      `hc-recover-sample-stripped-${Date.now()}.zip`,
+    );
+    await Zotero.File.zipDirectory(stagingDir.path, strippedSampleZipPath, {});
+
+    // Reviewer CSVs -- no project_item_id column value (stableId left
+    // unset), same as a CSV exported against an item that never got a
+    // stable id.
+    const csvAPath = tempPath(`hc-recover-a-${Date.now()}.csv`);
+    const csvBPath = tempPath(`hc-recover-b-${Date.now()}.csv`);
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvAPath),
+      reviewerCsv("111", [
+        {
+          title: "Recoverable Item With DOI",
+          doi: "10.1000/recoverable",
+          stage: "ta_screening",
+          decision: "include",
+        },
+        // TA-include requires an FT row to derive a final verdict (see
+        // deriveFinalVerdict) -- without this, the item's verdict stays
+        // null and it's excluded from n rather than counted as an
+        // agreement, same rule computeRoundConsistency's other tests cover.
+        {
+          title: "Recoverable Item With DOI",
+          doi: "10.1000/recoverable",
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: "Recoverable Item No DOI",
+          stage: "ta_screening",
+          decision: "exclude",
+        },
+      ]),
+    );
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvBPath),
+      reviewerCsv("222", [
+        {
+          title: "Recoverable Item With DOI",
+          doi: "10.1000/recoverable",
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: "Recoverable Item With DOI",
+          doi: "10.1000/recoverable",
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: "Recoverable Item No DOI",
+          stage: "ta_screening",
+          decision: "exclude",
+        },
+      ]),
+    );
+
+    // Simulates "the origin project was later backed up and restored on a
+    // different machine" -- an independent copy with an entirely different
+    // item_key space, same as importProjectArchive always produces.
+    const fullZipPath = tempPath(`hc-recover-full-${Date.now()}.zip`);
+    await exportProjectArchive(origin.id, fullZipPath);
+    const restored = await importProjectArchive(fullZipPath);
+    const restoredCollections = resolveProjectCollections(
+      getRootCollectionId(restored)!,
+    );
+    const restoredItems = (
+      Zotero.Collections.get(
+        restoredCollections.taQueueId,
+      ) as Zotero.Collection
+    ).getChildItems();
+    assert.equal(restoredItems.length, 2);
+    assert.isFalse(
+      restoredItems.some((it) => originRound.itemKeys.includes(it.key)),
+      "the restored project must have a completely different key space",
+    );
+
+    const recovery = await recoverRoundFromArchive(
+      restored.id,
+      strippedSampleZipPath,
+      csvAPath,
+      csvBPath,
+    );
+    assert.deepEqual(recovery.unmatchedTitles, []);
+    assert.equal(recovery.totalSampled, 2);
+    assert.equal(recovery.matchedCount, 2);
+    assert.equal(recovery.round.status, "collected");
+    assert.equal(recovery.round.itemKeys.length, 2);
+    for (const key of recovery.round.itemKeys) {
+      assert.isTrue(restoredItems.some((it) => it.key === key));
+    }
+
+    const result = await computeRoundConsistency(recovery.round);
+    assert.equal(result.n, 2);
+    assert.equal(result.observedAgreement, 1);
+  });
+
+  it("applyAgreedResults is safe to call again on the same round: already-resolved items (agreed-include, agreed-exclude, and an FT-origin agreed-exclude) are skipped rather than reprocessed, while an item that only just became resolvable (a reviewer finished FT screening it since the first call) gets applied for the first time", async function () {
+    const project = await createProject(
+      `Human Consistency Idempotent Apply Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+
+    const agreedInclude = await makeTestItem("Idempotent Agreed Include");
+    const agreedFtExclude = await makeTestItem("Idempotent FT-Origin Exclude");
+    const disagreed = await makeTestItem("Idempotent Disagreement");
+    // Both reviewers TA-included it, but only A has finished FT screening
+    // it by the time the round is first applied -- same shape as 龙 still
+    // being mid-way through FT screening in the real scenario this guards
+    // against.
+    const pending = await makeTestItem("Idempotent Pending FT");
+    for (const item of [agreedInclude, agreedFtExclude, disagreed, pending]) {
+      item.addToCollection(collections.taQueueId);
+      await item.saveTx();
+    }
+
+    const zip = tempPath(`hc-idempotent-${Date.now()}.zip`);
+    const round = await startRound(project.id, 100, zip);
+    assert.equal(round.itemKeys.length, 4);
+
+    const csvAPath = tempPath(`hc-idempotent-a-${Date.now()}.csv`);
+    const csvBPathRound1 = tempPath(`hc-idempotent-b1-${Date.now()}.csv`);
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvAPath),
+      reviewerCsv("111", [
+        { title: agreedInclude.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: agreedInclude.getField("title") as string, stage: "ft_screening", decision: "include" },
+        { title: agreedFtExclude.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: agreedFtExclude.getField("title") as string, stage: "ft_screening", decision: "exclude", exclusionReason: "Wrong population" },
+        { title: disagreed.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: disagreed.getField("title") as string, stage: "ft_screening", decision: "include" },
+        { title: pending.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: pending.getField("title") as string, stage: "ft_screening", decision: "include" },
+      ]),
+    );
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvBPathRound1),
+      reviewerCsv("222", [
+        { title: agreedInclude.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: agreedInclude.getField("title") as string, stage: "ft_screening", decision: "include" },
+        { title: agreedFtExclude.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: agreedFtExclude.getField("title") as string, stage: "ft_screening", decision: "exclude", exclusionReason: "Wrong population" },
+        { title: disagreed.getField("title") as string, stage: "ta_screening", decision: "exclude" },
+        // pending: TA only -- B hasn't reached FT for it yet.
+        { title: pending.getField("title") as string, stage: "ta_screening", decision: "include" },
+      ]),
+    );
+    await recordCollectedCsv(round.id, "a", csvAPath);
+    const round1 = await recordCollectedCsv(round.id, "b", csvBPathRound1);
+    assert.equal(round1.status, "collected");
+
+    const summary1 = await applyAgreedResults(round1);
+    assert.equal(summary1.applied, 2); // agreedInclude, agreedFtExclude
+    assert.equal(summary1.disagreed, 2); // disagreed (real) + pending (no verdict yet)
+
+    assert.isTrue(agreedInclude.inCollection(collections.ftIncludeId));
+    assert.isTrue(agreedFtExclude.inCollection(collections.ftExcludeId));
+    assert.isTrue(disagreed.inCollection(collections.taQueueId));
+    assert.isTrue(pending.inCollection(collections.taQueueId));
+
+    const ftChecksAfterFirst = await getCriterionChecks(
+      project.id,
+      agreedFtExclude.key,
+    );
+    assert.equal(ftChecksAfterFirst.length, 1);
+    const screeningRowCountAfterFirst = (
+      (await databaseService.queryAsync(
+        `SELECT COUNT(*) as n FROM screening_records WHERE project_id = ? AND item_key = ?`,
+        [project.id, agreedInclude.key],
+      )) as { n: number }[]
+    )[0].n;
+
+    // Re-running the exact same round unchanged: the two already-resolved
+    // items must be skipped entirely (no new rows) -- only the two items
+    // still actually sitting in TA-Screen Queue (the real disagreement and
+    // the still-unresolved `pending`) get recomputed and re-flagged, same
+    // outcome as before.
+    const summaryRepeat = await applyAgreedResults(round1);
+    assert.equal(summaryRepeat.applied, 0);
+    assert.equal(summaryRepeat.disagreed, 2);
+    assert.equal(
+      (await getCriterionChecks(project.id, agreedFtExclude.key)).length,
+      ftChecksAfterFirst.length,
+      "re-running must not duplicate ft_criterion_checks rows",
+    );
+    assert.equal(
+      (
+        (await databaseService.queryAsync(
+          `SELECT COUNT(*) as n FROM screening_records WHERE project_id = ? AND item_key = ?`,
+          [project.id, agreedInclude.key],
+        )) as { n: number }[]
+      )[0].n,
+      screeningRowCountAfterFirst,
+      "re-running must not duplicate screening_records rows for an already-resolved item",
+    );
+    const prismaAfterRepeat = await computePrismaData(project.id);
+    assert.sameDeepMembers(prismaAfterRepeat.eligibility.reasons, [
+      { reason: "Wrong population", count: 1 },
+    ]);
+
+    // B finishes FT screening `pending` (agreeing with A) and re-exports --
+    // recordCollectedCsv can just point the SAME round at the new file.
+    const csvBPathRound2 = tempPath(`hc-idempotent-b2-${Date.now()}.csv`);
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvBPathRound2),
+      reviewerCsv("222", [
+        { title: agreedInclude.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: agreedInclude.getField("title") as string, stage: "ft_screening", decision: "include" },
+        { title: agreedFtExclude.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: agreedFtExclude.getField("title") as string, stage: "ft_screening", decision: "exclude", exclusionReason: "Wrong population" },
+        { title: disagreed.getField("title") as string, stage: "ta_screening", decision: "exclude" },
+        { title: pending.getField("title") as string, stage: "ta_screening", decision: "include" },
+        { title: pending.getField("title") as string, stage: "ft_screening", decision: "include" },
+      ]),
+    );
+    const round2 = await recordCollectedCsv(round.id, "b", csvBPathRound2);
+
+    const summary2 = await applyAgreedResults(round2);
+    assert.equal(summary2.applied, 1); // pending, newly resolvable
+    assert.equal(summary2.disagreed, 1); // disagreed, still a real disagreement
+    assert.isTrue(pending.inCollection(collections.ftIncludeId));
+    assert.isFalse(pending.inCollection(collections.taQueueId));
+    // The two already-resolved items are still untouched.
+    assert.equal(
+      (await getCriterionChecks(project.id, agreedFtExclude.key)).length,
+      ftChecksAfterFirst.length,
+    );
+    assert.equal(
+      (
+        (await databaseService.queryAsync(
+          `SELECT COUNT(*) as n FROM screening_records WHERE project_id = ? AND item_key = ?`,
+          [project.id, agreedInclude.key],
+        )) as { n: number }[]
+      )[0].n,
+      screeningRowCountAfterFirst,
+    );
   });
 });

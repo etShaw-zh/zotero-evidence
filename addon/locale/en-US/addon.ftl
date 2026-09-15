@@ -411,6 +411,12 @@ human-consistency-apply-note = Items both reviewers agreed on will be written as
 human-consistency-apply-button = Apply Agreed Results
 human-consistency-apply-done = Applied { $applied } agreed item(s). { $disagreed } disagreement(s) left in TA-Screen Queue for a third reviewer.
 human-consistency-error = Human-human consistency step failed
+human-consistency-recover-intro = Lost a round's own bookkeeping (e.g. after restoring this project from a backup)? If you still have the sample archive you sent reviewers and their returned CSVs, reconstruct the round from those instead of resampling.
+human-consistency-recover-button = Recover Round from Sample Archive…
+human-consistency-recover-archive-title = Choose Sample Archive (.zip)
+human-consistency-recover-csv-a-title = Choose Reviewer A's CSV (optional — Cancel to skip)
+human-consistency-recover-csv-b-title = Choose Reviewer B's CSV (optional — Cancel to skip)
+human-consistency-recover-done = Recovered { $matched } of { $total } sampled item(s). { $unmatched } couldn't be matched to an item in this project.
 
 overview-head-text =
     .label = Project Overview
