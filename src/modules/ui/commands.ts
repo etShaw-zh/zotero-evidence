@@ -1784,14 +1784,14 @@ export class EvidenceCommands {
       const baseStatusText = isActive
         ? saved?.model
           ? getString("dialog-ai-provider-status-active-model", {
-            args: { model: saved.model },
-          })
+              args: { model: saved.model },
+            })
           : getString("dialog-ai-provider-status-active")
         : saved
           ? saved.model
             ? getString("dialog-ai-provider-status-configured-model", {
-              args: { model: saved.model },
-            })
+                args: { model: saved.model },
+              })
             : getString("dialog-ai-provider-status-configured")
           : getString("dialog-ai-provider-status-unconfigured");
       // Concurrency only means anything once a provider is actually saved
@@ -1801,13 +1801,13 @@ export class EvidenceCommands {
       // concurrency-bearing variant of each.
       const statusText = saved
         ? `${baseStatusText}${getString(
-          "dialog-ai-provider-status-concurrency-suffix",
-          {
-            args: {
-              concurrency: saved.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+            "dialog-ai-provider-status-concurrency-suffix",
+            {
+              args: {
+                concurrency: saved.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+              },
             },
-          },
-        )}`
+          )}`
         : baseStatusText;
       dialog.addCell(
         i + 1,
@@ -1985,17 +1985,17 @@ export class EvidenceCommands {
           properties: {
             innerHTML: preset
               ? getString("dialog-ai-provider-docs-hint", {
-                args: { name: preset.name },
-              })
+                  args: { name: preset.name },
+                })
               : getString("dialog-ai-provider-docs-hint-custom"),
           },
           listeners: preset
             ? [
-              {
-                type: "click",
-                listener: () => Zotero.launchURL(preset.docsURL),
-              },
-            ]
+                {
+                  type: "click",
+                  listener: () => Zotero.launchURL(preset.docsURL),
+                },
+              ]
             : [],
         },
         false,
@@ -3807,14 +3807,14 @@ export class EvidenceCommands {
       const updatedVariables = variables.map((v) =>
         v.name === dialogData.variableName
           ? {
-            ...v,
-            type: dialogData.type as CodebookVariable["type"],
-            values: values.length > 0 ? values : undefined,
-            multiple: !!dialogData.multiple,
-            required: !!dialogData.required,
-            notes: String(dialogData.notes || "").trim() || undefined,
-            extractionHint: String(dialogData.hint || "").trim() || undefined,
-          }
+              ...v,
+              type: dialogData.type as CodebookVariable["type"],
+              values: values.length > 0 ? values : undefined,
+              multiple: !!dialogData.multiple,
+              required: !!dialogData.required,
+              notes: String(dialogData.notes || "").trim() || undefined,
+              extractionHint: String(dialogData.hint || "").trim() || undefined,
+            }
           : v,
       );
 
@@ -4825,8 +4825,7 @@ export class EvidenceCommands {
         let csvAPath: string | null = null;
         let csvBPath: string | null = null;
 
-        const fileName = (path: string) =>
-          path.split(/[\\/]/).pop() || path;
+        const fileName = (path: string) => path.split(/[\\/]/).pop() || path;
 
         const makeChooseRow = (
           buttonLabel: string,
@@ -4844,8 +4843,7 @@ export class EvidenceCommands {
           btn.textContent = buttonLabel;
           row.appendChild(btn);
           const label = doc!.createElementNS(HTML_NS, "span") as HTMLElement;
-          label.style.cssText =
-            "margin-left:8px;color:#666;font-size:0.85em;";
+          label.style.cssText = "margin-left:8px;color:#666;font-size:0.85em;";
           label.textContent = getString("human-consistency-recover-not-chosen");
           row.appendChild(label);
           btn.addEventListener("click", async () => {
@@ -4901,7 +4899,9 @@ export class EvidenceCommands {
 
         recoverBtn.addEventListener("click", async () => {
           if (!archivePath) {
-            setError(new Error(getString("human-consistency-recover-need-archive")));
+            setError(
+              new Error(getString("human-consistency-recover-need-archive")),
+            );
             return;
           }
           recoverBtn.setAttribute("disabled", "true");
@@ -4955,15 +4955,15 @@ export class EvidenceCommands {
           btn.setAttribute("type", "button");
           btn.textContent = collected
             ? getString(
-              which === "a"
-                ? "human-consistency-reviewer-a-done"
-                : "human-consistency-reviewer-b-done",
-            )
+                which === "a"
+                  ? "human-consistency-reviewer-a-done"
+                  : "human-consistency-reviewer-b-done",
+              )
             : getString(
-              which === "a"
-                ? "human-consistency-import-a-button"
-                : "human-consistency-import-b-button",
-            );
+                which === "a"
+                  ? "human-consistency-import-a-button"
+                  : "human-consistency-import-b-button",
+              );
           if (collected) btn.setAttribute("disabled", "true");
           row.appendChild(btn);
           btn.addEventListener("click", async () => {

@@ -404,7 +404,12 @@ export async function exportProjectArchive(
   await ensureDir(stagingDir);
 
   try {
-    const items = await buildItems(projectId, collections, stagingDir, itemKeySet);
+    const items = await buildItems(
+      projectId,
+      collections,
+      stagingDir,
+      itemKeySet,
+    );
     const { criteria, records } = await buildScreeningTables(
       projectId,
       itemKeySet,

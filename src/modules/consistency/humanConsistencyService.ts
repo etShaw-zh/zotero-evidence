@@ -879,7 +879,9 @@ export async function applyAgreedResults(
  * (unlike resolveSamplePool): by the time a round needs recovering, some of
  * its sampled items may well have already been screened (moved out of the
  * queue) in the reconciled project. */
-async function resolveProjectItemPool(projectId: number): Promise<Zotero.Item[]> {
+async function resolveProjectItemPool(
+  projectId: number,
+): Promise<Zotero.Item[]> {
   const project = await getProjectById(projectId);
   if (!project) throw new Error("Project not found.");
   const rootId = getRootCollectionId(project);

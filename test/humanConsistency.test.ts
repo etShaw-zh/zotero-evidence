@@ -645,22 +645,66 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     Zotero.File.putContents(
       Zotero.File.pathToFile(csvAPath),
       reviewerCsv("111", [
-        { title: "Stage Kappa Item 1", stage: "ta_screening", decision: "include" },
-        { title: "Stage Kappa Item 1", stage: "ft_screening", decision: "include" },
-        { title: "Stage Kappa Item 2", stage: "ta_screening", decision: "exclude" },
-        { title: "Stage Kappa Item 3", stage: "ta_screening", decision: "unclear" },
-        { title: "Stage Kappa Item 3", stage: "ft_screening", decision: "exclude" },
+        {
+          title: "Stage Kappa Item 1",
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: "Stage Kappa Item 1",
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: "Stage Kappa Item 2",
+          stage: "ta_screening",
+          decision: "exclude",
+        },
+        {
+          title: "Stage Kappa Item 3",
+          stage: "ta_screening",
+          decision: "unclear",
+        },
+        {
+          title: "Stage Kappa Item 3",
+          stage: "ft_screening",
+          decision: "exclude",
+        },
       ]),
     );
     Zotero.File.putContents(
       Zotero.File.pathToFile(csvBPath),
       reviewerCsv("222", [
-        { title: "Stage Kappa Item 1", stage: "ta_screening", decision: "include" },
-        { title: "Stage Kappa Item 1", stage: "ft_screening", decision: "exclude" },
-        { title: "Stage Kappa Item 2", stage: "ta_screening", decision: "unclear" },
-        { title: "Stage Kappa Item 2", stage: "ft_screening", decision: "include" },
-        { title: "Stage Kappa Item 3", stage: "ta_screening", decision: "unclear" },
-        { title: "Stage Kappa Item 3", stage: "ft_screening", decision: "exclude" },
+        {
+          title: "Stage Kappa Item 1",
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: "Stage Kappa Item 1",
+          stage: "ft_screening",
+          decision: "exclude",
+        },
+        {
+          title: "Stage Kappa Item 2",
+          stage: "ta_screening",
+          decision: "unclear",
+        },
+        {
+          title: "Stage Kappa Item 2",
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: "Stage Kappa Item 3",
+          stage: "ta_screening",
+          decision: "unclear",
+        },
+        {
+          title: "Stage Kappa Item 3",
+          stage: "ft_screening",
+          decision: "exclude",
+        },
       ]),
     );
     await recordCollectedCsv(round.id, "a", csvAPath);
@@ -892,9 +936,7 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
       getRootCollectionId(restored)!,
     );
     const restoredItems = (
-      Zotero.Collections.get(
-        restoredCollections.taQueueId,
-      ) as Zotero.Collection
+      Zotero.Collections.get(restoredCollections.taQueueId) as Zotero.Collection
     ).getChildItems();
     assert.equal(restoredItems.length, 2);
     assert.isFalse(
@@ -952,26 +994,84 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     Zotero.File.putContents(
       Zotero.File.pathToFile(csvAPath),
       reviewerCsv("111", [
-        { title: agreedInclude.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: agreedInclude.getField("title") as string, stage: "ft_screening", decision: "include" },
-        { title: agreedFtExclude.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: agreedFtExclude.getField("title") as string, stage: "ft_screening", decision: "exclude", exclusionReason: "Wrong population" },
-        { title: disagreed.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: disagreed.getField("title") as string, stage: "ft_screening", decision: "include" },
-        { title: pending.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: pending.getField("title") as string, stage: "ft_screening", decision: "include" },
+        {
+          title: agreedInclude.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: agreedInclude.getField("title") as string,
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: agreedFtExclude.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: agreedFtExclude.getField("title") as string,
+          stage: "ft_screening",
+          decision: "exclude",
+          exclusionReason: "Wrong population",
+        },
+        {
+          title: disagreed.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: disagreed.getField("title") as string,
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: pending.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: pending.getField("title") as string,
+          stage: "ft_screening",
+          decision: "include",
+        },
       ]),
     );
     Zotero.File.putContents(
       Zotero.File.pathToFile(csvBPathRound1),
       reviewerCsv("222", [
-        { title: agreedInclude.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: agreedInclude.getField("title") as string, stage: "ft_screening", decision: "include" },
-        { title: agreedFtExclude.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: agreedFtExclude.getField("title") as string, stage: "ft_screening", decision: "exclude", exclusionReason: "Wrong population" },
-        { title: disagreed.getField("title") as string, stage: "ta_screening", decision: "exclude" },
+        {
+          title: agreedInclude.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: agreedInclude.getField("title") as string,
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: agreedFtExclude.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: agreedFtExclude.getField("title") as string,
+          stage: "ft_screening",
+          decision: "exclude",
+          exclusionReason: "Wrong population",
+        },
+        {
+          title: disagreed.getField("title") as string,
+          stage: "ta_screening",
+          decision: "exclude",
+        },
         // pending: TA only -- B hasn't reached FT for it yet.
-        { title: pending.getField("title") as string, stage: "ta_screening", decision: "include" },
+        {
+          title: pending.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
       ]),
     );
     await recordCollectedCsv(round.id, "a", csvAPath);
@@ -1033,13 +1133,42 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     Zotero.File.putContents(
       Zotero.File.pathToFile(csvBPathRound2),
       reviewerCsv("222", [
-        { title: agreedInclude.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: agreedInclude.getField("title") as string, stage: "ft_screening", decision: "include" },
-        { title: agreedFtExclude.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: agreedFtExclude.getField("title") as string, stage: "ft_screening", decision: "exclude", exclusionReason: "Wrong population" },
-        { title: disagreed.getField("title") as string, stage: "ta_screening", decision: "exclude" },
-        { title: pending.getField("title") as string, stage: "ta_screening", decision: "include" },
-        { title: pending.getField("title") as string, stage: "ft_screening", decision: "include" },
+        {
+          title: agreedInclude.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: agreedInclude.getField("title") as string,
+          stage: "ft_screening",
+          decision: "include",
+        },
+        {
+          title: agreedFtExclude.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: agreedFtExclude.getField("title") as string,
+          stage: "ft_screening",
+          decision: "exclude",
+          exclusionReason: "Wrong population",
+        },
+        {
+          title: disagreed.getField("title") as string,
+          stage: "ta_screening",
+          decision: "exclude",
+        },
+        {
+          title: pending.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: pending.getField("title") as string,
+          stage: "ft_screening",
+          decision: "include",
+        },
       ]),
     );
     const round2 = await recordCollectedCsv(round.id, "b", csvBPathRound2);

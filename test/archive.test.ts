@@ -237,8 +237,12 @@ describe("Archive & Share (export/restore round trip)", function () {
   });
 
   it("exportProjectArchive assigns each item a stable id (surviving the restore's fresh item_key), and a FULL export round-trips human-human consistency round history while a SCOPED (sampled) export omits it entirely", async function () {
-    const project = await createProject(`Archive Consistency Test ${Date.now()}`);
-    const collections = resolveProjectCollections(getRootCollectionId(project)!);
+    const project = await createProject(
+      `Archive Consistency Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
 
     const itemA = new Zotero.Item("journalArticle");
     itemA.libraryID = collections.libraryID;
@@ -267,8 +271,16 @@ describe("Archive & Share (export/restore round trip)", function () {
     sampleZip.append(`archive-consistency-sample-${Date.now()}.zip`);
     const round = await startRound(project.id, 100, sampleZip.path);
     assert.equal(round.itemKeys.length, 2);
-    await recordCollectedCsv(round.id, "a", "/tmp/does-not-need-to-exist-a.csv");
-    await recordCollectedCsv(round.id, "b", "/tmp/does-not-need-to-exist-b.csv");
+    await recordCollectedCsv(
+      round.id,
+      "a",
+      "/tmp/does-not-need-to-exist-a.csv",
+    );
+    await recordCollectedCsv(
+      round.id,
+      "b",
+      "/tmp/does-not-need-to-exist-b.csv",
+    );
     await saveConsistencyItemResult(project.id, {
       itemKey: itemA.key,
       roundId: round.id,
@@ -292,9 +304,7 @@ describe("Archive & Share (export/restore round trip)", function () {
     ) as any;
     sampleManifestFile.append("manifest.json");
     const sampleManifest = JSON.parse(
-      (await Zotero.File.getContentsAsync(
-        sampleManifestFile.path,
-      )) as string,
+      (await Zotero.File.getContentsAsync(sampleManifestFile.path)) as string,
     );
     assert.deepEqual(sampleManifest.consistencyRounds, []);
     assert.deepEqual(sampleManifest.consistencyItemResults, []);
@@ -346,9 +356,7 @@ describe("Archive & Share (export/restore round trip)", function () {
       getRootCollectionId(restored)!,
     );
     const restoredItems = (
-      Zotero.Collections.get(
-        restoredCollections.taQueueId,
-      ) as Zotero.Collection
+      Zotero.Collections.get(restoredCollections.taQueueId) as Zotero.Collection
     ).getChildItems();
     assert.equal(restoredItems.length, 2);
     for (const key of restoredItemKeys) {
@@ -415,7 +423,9 @@ describe("Archive & Share (export/restore round trip)", function () {
     const project = await createProject(
       `Archive ItemSources Test ${Date.now()}`,
     );
-    const collections = resolveProjectCollections(getRootCollectionId(project)!);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
 
     const makeCandidate = async (title: string, doi: string) => {
       const item = new Zotero.Item("journalArticle");
@@ -430,10 +440,7 @@ describe("Archive & Share (export/restore round trip)", function () {
       return item;
     };
 
-    const kept = await makeCandidate(
-      "ItemSources Kept Paper",
-      "10.1000/kept",
-    );
+    const kept = await makeCandidate("ItemSources Kept Paper", "10.1000/kept");
     await processImportedItems(project.id, collections, "Web of Science", [
       kept,
     ]);
