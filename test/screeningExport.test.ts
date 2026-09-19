@@ -8,6 +8,7 @@ import {
   computePrismaData,
   exportScreeningLog,
   formatPrismaCsv,
+  isPrismaDataEmpty,
   PrismaData,
 } from "../src/modules/export/screeningExport";
 import { confirmDecision as taConfirmDecision } from "../src/modules/screening/taScreeningService";
@@ -133,6 +134,57 @@ describe("Phase 6: screeningExport", function () {
       assert.include(
         ftIncomplete.split("\n"),
         "FT-Screening: pending_not_yet_screened,3",
+      );
+    });
+  });
+
+  describe("isPrismaDataEmpty (pure)", function () {
+    const empty: PrismaData = {
+      identification: {
+        databases: [],
+        totalRecords: 0,
+        duplicatesRemoved: 0,
+        uniqueRecords: 0,
+      },
+      screening: {
+        screened: 0,
+        excluded: 0,
+        unclearToFt: 0,
+        includedToFt: 0,
+        pending: 0,
+      },
+      retrieval: { soughtForRetrieval: 0, notRetrieved: 0 },
+      eligibility: {
+        assessedForEligibility: 0,
+        excluded: 0,
+        reasons: [],
+        pending: 0,
+      },
+      included: { finalStudies: 0 },
+    };
+
+    it("is true when every count is zero", function () {
+      assert.isTrue(isPrismaDataEmpty(empty));
+    });
+
+    it("is false when identification.totalRecords is 0 but screening/eligibility/included counts aren't -- the exact shape a project restored from an archive predating item_sources being carried through export/import produces (see archiveExportService.ts)", function () {
+      assert.isFalse(
+        isPrismaDataEmpty({
+          ...empty,
+          screening: { ...empty.screening, screened: 5, excluded: 2 },
+        }),
+      );
+      assert.isFalse(
+        isPrismaDataEmpty({
+          ...empty,
+          eligibility: { ...empty.eligibility, assessedForEligibility: 3 },
+        }),
+      );
+      assert.isFalse(
+        isPrismaDataEmpty({
+          ...empty,
+          included: { finalStudies: 1 },
+        }),
       );
     });
   });

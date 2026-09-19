@@ -56,6 +56,30 @@ export interface PrismaData {
   included: { finalStudies: number };
 }
 
+/**
+ * True only when there is truly nothing to export -- NOT just when
+ * identification.totalRecords is 0. That specific number comes solely from
+ * item_sources (see computePrismaData below), a table that was never part
+ * of the archive format until item_sources was added to it -- so a project
+ * restored from an archive predating that (or one whose items were never
+ * imported through the literature-search pipeline at all) always has an
+ * empty identification box, EVEN THOUGH its screening/eligibility numbers
+ * (Collection membership, which does survive a restore) can be perfectly
+ * real and non-empty. Gating the whole export on totalRecords alone would
+ * block exactly the case that matters most -- exporting after a
+ * human-human consistency round's results have just been applied.
+ */
+export function isPrismaDataEmpty(data: PrismaData): boolean {
+  return (
+    data.identification.totalRecords === 0 &&
+    data.screening.screened === 0 &&
+    data.screening.pending === 0 &&
+    data.eligibility.assessedForEligibility === 0 &&
+    data.eligibility.pending === 0 &&
+    data.included.finalStudies === 0
+  );
+}
+
 const countItems = (collectionId: number) =>
   (Zotero.Collections.get(collectionId) as Zotero.Collection).getChildItems()
     .length;

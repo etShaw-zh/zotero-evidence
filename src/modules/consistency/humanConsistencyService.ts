@@ -25,7 +25,10 @@ import { splitCsvLine } from "../../utils/csv";
 import { normalizeDOI, normalizeTitle } from "../dedup/normalize";
 import { safeGetField } from "../../utils/zoteroItem";
 import { getStableItemId } from "../../utils/stableItemId";
-import { confirmDecision as confirmFtDecision } from "../screening/ftScreeningService";
+import {
+  confirmDecision as confirmFtDecision,
+  markUnavailable,
+} from "../screening/ftScreeningService";
 import {
   addManualCheck,
   getConfirmedExclusionReasons,
@@ -387,10 +390,26 @@ export interface FinalVerdictDetail {
   // as a TA-include followed by a structured FT exclude (see
   // exclusionReason below). Null alongside a null verdict.
   stage: "ta_screening" | "ft_screening" | null;
+  // Only set when stage is "ft_screening": which of FT-Screening's two
+  // non-include outcomes actually produced this "exclude" verdict --
+  // "exclude" (read the full text, it didn't meet the eligibility
+  // criteria) or "unavailable" (the full text couldn't even be retrieved).
+  // Collapsing both to plain "exclude" (as the simpler deriveFinalVerdict
+  // does, deliberately, for the kappa calculation -- see this module's own
+  // doc comment) is fine for "did it end up included", but
+  // applyAgreedResults needs this distinction: an agreed "unavailable"
+  // must be applied via markUnavailable(), never confirmFtDecision()
+  // (whose FTDecision type is only "include"/"exclude" -- it has no way to
+  // express "unavailable" at all), or the item silently lands in
+  // FT-Exclude instead of FT-Unavailable and PRISMA's
+  // retrieval.notRetrieved undercounts it.
+  ftOutcome: "exclude" | "unavailable" | null;
   // The reviewer's own exclusion_reason text (see ParsedReviewerRow), only
-  // ever populated for a "exclude" verdict whose stage is "ft_screening" --
-  // a TA-exclude has no FT criteria to report, and an "include" verdict has
-  // no reason at all.
+  // ever populated for a "exclude" verdict whose stage is "ft_screening"
+  // AND ftOutcome is "exclude" -- a TA-exclude has no FT criteria to
+  // report, an "include" verdict has no reason at all, and an
+  // "unavailable" one has no eligibility-criteria reason either (it was
+  // never assessed).
   exclusionReason: string;
 }
 
@@ -410,17 +429,38 @@ function deriveFinalVerdictDetail(
   taRow: ParsedReviewerRow | undefined,
   ftRow: ParsedReviewerRow | undefined,
 ): FinalVerdictDetail {
-  if (!taRow) return { verdict: null, stage: null, exclusionReason: "" };
+  if (!taRow)
+    return { verdict: null, stage: null, ftOutcome: null, exclusionReason: "" };
   if (taRow.humanDecision === "exclude") {
-    return { verdict: "exclude", stage: "ta_screening", exclusionReason: "" };
+    return {
+      verdict: "exclude",
+      stage: "ta_screening",
+      ftOutcome: null,
+      exclusionReason: "",
+    };
   }
-  if (!ftRow) return { verdict: null, stage: null, exclusionReason: "" };
+  if (!ftRow)
+    return { verdict: null, stage: null, ftOutcome: null, exclusionReason: "" };
   if (ftRow.humanDecision === "include") {
-    return { verdict: "include", stage: "ft_screening", exclusionReason: "" };
+    return {
+      verdict: "include",
+      stage: "ft_screening",
+      ftOutcome: null,
+      exclusionReason: "",
+    };
+  }
+  if (ftRow.humanDecision === "unavailable") {
+    return {
+      verdict: "exclude",
+      stage: "ft_screening",
+      ftOutcome: "unavailable",
+      exclusionReason: "",
+    };
   }
   return {
     verdict: "exclude",
     stage: "ft_screening",
+    ftOutcome: "exclude",
     exclusionReason: ftRow.exclusionReason,
   };
 }
@@ -435,6 +475,22 @@ export interface HumanConsistencyItem {
   bDecision: string | null;
 }
 
+// One stage's own kappa, computed from each reviewer's RAW decision at
+// that stage (TA: include/exclude/unclear; FT: include/exclude/
+// unavailable) -- deliberately never pooled with the other stage's own
+// pairs into one set (see computeRoundConsistency's doc comment for why),
+// but reported alongside the overall final-verdict kappa as a diagnostic:
+// it tells you WHERE two reviewers' disagreements are actually
+// concentrated (screening the abstract vs. reading the full text), which
+// the collapsed final-verdict kappa alone can't. Only counts pairs where
+// BOTH reviewers actually reached that stage for that item -- same
+// "skip rather than guess" rule as the final-verdict pairing.
+export interface StageKappaResult {
+  n: number;
+  kappa: number | null;
+  byCategory: CategoryKappa[];
+}
+
 export interface HumanConsistencyResult {
   // decided_by read back from each CSV (a Zotero user ID, or "user"/"" if
   // unavailable) -- purely a display label, not used for matching.
@@ -444,6 +500,8 @@ export interface HumanConsistencyResult {
   observedAgreement: number | null;
   kappa: number | null;
   byCategory: CategoryKappa[];
+  ta: StageKappaResult;
+  ft: StageKappaResult;
   // Every item in the round, agreements included -- the reconciliation UI
   // needs the full list, not just the disagreements.
   items: HumanConsistencyItem[];
@@ -452,17 +510,23 @@ export interface HumanConsistencyResult {
 /**
  * A round asks two reviewers to independently take the SAME sampled items
  * all the way through TA and (for whichever ones they themselves didn't
- * TA-exclude) FT screening, then compares each reviewer's own overall
- * final verdict for each item -- "did it end up included" -- rather than
- * comparing their TA decisions and FT decisions as two separate stage-wise
- * kappas. This is deliberate, not an oversight: TA's three-way category
- * set (include/exclude/unclear) and FT's (include/exclude/unavailable)
- * aren't the same rating task, so pooling their raw decisions into one
- * kappa would conflate two different questions with different available
- * information (abstract-only vs full-text) into one number. Collapsing
- * each reviewer's own multi-stage journey down to a single binary verdict
- * first avoids that: "unclear" and "unavailable" both simply mean
- * "didn't end up included," regardless of which stage produced them.
+ * TA-exclude) FT screening. The headline (`kappa`/`byCategory`) number
+ * compares each reviewer's own overall final verdict for each item -- "did
+ * it end up included" -- rather than pooling their TA decisions and FT
+ * decisions into one kappa. That collapsing is deliberate, not an
+ * oversight: TA's three-way category set (include/exclude/unclear) and
+ * FT's (include/exclude/unavailable) aren't the same rating task, so
+ * treating them as one would conflate two different questions with
+ * different available information (abstract-only vs full-text) into one
+ * number. "unclear" and "unavailable" both simply mean "didn't end up
+ * included," regardless of which stage produced them.
+ *
+ * `ta`/`ft` report each stage's OWN kappa separately, from each reviewer's
+ * raw per-stage decision (not the collapsed verdict) -- not instead of the
+ * headline number, but alongside it: a diagnostic breakdown of WHERE
+ * disagreement actually concentrates (abstract screening vs. full-text
+ * reading), which the collapsed number can't show on its own. See
+ * StageKappaResult's own doc comment.
  *
  * Matched by DOI first (a title can collide or drift slightly between two
  * independently hand-edited CSVs -- a DOI doesn't), falling back to title
@@ -498,6 +562,8 @@ export async function computeRoundConsistency(
 
   const items: HumanConsistencyItem[] = [];
   const pairs: [string, string][] = [];
+  const taPairs: [string, string][] = [];
+  const ftPairs: [string, string][] = [];
   for (const itemKey of round.itemKeys) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
     const stableId = await getStableItemId(round.projectId, itemKey);
@@ -506,14 +572,19 @@ export async function computeRoundConsistency(
       ? (normalizeDOI(safeGetField(item as Zotero.Item, "DOI")) ?? "")
       : "";
 
-    const aVerdict = deriveFinalVerdict(
-      lookupRow(taA, stableId, doi, title),
-      lookupRow(ftA, stableId, doi, title),
-    );
-    const bVerdict = deriveFinalVerdict(
-      lookupRow(taB, stableId, doi, title),
-      lookupRow(ftB, stableId, doi, title),
-    );
+    const aTaRow = lookupRow(taA, stableId, doi, title);
+    const bTaRow = lookupRow(taB, stableId, doi, title);
+    const aFtRow = lookupRow(ftA, stableId, doi, title);
+    const bFtRow = lookupRow(ftB, stableId, doi, title);
+    if (aTaRow && bTaRow) {
+      taPairs.push([aTaRow.humanDecision, bTaRow.humanDecision]);
+    }
+    if (aFtRow && bFtRow) {
+      ftPairs.push([aFtRow.humanDecision, bFtRow.humanDecision]);
+    }
+
+    const aVerdict = deriveFinalVerdict(aTaRow, aFtRow);
+    const bVerdict = deriveFinalVerdict(bTaRow, bFtRow);
 
     items.push({ itemKey, title, aDecision: aVerdict, bDecision: bVerdict });
     if (aVerdict && bVerdict) pairs.push([aVerdict, bVerdict]);
@@ -533,6 +604,16 @@ export async function computeRoundConsistency(
     observedAgreement: n === 0 ? null : matched / n,
     kappa: cohenKappa(pairs),
     byCategory: cohenKappaByCategory(pairs),
+    ta: {
+      n: taPairs.length,
+      kappa: cohenKappa(taPairs),
+      byCategory: cohenKappaByCategory(taPairs),
+    },
+    ft: {
+      n: ftPairs.length,
+      kappa: cohenKappa(ftPairs),
+      byCategory: cohenKappaByCategory(ftPairs),
+    },
     items,
   };
 }
@@ -554,25 +635,34 @@ export interface ApplyAgreedResultsSummary {
  * so a later export can tell this apart from either individual reviewer's
  * own call (see decided_by's doc comment in screeningExport.ts).
  *
- * An agreed exclude is applied differently depending on WHERE the
- * agreement happened, not just collapsed to a TA-exclude the way the old
- * per-item reconciliation UI did:
+ * An agreed exclude is applied differently depending on WHERE (and, at FT,
+ * WHY) the agreement happened, not just collapsed to a TA-exclude the way
+ * the old per-item reconciliation UI did:
  *  - Either reviewer's own verdict came from a TA-exclude (they never even
  *    read the full text) -> applied as a plain TA-exclude. Both agreeing
  *    the paper doesn't even warrant a close read is itself the finding;
  *    there's no FT-criteria information to reconstruct.
- *  - Both reviewers' verdicts came from FT (they both read the full text
- *    and excluded it there) -> TA-include first, then their own reported
- *    exclusion-reason text (see ParsedReviewerRow) is split back into
- *    individual criterion fragments and written as real, confirmed
- *    ft_criterion_checks rows via addManualCheck -- the same shape a human
- *    reviewer's own manual check takes in ftQueuePane.ts -- before
- *    confirmFtDecision runs. Skipping this and always collapsing to a
- *    TA-exclude would silently drop the item from PRISMA's itemized
- *    exclusion-reasons breakdown (getFtReasonCounts in screeningExport.ts
- *    only counts confirmed ft_criterion_checks rows, never
- *    screening_records.exclusion_reason directly) even though it correctly
- *    excluded at FT for the overall counts.
+ *  - Both reviewers' verdicts came from FT and BOTH found the full text
+ *    unavailable (FinalVerdictDetail.ftOutcome) -> TA-include first, then
+ *    markUnavailable() -- NOT confirmFtDecision(), whose FTDecision type
+ *    can't even express "unavailable" -- so the item correctly lands in
+ *    FT-Unavailable rather than silently becoming a reasonless FT-Exclude
+ *    and undercounting PRISMA's retrieval.notRetrieved.
+ *  - Both reviewers' verdicts came from FT and at least one actually read
+ *    the full text and excluded it on content (ftOutcome "exclude" --
+ *    covers both-content-excluded and one-unavailable-one-content-excluded
+ *    alike, since a real read is more informative than "couldn't find it")
+ *    -> TA-include first, then their own reported exclusion-reason text
+ *    (see ParsedReviewerRow) is split back into individual criterion
+ *    fragments and written as real, confirmed ft_criterion_checks rows via
+ *    addManualCheck -- the same shape a human reviewer's own manual check
+ *    takes in ftQueuePane.ts -- before confirmFtDecision runs. Skipping
+ *    this and always collapsing to a TA-exclude would silently drop the
+ *    item from PRISMA's itemized exclusion-reasons breakdown
+ *    (getFtReasonCounts in screeningExport.ts only counts confirmed
+ *    ft_criterion_checks rows, never screening_records.exclusion_reason
+ *    directly) even though it correctly excluded at FT for the overall
+ *    counts.
  * An agreed include always clears TA then confirms FT-include.
  *
  * A disagreement is deliberately left untouched -- it simply stays wherever
@@ -678,6 +768,16 @@ export async function applyAgreedResults(
     if (aDetail.verdict === "exclude") {
       const ftOriginBoth =
         aDetail.stage === "ft_screening" && bDetail.stage === "ft_screening";
+      // Both reviewers independently found the full text unavailable --
+      // NOT a content-based exclude (see FinalVerdictDetail.ftOutcome's
+      // doc comment). If only one side says "unavailable" while the other
+      // actually read it and excluded on content, the content-based call
+      // below is the more informative one and wins -- this only fires when
+      // NEITHER side ever got to assess eligibility at all.
+      const bothUnavailable =
+        ftOriginBoth &&
+        aDetail.ftOutcome === "unavailable" &&
+        bDetail.ftOutcome === "unavailable";
       if (!ftOriginBoth) {
         await confirmTaDecision(
           round.projectId,
@@ -685,6 +785,21 @@ export async function applyAgreedResults(
           collections,
           null,
           "exclude",
+          "consistency_agreed",
+        );
+      } else if (bothUnavailable) {
+        await confirmTaDecision(
+          round.projectId,
+          item as Zotero.Item,
+          collections,
+          null,
+          "include",
+          "consistency_agreed",
+        );
+        await markUnavailable(
+          round.projectId,
+          item as Zotero.Item,
+          collections,
           "consistency_agreed",
         );
       } else {

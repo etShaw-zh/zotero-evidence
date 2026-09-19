@@ -385,6 +385,30 @@ export async function importProjectArchive(
       );
     }
 
+    // Record identification/dedup provenance (dedupService.ts) -- what
+    // PRISMA's "identification" box (computePrismaData in
+    // screeningExport.ts) counts. A kept item's key remaps through
+    // itemKeyMap like everything else above; a duplicate's key never had a
+    // live item behind it (see ArchiveItemSource's own doc comment), so it
+    // has nothing to remap to and is carried through unchanged -- nothing
+    // ever looks it up to find a live item, it only ever gets COUNT()'d.
+    for (const src of manifest.itemSources ?? []) {
+      await databaseService.queryAsync(
+        `INSERT INTO item_sources (project_id, item_key, source_database, imported_at, original_record, is_duplicate_of)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          project.id,
+          itemKeyMap.get(src.itemKey) ?? src.itemKey,
+          src.sourceDatabase,
+          src.importedAt,
+          src.originalRecord,
+          src.isDuplicateOf
+            ? (itemKeyMap.get(src.isDuplicateOf) ?? src.isDuplicateOf)
+            : null,
+        ],
+      );
+    }
+
     await refreshProjectPaneContextCache();
     return project;
   } finally {

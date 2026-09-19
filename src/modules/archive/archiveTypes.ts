@@ -61,6 +61,23 @@ export interface ArchiveItem {
   attachments: ArchiveAttachment[];
 }
 
+// One row per record identification/dedup pipeline outcome
+// (dedupService.ts's processImportedItems): a kept item (isDuplicateOf
+// null) or a duplicate that was matched against one and erased
+// (isDuplicateOf set to the kept item's own key). `itemKey` for a
+// duplicate row refers to an item that no longer exists by the time this
+// export runs (it was erased right after this row was first written) --
+// there's no live item to attach it to, so it's carried through as inert
+// historical data: nothing ever looks it up to find a live item, it only
+// ever gets COUNT()'d (see computePrismaData's identification box).
+export interface ArchiveItemSource {
+  itemKey: string;
+  sourceDatabase: string;
+  importedAt: string;
+  originalRecord: string | null;
+  isDuplicateOf: string | null;
+}
+
 export interface ArchiveScreeningCriteria {
   stage: "ta" | "ft";
   version: number;
@@ -196,6 +213,13 @@ export interface ArchiveManifest {
   // absent from a scoped sample archive (see ArchiveConsistencyRound).
   consistencyRounds?: ArchiveConsistencyRound[];
   consistencyItemResults?: ArchiveConsistencyItemResult[];
+  // Optional, same reasoning as ftCriterionChecks -- absent in archives
+  // written before item_sources was carried through export/import at all.
+  // A project restored from one of those has an empty PRISMA
+  // "identification" box (see computePrismaData/isPrismaDataEmpty in
+  // screeningExport.ts) even though its screening/eligibility numbers are
+  // still real.
+  itemSources?: ArchiveItemSource[];
 }
 
 export const MANIFEST_FILENAME = "manifest.json";

@@ -18,6 +18,11 @@ import {
 } from "../src/modules/consistency/humanConsistencyService";
 import { saveConsistencyItemResult } from "../src/modules/consistency/consistencyItemResultsService";
 import { unzipToDirectory } from "../src/modules/archive/zipUtil";
+import { processImportedItems } from "../src/modules/dedup/dedupService";
+import {
+  computePrismaData,
+  isPrismaDataEmpty,
+} from "../src/modules/export/screeningExport";
 
 const MINIMAL_PDF = `%PDF-1.4
 1 0 obj
@@ -404,5 +409,78 @@ describe("Archive & Share (export/restore round trip)", function () {
       getRootCollectionId(restored)!,
     );
     assert.equal(collections.libraryID, libraryID);
+  });
+
+  it("a FULL export round-trips item_sources (identification/dedup provenance), so PRISMA's identification counts survive a restore -- a kept item's row remaps to its new key, a duplicate's row (no live item behind it) carries through with its original key unchanged", async function () {
+    const project = await createProject(
+      `Archive ItemSources Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(getRootCollectionId(project)!);
+
+    const makeCandidate = async (title: string, doi: string) => {
+      const item = new Zotero.Item("journalArticle");
+      item.libraryID = collections.libraryID;
+      item.setField("title", title);
+      item.setField("date", "2024");
+      item.setField("DOI", doi);
+      item.setCreators([
+        { firstName: "", lastName: "Author", creatorType: "author" },
+      ]);
+      await item.saveTx();
+      return item;
+    };
+
+    const kept = await makeCandidate(
+      "ItemSources Kept Paper",
+      "10.1000/kept",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      kept,
+    ]);
+    // Same title+DOI -- findMatch() matches it against `kept` and erases it
+    // as a duplicate.
+    const dup = await makeCandidate("ItemSources Kept Paper", "10.1000/kept");
+    await processImportedItems(project.id, collections, "Scopus", [dup]);
+
+    const beforeData = await computePrismaData(project.id);
+    assert.equal(beforeData.identification.totalRecords, 2);
+    assert.equal(beforeData.identification.duplicatesRemoved, 1);
+
+    const zipFile = Zotero.File.pathToFile(Zotero.DataDirectory.dir) as any;
+    zipFile.append(`archive-itemsources-${Date.now()}.zip`);
+    await exportProjectArchive(project.id, zipFile.path);
+    const restored = await importProjectArchive(zipFile.path);
+
+    // The PRISMA numbers that motivated this -- an export/import round
+    // trip must not silently zero out the identification box.
+    const afterData = await computePrismaData(restored.id);
+    assert.equal(afterData.identification.totalRecords, 2);
+    assert.equal(afterData.identification.duplicatesRemoved, 1);
+    assert.isFalse(isPrismaDataEmpty(afterData));
+
+    // The kept row's item_key correctly remapped to the restored item's
+    // OWN new key, not the original (now-meaningless) one.
+    const restoredCollections = resolveProjectCollections(
+      getRootCollectionId(restored)!,
+    );
+    const restoredKept = (
+      Zotero.Collections.get(
+        restoredCollections.sourceCollectionIds["Web of Science"],
+      ) as Zotero.Collection
+    ).getChildItems()[0];
+    const rows = (await databaseService.queryAsync(
+      `SELECT item_key, source_database, is_duplicate_of FROM item_sources WHERE project_id = ? ORDER BY id`,
+      [restored.id],
+    )) as any[];
+    assert.equal(rows.length, 2);
+    const keptRow = rows.find((r) => r.is_duplicate_of === null);
+    const dupRow = rows.find((r) => r.is_duplicate_of !== null);
+    assert.equal(keptRow.item_key, restoredKept.key);
+    assert.equal(keptRow.source_database, "Web of Science");
+    // The duplicate's own item_key never corresponds to a live item (it
+    // was erased right after dedupService recorded it) -- carried through
+    // unchanged rather than dropped.
+    assert.equal(dupRow.item_key, dup.key);
+    assert.equal(dupRow.is_duplicate_of, restoredKept.key);
   });
 });

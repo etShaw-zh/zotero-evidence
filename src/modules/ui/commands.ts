@@ -44,6 +44,7 @@ import {
   computePrismaData,
   exportScreeningLog,
   formatPrismaCsv,
+  isPrismaDataEmpty,
 } from "../export/screeningExport";
 import {
   importDirectToCoding,
@@ -98,6 +99,7 @@ import {
   recoverRoundFromArchive,
   startRound,
 } from "../consistency/humanConsistencyService";
+import { CategoryKappa } from "../consistency/kappa";
 
 export class EvidenceCommands {
   static registerMenus() {
@@ -1782,14 +1784,14 @@ export class EvidenceCommands {
       const baseStatusText = isActive
         ? saved?.model
           ? getString("dialog-ai-provider-status-active-model", {
-              args: { model: saved.model },
-            })
+            args: { model: saved.model },
+          })
           : getString("dialog-ai-provider-status-active")
         : saved
           ? saved.model
             ? getString("dialog-ai-provider-status-configured-model", {
-                args: { model: saved.model },
-              })
+              args: { model: saved.model },
+            })
             : getString("dialog-ai-provider-status-configured")
           : getString("dialog-ai-provider-status-unconfigured");
       // Concurrency only means anything once a provider is actually saved
@@ -1799,13 +1801,13 @@ export class EvidenceCommands {
       // concurrency-bearing variant of each.
       const statusText = saved
         ? `${baseStatusText}${getString(
-            "dialog-ai-provider-status-concurrency-suffix",
-            {
-              args: {
-                concurrency: saved.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
-              },
+          "dialog-ai-provider-status-concurrency-suffix",
+          {
+            args: {
+              concurrency: saved.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
             },
-          )}`
+          },
+        )}`
         : baseStatusText;
       dialog.addCell(
         i + 1,
@@ -1983,17 +1985,17 @@ export class EvidenceCommands {
           properties: {
             innerHTML: preset
               ? getString("dialog-ai-provider-docs-hint", {
-                  args: { name: preset.name },
-                })
+                args: { name: preset.name },
+              })
               : getString("dialog-ai-provider-docs-hint-custom"),
           },
           listeners: preset
             ? [
-                {
-                  type: "click",
-                  listener: () => Zotero.launchURL(preset.docsURL),
-                },
-              ]
+              {
+                type: "click",
+                listener: () => Zotero.launchURL(preset.docsURL),
+              },
+            ]
             : [],
         },
         false,
@@ -3805,14 +3807,14 @@ export class EvidenceCommands {
       const updatedVariables = variables.map((v) =>
         v.name === dialogData.variableName
           ? {
-              ...v,
-              type: dialogData.type as CodebookVariable["type"],
-              values: values.length > 0 ? values : undefined,
-              multiple: !!dialogData.multiple,
-              required: !!dialogData.required,
-              notes: String(dialogData.notes || "").trim() || undefined,
-              extractionHint: String(dialogData.hint || "").trim() || undefined,
-            }
+            ...v,
+            type: dialogData.type as CodebookVariable["type"],
+            values: values.length > 0 ? values : undefined,
+            multiple: !!dialogData.multiple,
+            required: !!dialogData.required,
+            notes: String(dialogData.notes || "").trim() || undefined,
+            extractionHint: String(dialogData.hint || "").trim() || undefined,
+          }
           : v,
       );
 
@@ -4460,7 +4462,7 @@ export class EvidenceCommands {
         const kappaValueText =
           stats.kappa === null
             ? getString("consistency-kappa-na")
-            : `${stats.kappa.toFixed(2)} (${EvidenceCommands.consistencyKappaLevelLabel(stats.kappa)})`;
+            : `${stats.kappa.toFixed(3)} (${EvidenceCommands.consistencyKappaLevelLabel(stats.kappa)})`;
         for (const line of [
           getString("consistency-summary-n", { args: { n: stats.n } }),
           getString("consistency-summary-agreement", {
@@ -4487,7 +4489,7 @@ export class EvidenceCommands {
             stats.byCategory.map((c) => [
               [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
               [`${(c.observedAgreement * 100).toFixed(1)}%`, 12],
-              [c.kappa === null ? "—" : c.kappa.toFixed(2), 8],
+              [c.kappa === null ? "—" : c.kappa.toFixed(3), 8],
             ]),
           ),
         );
@@ -4953,15 +4955,15 @@ export class EvidenceCommands {
           btn.setAttribute("type", "button");
           btn.textContent = collected
             ? getString(
-                which === "a"
-                  ? "human-consistency-reviewer-a-done"
-                  : "human-consistency-reviewer-b-done",
-              )
+              which === "a"
+                ? "human-consistency-reviewer-a-done"
+                : "human-consistency-reviewer-b-done",
+            )
             : getString(
-                which === "a"
-                  ? "human-consistency-import-a-button"
-                  : "human-consistency-import-b-button",
-              );
+              which === "a"
+                ? "human-consistency-import-a-button"
+                : "human-consistency-import-b-button",
+            );
           if (collected) btn.setAttribute("disabled", "true");
           row.appendChild(btn);
           btn.addEventListener("click", async () => {
@@ -5059,11 +5061,12 @@ export class EvidenceCommands {
         });
         wrapper.appendChild(heading);
 
-        const summary = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
-        const kappaText =
-          result.kappa === null
+        const kappaLabel = (kappa: number | null) =>
+          kappa === null
             ? getString("consistency-kappa-na")
-            : `${result.kappa.toFixed(2)} (${EvidenceCommands.consistencyKappaLevelLabel(result.kappa)})`;
+            : `${kappa.toFixed(3)} (${EvidenceCommands.consistencyKappaLevelLabel(kappa)})`;
+
+        const summary = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
         const disagreementCount = result.items.filter(
           (it) =>
             it.aDecision !== null &&
@@ -5072,11 +5075,6 @@ export class EvidenceCommands {
         ).length;
         for (const line of [
           `${getString("human-consistency-reviewers-label")}: ${result.reviewerA || "?"} / ${result.reviewerB || "?"}`,
-          getString("consistency-summary-n", { args: { n: result.n } }),
-          getString("consistency-summary-agreement", {
-            args: { pct: ((result.observedAgreement ?? 0) * 100).toFixed(1) },
-          }),
-          `${getString("consistency-summary-kappa-label")}: ${kappaText}`,
           getString("human-consistency-disagreement-count", {
             args: { n: disagreementCount },
           }),
@@ -5088,18 +5086,68 @@ export class EvidenceCommands {
         }
         wrapper.appendChild(summary);
 
+        // One block per stage -- kappa only (n + overall kappa, then a
+        // category-by-category kappa breakdown), no observed-agreement %:
+        // that number is easy to misread as the headline result when it's
+        // actually inflated by however skewed the category split happens
+        // to be (see the app's own explanation of this to the user), so
+        // kappa is the only number shown here.
+        const renderKappaBlock = (
+          titleText: string,
+          n: number,
+          kappa: number | null,
+          byCategory: CategoryKappa[],
+        ) => {
+          const block = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+          block.style.cssText = "margin-top:8px;";
+          const h = doc!.createElementNS(HTML_NS, "h4") as HTMLElement;
+          h.style.cssText =
+            "margin:0 0 2px 0;font-size:0.85em;font-weight:600;color:#666;";
+          h.textContent = titleText;
+          block.appendChild(h);
+          const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          p.style.cssText = "margin:2px 0;";
+          p.textContent = `${getString("consistency-summary-n", { args: { n } })} · ${getString("consistency-summary-kappa-label")}: ${kappaLabel(kappa)}`;
+          block.appendChild(p);
+          if (byCategory.length > 0) {
+            block.appendChild(
+              buildStatsTable(
+                [
+                  getString("consistency-col-category"),
+                  getString("consistency-col-kappa"),
+                ],
+                byCategory.map((c) => [
+                  [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
+                  [c.kappa === null ? "—" : c.kappa.toFixed(3), 8],
+                ]),
+              ),
+            );
+          }
+          return block;
+        };
+
         wrapper.appendChild(
-          buildStatsTable(
-            [
-              getString("consistency-col-category"),
-              getString("consistency-col-agreement"),
-              getString("consistency-col-kappa"),
-            ],
-            result.byCategory.map((c) => [
-              [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
-              [`${(c.observedAgreement * 100).toFixed(1)}%`, 12],
-              [c.kappa === null ? "—" : c.kappa.toFixed(2), 8],
-            ]),
+          renderKappaBlock(
+            getString("human-consistency-kappa-overall"),
+            result.n,
+            result.kappa,
+            result.byCategory,
+          ),
+        );
+        wrapper.appendChild(
+          renderKappaBlock(
+            getString("human-consistency-kappa-ta"),
+            result.ta.n,
+            result.ta.kappa,
+            result.ta.byCategory,
+          ),
+        );
+        wrapper.appendChild(
+          renderKappaBlock(
+            getString("human-consistency-kappa-ft"),
+            result.ft.n,
+            result.ft.kappa,
+            result.ft.byCategory,
           ),
         );
 
@@ -5286,7 +5334,7 @@ export class EvidenceCommands {
     if (!project) return;
 
     const data = await computePrismaData(project.id);
-    if (data.identification.totalRecords === 0) {
+    if (isPrismaDataEmpty(data)) {
       ztoolkit.getGlobal("alert")(getString("error-export-no-data"));
       return;
     }

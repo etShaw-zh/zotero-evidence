@@ -358,6 +358,118 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     ]);
   });
 
+  it("applyAgreedResults: an agreed FT-unavailable lands in FT-Unavailable (via markUnavailable), not a reasonless FT-Exclude; a mixed unavailable+content-exclude prefers the content-based exclude", async function () {
+    const project = await createProject(
+      `Human Consistency FT Unavailable Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    // bothUnavailable: both reviewers TA-included it, but neither could
+    // retrieve the full text.
+    const bothUnavailable = await makeTestItem("Both Unavailable Item");
+    // mixed: A couldn't retrieve it, but B did and excluded it on content --
+    // the content-based call should win over "unavailable".
+    const mixed = await makeTestItem("Mixed Unavailable Item");
+    for (const item of [bothUnavailable, mixed]) {
+      item.addToCollection(collections.taQueueId);
+      await item.saveTx();
+    }
+
+    const csvAPath = tempPath(`hc-unavailable-a-${Date.now()}.csv`);
+    const csvBPath = tempPath(`hc-unavailable-b-${Date.now()}.csv`);
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvAPath),
+      reviewerCsv("111", [
+        {
+          title: bothUnavailable.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: bothUnavailable.getField("title") as string,
+          stage: "ft_screening",
+          decision: "unavailable",
+        },
+        {
+          title: mixed.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: mixed.getField("title") as string,
+          stage: "ft_screening",
+          decision: "unavailable",
+        },
+      ]),
+    );
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvBPath),
+      reviewerCsv("222", [
+        {
+          title: bothUnavailable.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: bothUnavailable.getField("title") as string,
+          stage: "ft_screening",
+          decision: "unavailable",
+        },
+        {
+          title: mixed.getField("title") as string,
+          stage: "ta_screening",
+          decision: "include",
+        },
+        {
+          title: mixed.getField("title") as string,
+          stage: "ft_screening",
+          decision: "exclude",
+          exclusionReason: "Wrong population",
+        },
+      ]),
+    );
+
+    const round = await startRound(
+      project.id,
+      100,
+      tempPath(`hc-unavailable-pilot-${Date.now()}.zip`),
+    );
+    await recordCollectedCsv(round.id, "a", csvAPath);
+    const finalRound = await recordCollectedCsv(round.id, "b", csvBPath);
+
+    const summary = await applyAgreedResults(finalRound);
+    assert.equal(summary.applied, 2);
+    assert.equal(summary.disagreed, 0);
+
+    // bothUnavailable: TA gate cleared, then FT-Unavailable -- NOT
+    // FT-Exclude -- with no criterion checks (never assessed).
+    assert.isTrue(bothUnavailable.inCollection(collections.taIncludeId));
+    assert.isTrue(bothUnavailable.inCollection(collections.ftUnavailableId));
+    assert.isFalse(bothUnavailable.inCollection(collections.ftExcludeId));
+    assert.equal(
+      (await getCriterionChecks(project.id, bothUnavailable.key)).length,
+      0,
+    );
+
+    // mixed: the content-based exclude (B's) wins -- lands in FT-Exclude
+    // with B's reason reconstructed, not FT-Unavailable.
+    assert.isTrue(mixed.inCollection(collections.taIncludeId));
+    assert.isTrue(mixed.inCollection(collections.ftExcludeId));
+    assert.isFalse(mixed.inCollection(collections.ftUnavailableId));
+    const mixedChecks = await getCriterionChecks(project.id, mixed.key);
+    assert.equal(mixedChecks.length, 1);
+    assert.equal(mixedChecks[0].criterionText, "Wrong population");
+
+    // PRISMA's retrieval box picks up bothUnavailable as not_retrieved,
+    // and mixed as assessed-for-eligibility-and-excluded, not the other
+    // way around.
+    const prisma = await computePrismaData(project.id);
+    assert.equal(prisma.retrieval.notRetrieved, 1);
+    assert.equal(prisma.eligibility.assessedForEligibility, 1);
+    assert.equal(prisma.eligibility.excluded, 1);
+  });
+
   it("computeRoundConsistency treats a reviewer who TA-passed an item but hasn't finished FT screening it yet as 'no verdict', not a guess", async function () {
     const project = await createProject(
       `Human Consistency Pending FT Test ${Date.now()}`,
@@ -502,6 +614,82 @@ describe("Screening Consistency: humanConsistencyService (project + DB)", functi
     )!;
     assert.equal(titleItemResult.aDecision, "exclude");
     assert.equal(titleItemResult.bDecision, "exclude");
+  });
+
+  it("computeRoundConsistency reports TA-stage and FT-stage kappa separately from raw per-stage decisions, never pooled with each other or with the collapsed final-verdict kappa -- and an item where only one reviewer reached FT is counted for TA but excluded from FT", async function () {
+    const project = await createProject(
+      `Human Consistency Stage Kappa Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    // Both TA-include, then disagree at FT.
+    const item1 = await makeTestItem("Stage Kappa Item 1");
+    // A TA-excludes outright (never reaches FT); B TA-unclears through to
+    // FT-include -- only A+B's TA rows form a pair here, not FT.
+    const item2 = await makeTestItem("Stage Kappa Item 2");
+    // Both TA-unclear, then both agree FT-exclude.
+    const item3 = await makeTestItem("Stage Kappa Item 3");
+    for (const item of [item1, item2, item3]) {
+      item.addToCollection(collections.taQueueId);
+      await item.saveTx();
+    }
+
+    const round = await startRound(
+      project.id,
+      100,
+      tempPath(`hc-stagekappa-${Date.now()}.zip`),
+    );
+    const csvAPath = tempPath(`hc-stagekappa-a-${Date.now()}.csv`);
+    const csvBPath = tempPath(`hc-stagekappa-b-${Date.now()}.csv`);
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvAPath),
+      reviewerCsv("111", [
+        { title: "Stage Kappa Item 1", stage: "ta_screening", decision: "include" },
+        { title: "Stage Kappa Item 1", stage: "ft_screening", decision: "include" },
+        { title: "Stage Kappa Item 2", stage: "ta_screening", decision: "exclude" },
+        { title: "Stage Kappa Item 3", stage: "ta_screening", decision: "unclear" },
+        { title: "Stage Kappa Item 3", stage: "ft_screening", decision: "exclude" },
+      ]),
+    );
+    Zotero.File.putContents(
+      Zotero.File.pathToFile(csvBPath),
+      reviewerCsv("222", [
+        { title: "Stage Kappa Item 1", stage: "ta_screening", decision: "include" },
+        { title: "Stage Kappa Item 1", stage: "ft_screening", decision: "exclude" },
+        { title: "Stage Kappa Item 2", stage: "ta_screening", decision: "unclear" },
+        { title: "Stage Kappa Item 2", stage: "ft_screening", decision: "include" },
+        { title: "Stage Kappa Item 3", stage: "ta_screening", decision: "unclear" },
+        { title: "Stage Kappa Item 3", stage: "ft_screening", decision: "exclude" },
+      ]),
+    );
+    await recordCollectedCsv(round.id, "a", csvAPath);
+    const finalRound = await recordCollectedCsv(round.id, "b", csvBPath);
+
+    const result = await computeRoundConsistency(finalRound);
+
+    // TA pairs: (include,include), (exclude,unclear), (unclear,unclear) --
+    // all 3 items, since every item has a TA row from both reviewers.
+    assert.equal(result.ta.n, 3);
+    assert.approximately(result.ta.kappa!, 0.5, 1e-9);
+    assert.sameMembers(
+      result.ta.byCategory.map((c) => c.category),
+      ["include", "exclude", "unclear"],
+    );
+
+    // FT pairs: (include,exclude) from item1, (exclude,exclude) from item3
+    // -- item2 is excluded because A never reached FT (TA-excluded), even
+    // though B did.
+    assert.equal(result.ft.n, 2);
+    assert.approximately(result.ft.kappa!, 0, 1e-9);
+    assert.sameMembers(
+      result.ft.byCategory.map((c) => c.category),
+      ["include", "exclude"],
+    );
+
+    // The collapsed final-verdict kappa is its own separate thing, not a
+    // pooling of the two stage kappas above.
+    assert.equal(result.n, 3);
   });
 
   it("computeRoundConsistency refuses until both reviewers' CSVs are collected", async function () {

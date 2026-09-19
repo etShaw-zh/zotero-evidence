@@ -15,6 +15,7 @@ import {
   ArchiveConsistencyRound,
   ArchiveFtCriterionCheck,
   ArchiveItem,
+  ArchiveItemSource,
   ArchiveManifest,
   ArchiveScreeningCriteria,
   ArchiveScreeningRecord,
@@ -132,6 +133,36 @@ async function buildItems(
     });
   }
   return items;
+}
+
+/**
+ * One row per record identification/dedup outcome (dedupService.ts), kept
+ * items and erased duplicates alike -- see ArchiveItemSource's own doc
+ * comment for why a duplicate's own itemKey never needs remapping on
+ * import (there's no live item behind it any more). Filtered by itemKeys
+ * same as buildScreeningTables below; a duplicate's key is never IN that
+ * set (it was erased before any export could ever see it as a live item),
+ * so a scoped sample archive naturally only ever carries kept items'
+ * source rows.
+ */
+async function buildItemSources(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<ArchiveItemSource[]> {
+  const allRows = (await databaseService.queryAsync(
+    `SELECT item_key, source_database, imported_at, original_record, is_duplicate_of FROM item_sources WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const rows = itemKeys
+    ? allRows.filter((row) => itemKeys.has(row.item_key))
+    : allRows;
+  return rows.map((row) => ({
+    itemKey: row.item_key,
+    sourceDatabase: row.source_database,
+    importedAt: row.imported_at,
+    originalRecord: row.original_record,
+    isDuplicateOf: row.is_duplicate_of,
+  }));
 }
 
 async function buildScreeningTables(
@@ -388,6 +419,7 @@ export async function exportProjectArchive(
     const { consistencyRounds, consistencyItemResults } = itemKeySet
       ? { consistencyRounds: [], consistencyItemResults: [] }
       : await buildConsistencyTables(projectId);
+    const itemSources = await buildItemSources(projectId, itemKeySet);
 
     const manifest: ArchiveManifest = {
       formatVersion: 1,
@@ -402,6 +434,7 @@ export async function exportProjectArchive(
       synthesisThemes,
       consistencyRounds,
       consistencyItemResults,
+      itemSources,
     };
 
     const manifestFile = Zotero.File.pathToFile(stagingDir.path) as any;
