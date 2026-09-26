@@ -1,7 +1,7 @@
 ---
 title: "Zotero Evidence: AI-assisted systematic reviews with traceable evidence"
 tags:
-  - systematic review
+  - systematic literature review
   - evidence synthesis
   - literature screening
   - Zotero
@@ -10,9 +10,15 @@ authors:
   - name: Jianjun Xiao
     orcid: 0000-0003-0000-9630
     affiliation: 1
+  - name: Zhongshi Ouyang
+    affiliation: 1
+  - name: Ying Xue
+    affiliation: 2
 affiliations:
   - name: "Beijing Normal University, Beijing, China"
     index: 1
+  - name: "Fujian Polytechnic of Information Technology, Fujian, China"
+    index: 2
 date: 26 September 2026
 bibliography: paper.bib
 ---
