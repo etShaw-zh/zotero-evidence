@@ -1666,9 +1666,7 @@ export class EvidenceCommands {
         const fields = criteriaFields(latest?.criteria ?? null);
         for (const [key, fieldValue] of Object.entries(fields)) {
           const field = doc.querySelector(`[data-bind="${key}"]`) as
-            | HTMLInputElement
-            | HTMLTextAreaElement
-            | null;
+            HTMLInputElement | HTMLTextAreaElement | null;
           if (field) field.value = fieldValue;
         }
       },
@@ -3708,11 +3706,9 @@ export class EvidenceCommands {
       ) as HTMLSelectElement | undefined;
       const nameEl = doc?.getElementById("evidence-codebook-edit-name");
       const typeEl = doc?.getElementById("evidence-codebook-edit-type") as
-        | HTMLSelectElement
-        | undefined;
+        HTMLSelectElement | undefined;
       const valuesEl = doc?.getElementById("evidence-codebook-edit-values") as
-        | HTMLTextAreaElement
-        | undefined;
+        HTMLTextAreaElement | undefined;
       const multipleEl = doc?.getElementById(
         "evidence-codebook-edit-multiple",
       ) as HTMLInputElement | undefined;
@@ -3726,11 +3722,9 @@ export class EvidenceCommands {
       // itself) written by hand as it happens. notes has no data-bind at
       // all (kept as a plain manual-sync field, like before).
       const notesEl = doc?.getElementById("evidence-codebook-edit-notes") as
-        | HTMLTextAreaElement
-        | undefined;
+        HTMLTextAreaElement | undefined;
       const hintEl = doc?.getElementById("evidence-codebook-edit-hint") as
-        | HTMLTextAreaElement
-        | undefined;
+        HTMLTextAreaElement | undefined;
 
       const populateFields = (v: CodebookVariable | undefined) => {
         dialogData.variableName = v?.name ?? "";
@@ -4124,8 +4118,7 @@ export class EvidenceCommands {
         "evidence-synthesis-table-container",
       );
       const runBtn = doc?.getElementById("evidence-synthesis-run") as
-        | HTMLButtonElement
-        | undefined;
+        HTMLButtonElement | undefined;
       const statusEl = doc?.getElementById("evidence-synthesis-status");
 
       // History here matters -- three data points across this feature's
@@ -4402,8 +4395,7 @@ export class EvidenceCommands {
         "evidence-consistency-results",
       );
       const runBtn = doc?.getElementById("evidence-consistency-run") as
-        | HTMLButtonElement
-        | undefined;
+        HTMLButtonElement | undefined;
       const statusEl = doc?.getElementById("evidence-consistency-status");
 
       const buildTable = (

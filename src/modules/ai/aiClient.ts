@@ -115,6 +115,7 @@ export async function callChatCompletion(
     if (providerMessage) {
       throw new Error(
         `${provider.name} (HTTP ${e.status}): ${providerMessage}`,
+        { cause: e },
       );
     }
     throw e;

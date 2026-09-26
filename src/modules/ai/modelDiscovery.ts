@@ -51,7 +51,7 @@ export async function fetchAvailableModels(
     // off the parsed body instead of surfacing a bare "Unexpected status
     // code NNN".
     const providerMessage = extractProviderErrorMessage(e?.xmlhttp?.response);
-    if (providerMessage) throw new Error(providerMessage);
+    if (providerMessage) throw new Error(providerMessage, { cause: e });
     throw e;
   }
   const list = (xhr.response as any)?.data;
