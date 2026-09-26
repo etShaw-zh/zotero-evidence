@@ -19,3 +19,9 @@ logs
 # not meant to be committed)
 test/*.bib
 test_project_data/
+
+docs/
+
+# MkDocs build output
+site/
+.venv/
