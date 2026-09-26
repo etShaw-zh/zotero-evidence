@@ -96,8 +96,7 @@ export function parseJudgment(raw: string): AIJudgmentResult {
       return {
         decision,
         reasoning: sanitizeDbText(String(obj.reasoning ?? "")),
-        quote:
-          typeof obj.quote === "string" ? sanitizeDbText(obj.quote) : "",
+        quote: typeof obj.quote === "string" ? sanitizeDbText(obj.quote) : "",
         exclusionReason:
           typeof obj.exclusionReason === "string"
             ? sanitizeDbText(obj.exclusionReason)

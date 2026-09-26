@@ -187,7 +187,10 @@ export class EvidenceCommands {
   // (flex="0") and THEN size the window ourselves -- so height is never
   // guessed or clipped, only width is set explicitly.
   private static openSizedDialog(
-    dialog: { open: (title: string, windowFeatures?: any) => any; window?: Window },
+    dialog: {
+      open: (title: string, windowFeatures?: any) => any;
+      window?: Window;
+    },
     title: string,
     width: number,
   ) {
@@ -743,9 +746,10 @@ export class EvidenceCommands {
         const latest = await getLatestCriteria(Number(value), stage);
         const fields = criteriaFields(latest?.criteria ?? null);
         for (const [key, fieldValue] of Object.entries(fields)) {
-          const field = doc.querySelector(
-            `[data-bind="${key}"]`,
-          ) as HTMLInputElement | HTMLTextAreaElement | null;
+          const field = doc.querySelector(`[data-bind="${key}"]`) as
+            | HTMLInputElement
+            | HTMLTextAreaElement
+            | null;
           if (field) field.value = fieldValue;
         }
       },
@@ -945,14 +949,10 @@ export class EvidenceCommands {
     ).filter((r): r is NonNullable<typeof r> => r !== null);
 
     const columns = 10;
-    const dialog = new ztoolkit.Dialog(rows.length + 2, columns).addCell(
-      0,
-      0,
-      {
-        tag: "h1",
-        properties: { innerHTML: getString("dialog-progress-title") },
-      },
-    );
+    const dialog = new ztoolkit.Dialog(rows.length + 2, columns).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-progress-title") },
+    });
     const headers = [
       getString("dialog-progress-col-project"),
       getString("dialog-progress-col-pending"),

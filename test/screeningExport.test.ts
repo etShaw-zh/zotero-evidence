@@ -75,7 +75,9 @@ describe("Phase 6: screeningExport", function () {
       // TA-Screening no longer captures a reason at all (dropped from the
       // export entirely, not just naturally-empty) -- only FT-Screening
       // reasons should ever appear in this table.
-      assert.deepEqual(reasonsTable.slice(1), ["Sample size < 30,FT-Screening,1"]);
+      assert.deepEqual(reasonsTable.slice(1), [
+        "Sample size < 30,FT-Screening,1",
+      ]);
     });
   });
 

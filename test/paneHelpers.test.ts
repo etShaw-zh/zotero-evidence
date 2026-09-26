@@ -15,11 +15,17 @@ describe("Phase 6 followup: escapeHtml (pure)", function () {
   });
 
   it("escapes < and >", function () {
-    assert.equal(escapeHtml("p < 0.05 and n > 100"), "p &lt; 0.05 and n &gt; 100");
+    assert.equal(
+      escapeHtml("p < 0.05 and n > 100"),
+      "p &lt; 0.05 and n &gt; 100",
+    );
   });
 
   it("leaves ordinary text unchanged", function () {
-    assert.equal(escapeHtml("a randomized controlled trial"), "a randomized controlled trial");
+    assert.equal(
+      escapeHtml("a randomized controlled trial"),
+      "a randomized controlled trial",
+    );
   });
 
   it("does not double-escape an already-escaped ampersand sequence", function () {
