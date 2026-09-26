@@ -1,5 +1,5 @@
 ---
-title: "Zotero Evidence: A Zotero plugin for AI-assisted systematic reviews with traceable evidence"
+title: "Zotero Evidence: AI-assisted systematic reviews with traceable evidence"
 tags:
   - systematic review
   - evidence synthesis
