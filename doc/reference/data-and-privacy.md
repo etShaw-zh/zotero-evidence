@@ -12,12 +12,12 @@ Zotero Evidence works inside your Zotero library and keeps project data local, e
 
 An AI call transmits a prompt built from your review material to the endpoint you configured. Each feature sends only what it needs:
 
-| Feature | Sent to the provider |
-| --- | --- |
+| Feature                  | Sent to the provider                                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | Title/abstract screening | Research question, inclusion and exclusion criteria, and the item's title and abstract (or a note that no abstract is available) |
-| Full-text screening | Research question, inclusion and exclusion criteria, and the extracted PDF text (up to 40,000 characters) |
-| Extract coding | The Codebook variables with their hints, and the extracted PDF text (up to 40,000 characters) |
-| Synthesis (Theme Mining) | For one variable, the confirmed values and their supporting quotes (up to 300 records) |
+| Full-text screening      | Research question, inclusion and exclusion criteria, and the extracted PDF text (up to 40,000 characters)                        |
+| Extract coding           | The Codebook variables with their hints, and the extracted PDF text (up to 40,000 characters)                                    |
+| Synthesis (Theme Mining) | For one variable, the confirmed values and their supporting quotes (up to 300 records)                                           |
 
 The PDF file itself is never uploaded — only extracted text is sent, and only up to the character cap. Item metadata beyond what a feature includes, your API keys, library structure, and Zotero account information are not sent.
 

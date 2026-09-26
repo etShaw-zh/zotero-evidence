@@ -28,7 +28,7 @@ Measure agreement between the AI and your own screening decisions, or run a samp
 
 ## Expected result
 
-Human-AI consistency displays kappa, observed agreement, and disagreements without altering the project. For a human-human round, **Apply Agreed Results** confirms the screening decisions for items both reviewers agreed on and reports, for example, *Applied N agreed item(s). M disagreement(s) left in TA-Screen Queue for a third reviewer.* Disagreed items remain in `2. TA-Screen Queue` tagged **⚠ Reviewer Disagreement (Evidence)** for adjudication.
+Human-AI consistency displays kappa, observed agreement, and disagreements without altering the project. For a human-human round, **Apply Agreed Results** confirms the screening decisions for items both reviewers agreed on and reports, for example, _Applied N agreed item(s). M disagreement(s) left in TA-Screen Queue for a third reviewer._ Disagreed items remain in `2. TA-Screen Queue` tagged **⚠ Reviewer Disagreement (Evidence)** for adjudication.
 
 ## Notes and limitations
 

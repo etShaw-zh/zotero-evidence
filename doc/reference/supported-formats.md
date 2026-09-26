@@ -28,13 +28,13 @@ Normalization lowercases text and removes punctuation before comparison. These r
 
 All data exports are **CSV**. Available exports:
 
-| Export | Command | Contents |
-| --- | --- | --- |
-| PRISMA data | File → Export Data → Export PRISMA Data… | Stage counts and confirmed full-text exclusion reasons |
-| Screening decision log | File → Export Data → Export Screening Decision Log… | One row per screening record across TA and FT stages |
-| Extract coding data | File → Export Data → Export Extract Coding Data… | One row per included study, one column per Codebook variable |
-| Theme mining data | File → Export Data → Export Theme Mining Data… | One row per confirmed coded value, with its assigned theme |
-| Codebook | File → Codebook → Export Codebook… | One row per variable, matching the CSV import format |
+| Export                 | Command                                             | Contents                                                     |
+| ---------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| PRISMA data            | File → Export Data → Export PRISMA Data…            | Stage counts and confirmed full-text exclusion reasons       |
+| Screening decision log | File → Export Data → Export Screening Decision Log… | One row per screening record across TA and FT stages         |
+| Extract coding data    | File → Export Data → Export Extract Coding Data…    | One row per included study, one column per Codebook variable |
+| Theme mining data      | File → Export Data → Export Theme Mining Data…      | One row per confirmed coded value, with its assigned theme   |
+| Codebook               | File → Codebook → Export Codebook…                  | One row per variable, matching the CSV import format         |
 
 See [Exporting](../user-guide/exporting.md) for the columns and behavior of each export.
 

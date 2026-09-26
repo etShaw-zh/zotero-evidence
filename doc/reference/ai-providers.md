@@ -17,13 +17,13 @@ Each provider slot stores an identifier and display name, the endpoint URL, the 
 
 The provider picker offers presets that supply an endpoint for common OpenAI-compatible services, alongside a **Custom** option for any other compatible endpoint:
 
-| Preset | Endpoint |
-| --- | --- |
-| OpenAI | `https://api.openai.com/v1/chat/completions` |
-| DeepSeek | `https://api.deepseek.com/v1/chat/completions` |
-| Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4/chat/completions` |
-| Moonshot (Kimi) | `https://api.moonshot.cn/v1/chat/completions` |
-| Custom | user-supplied |
+| Preset          | Endpoint                                                |
+| --------------- | ------------------------------------------------------- |
+| OpenAI          | `https://api.openai.com/v1/chat/completions`            |
+| DeepSeek        | `https://api.deepseek.com/v1/chat/completions`          |
+| Zhipu GLM       | `https://open.bigmodel.cn/api/paas/v4/chat/completions` |
+| Moonshot (Kimi) | `https://api.moonshot.cn/v1/chat/completions`           |
+| Custom          | user-supplied                                           |
 
 A preset supplies the endpoint only. It does not guarantee that a given provider, account, key, or model will accept a particular request; you still supply your own key and model.
 

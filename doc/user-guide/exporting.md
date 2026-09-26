@@ -17,6 +17,7 @@ Export a project's data as CSV for analysis, reporting, or sharing: PRISMA flow 
    - **Export Theme Mining Data…**
 
    The Codebook is exported separately with **File → Codebook → Export Codebook…**.
+
 2. Select the project when prompted; the currently selected project is preselected where possible.
 3. Choose a save location in the file picker, which offers CSV. Evidence suggests a filename based on the project and export type.
 4. On success the dialog reports **Export complete.**
