@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Support and questions
+    url: https://github.com/etShaw-zh/zotero-evidence/blob/main/SUPPORT.md
+    about: Read the support policy before sharing logs or research data.

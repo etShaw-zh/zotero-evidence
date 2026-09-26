@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a reproducible problem with Zotero Evidence
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Search existing issues first and remove sensitive or copyrighted material before submitting.
+  - type: input
+    id: addon-version
+    attributes:
+      label: Zotero Evidence version
+      placeholder: 0.9.1
+    validations:
+      required: true
+  - type: input
+    id: zotero-version
+    attributes:
+      label: Zotero version
+      placeholder: 7.0.0
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: macOS 15, Windows 11, or Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or additional context
+      description: Remove API keys, personal data, confidential research data, copyrighted text, and other secrets.
+      render: shell
+  - type: checkboxes
+    id: sensitive-data
+    attributes:
+      label: Sensitive-data check
+      options:
+        - label: I have removed API keys, copyrighted PDFs or text, personal data, confidential research data, and other secrets.
+          required: true
+    validations:
+      required: true

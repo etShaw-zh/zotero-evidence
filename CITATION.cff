@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: If you use Zotero Evidence in your research, please cite the software using the metadata below.
+title: Zotero Evidence
+type: software
+authors:
+  - family-names: Xiao
+    given-names: Jianjun
+    orcid: https://orcid.org/0000-0003-0000-9630
+repository-code: https://github.com/etShaw-zh/zotero-evidence
+url: https://github.com/etShaw-zh/zotero-evidence
+license: AGPL-3.0-or-later
+version: 0.9.1
+date-released: 2026-09-20
