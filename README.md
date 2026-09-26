@@ -4,6 +4,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](LICENSE)
 [![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
+[![Download](https://img.shields.io/github/downloads/etShaw-zh/zotero-evidence/total?logo=github&color=2E75B6)]([https://github.com/etShaw-zh/zotero-evidence/releases](https://img.shields.io/github/downloads/etShaw-zh/zotero-evidence/total?logo=github&color=2E75B6))
 
 Zotero Evidence transforms research papers into **structured, traceable evidence datasets** with AI-assisted screening, extraction, and synthesis.
 
@@ -22,7 +23,6 @@ Each value remains traceable to its supporting evidence in the original paper.
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear for each paper with reasoning; you confirm.
 - **Full-text screening** — AI checks each paper against every criterion with highlighted evidence; you confirm.
 - **Extract coding** — AI extracts data into your Codebook, backed by highlighted quotes; you confirm.
-- **Batch AI runs** — select multiple items and run TA/FT screening or Extract coding AI in batch.
 - **Synthesis** — AI groups confirmed evidence into themes with one click.
 - **Consistency** — measure AI-human agreement (`Cohen's ϰ`), or sample a batch for two reviewers to co-screen.
 - **Export** — PRISMA data, screening log, coding data, synthesis output, and the Codebook itself (CSV).
@@ -76,7 +76,7 @@ src/
 |   |-- import/       # Zotero.Translate.Import wrapper
 |   |-- dedup/        # DOI-first / title+author+year dedup
 |   |-- screening/    # TA judgment, FT per-criterion checklist, criteria, decisions
-|   |-- consistency/  # Human-AI & human-human screening consistency (Kappa)
+|   |-- consistency/  # Human-AI & human-human screening consistency (Cohen's ϰ)
 |   |-- coding/       # Codebook + Extract Coding services
 |   |-- synthesis/    # theme mining over confirmed coding evidence
 |   |-- pdf/          # text extraction, quote location, highlights
