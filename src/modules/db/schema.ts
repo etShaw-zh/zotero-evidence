@@ -81,6 +81,152 @@ export const SCHEMA_STATEMENTS: string[] = [
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id),
     FOREIGN KEY (codebook_id) REFERENCES codebooks(id)
   )`,
+  // Synthesis themes deliberately live in their own table rather than a
+  // column on coding_records: that table is shared by every other coding
+  // flow, and this feature is layered entirely on top of it (one row per
+  // coding_records id that's been through a Synthesis run) -- keeping it
+  // separate means Synthesis can never risk that shared table's shape or
+  // existing data, and this table only needs a plain CREATE TABLE IF NOT
+  // EXISTS (see database.ts), not an ALTER-TABLE column migration.
+  `CREATE TABLE IF NOT EXISTS synthesis_themes (
+    id INTEGER PRIMARY KEY,
+    coding_record_id INTEGER NOT NULL UNIQUE,
+    theme TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (coding_record_id) REFERENCES coding_records(id)
+  )`,
+  // One row per callChatCompletion() call (aiClient.ts), recorded right
+  // after the HTTP response is parsed there -- the single choke point every
+  // AI-calling feature (TA/FT-Screening, Coding, Synthesis) already goes
+  // through. provider_id/provider_name/model are a snapshot at call time,
+  // not a live reference: providers live in prefs (providerConfig.ts), not
+  // this DB, and can be renamed/deleted later without invalidating history.
+  `CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    model TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0
+  )`,
+  // One row per human-human consistency round (humanConsistencyService.ts).
+  // `phase` is 'pilot' (a sampled subset, drawn from the stage's queue
+  // collection) or 'full' (the remaining not-yet-decided items once the
+  // pilot round is reconciled); `status` walks 'sampled' -> 'collected' ->
+  // 'reconciled' as the two reviewers' CSVs come back and get resolved.
+  // `item_keys` is a JSON array frozen at round-start time, so items added
+  // to the project afterward don't retroactively change what this round
+  // covers. Kept (not deleted) once reconciled, as a history of past
+  // rounds -- the "active" round for a project/stage is just the latest.
+  `CREATE TABLE IF NOT EXISTS consistency_rounds (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    status TEXT NOT NULL,
+    item_keys TEXT NOT NULL,
+    reviewer_a_csv_path TEXT,
+    reviewer_b_csv_path TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
+  // One row per eligibility-criterion check for one item at the full-text
+  // stage (ftCriterionCheckService.ts) -- replaces the old single
+  // decision+exclusion_reason model on screening_records with a checklist:
+  // every inclusion criterion gets a row (verdict='include' if satisfied,
+  // 'exclude' if not), while an exclusion criterion only gets a row when it
+  // actually applies (always verdict='exclude'; a non-applicable exclusion
+  // criterion is simply never written). screening_records.decision stays
+  // the final human roll-up call; this table is the per-criterion detail
+  // and evidence backing it.
+  `CREATE TABLE IF NOT EXISTS ft_criterion_checks (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    criterion_type TEXT NOT NULL,
+    criterion_text TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    reasoning TEXT,
+    quote TEXT,
+    annotation_key TEXT,
+    pending_position TEXT,
+    source TEXT NOT NULL DEFAULT 'ai',
+    confirmed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
+  // One free-text analytic memo per project+item, written by the human
+  // during Full-Text Coding once they've reviewed the AI's suggestions and
+  // formed their own understanding of the paper -- deliberately NOT tied to
+  // any single Codebook variable/coding_records row (a coding decision),
+  // and deliberately NOT exported alongside coding/synthesis data (by
+  // request -- this is the researcher's own working notes, not a data
+  // column). One row per item, overwritten in place on every save (no
+  // version history, unlike coding_records/screening_records -- there's no
+  // "decision" here to keep an audit trail of, just current thinking).
+  `CREATE TABLE IF NOT EXISTS coding_notes (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id, item_key),
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
+  // One row per item that was part of a human-human consistency round
+  // (humanConsistencyService.ts) -- a snapshot of what each reviewer's own
+  // CSV said, written when the round's "apply agreed results" step runs
+  // (both for items it auto-applied and ones left disagreeing). Purely for
+  // display: taQueuePane.ts reads this to show both reviewers'
+  // verdicts next to a still-pending, disagreed item, so whoever screens
+  // it next (a third opinion, or the coordinator) has that context without
+  // needing to go find and re-open the two CSVs. One row per project+item
+  // -- like coding_notes, overwritten in place if a later round somehow
+  // covers the same item again, no version history needed for a snapshot.
+  `CREATE TABLE IF NOT EXISTS consistency_item_results (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    round_id INTEGER NOT NULL,
+    a_reviewer TEXT,
+    a_verdict TEXT,
+    a_exclusion_reason TEXT,
+    b_reviewer TEXT,
+    b_verdict TEXT,
+    b_exclusion_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id, item_key),
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
+  // A stable, plugin-owned identifier per item, independent of Zotero's own
+  // item `key` (which is reassigned every time an item is recreated from
+  // JSON -- both on this project's own backup/restore, and, critically,
+  // when a sample archive is independently imported into a different
+  // reviewer's own library, where there's no shared database at all to
+  // keep a key-map in). See stableItemId.ts for the full story. Lives
+  // entirely in THIS plugin's own database and archive format -- never
+  // written into the Zotero item itself (no Extra field, no tags), so it
+  // can never collide with Better BibTeX or any other plugin's own use of
+  // those fields. `stable_id` is minted once (crypto.randomUUID()) and
+  // then just carried, unchanged, through every export/import round trip
+  // via ArchiveItem.stableId (a sibling of `key`, not part of `json`).
+  `CREATE TABLE IF NOT EXISTS item_stable_ids (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    stable_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(project_id, item_key),
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on
@@ -119,4 +265,33 @@ export const COLUMN_MIGRATIONS: {
     definition: "TEXT",
   },
   { table: "coding_records", column: "pending_position", definition: "TEXT" },
+  // Nullable, not backfilled here on purpose: every project created before
+  // this column existed lived in the personal library by definition (group-
+  // library support didn't exist yet), so the service layer's read path
+  // (projectManager.ts's rowToProject) treats a NULL here as
+  // Zotero.Libraries.userLibraryID rather than needing a data migration.
+  { table: "evidence_projects", column: "library_id", definition: "INTEGER" },
+  // Snapshotted at judgment time (same reasoning as ai_usage_log's
+  // provider/model columns in schema.ts above): the active provider's
+  // model can be renamed or switched later without rewriting history, so
+  // this must be captured when ai_decision is written, not looked up live.
+  // Nullable/not backfilled -- rows written before this column existed
+  // simply have no recorded model.
+  { table: "screening_records", column: "ai_model", definition: "TEXT" },
+  // Same reasoning as screening_records.ai_model just above, but this one
+  // was missed when ft_criterion_checks was introduced -- FT-Screening's
+  // per-criterion AI checks never recorded which model produced them, so
+  // refreshAggregate() below had nothing to snapshot back onto
+  // screening_records.ai_model either, leaving FT-stage rows in the
+  // Export Screening Log with an empty ai_model while TA-stage rows (which
+  // always had it) did not.
+  { table: "ft_criterion_checks", column: "model", definition: "TEXT" },
+  // TA-Screening's counterpart to ft_criterion_checks.quote: short verbatim
+  // substrings the AI judgment says it based its decision on, copied
+  // exactly from the title/abstract (JSON string array) so taQueuePane.ts
+  // can highlight them in place -- see aiClient.ts's reasoningLanguageInstruction
+  // for the parallel "keep this verbatim" prompt requirement. Nullable/not
+  // backfilled -- a judgment run before this column existed simply has no
+  // keywords to highlight, same precedent as ai_model above.
+  { table: "screening_records", column: "ai_keywords", definition: "TEXT" },
 ];

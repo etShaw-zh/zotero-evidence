@@ -251,6 +251,7 @@ describe("Phase 4: Full-Text Coding core loop", function () {
     const suggestionId = id1;
     await linkAnnotationToRecord(
       suggestionId,
+      annotation.libraryID,
       annotation.key,
       "study_design",
       "RCT",
@@ -292,6 +293,7 @@ describe("Phase 4: Full-Text Coding core loop", function () {
     );
     await linkAnnotationToRecord(
       recordId,
+      annotation.libraryID,
       annotation.key,
       "population",
       "Adults 18-65",
@@ -333,6 +335,7 @@ describe("Phase 4: Full-Text Coding core loop", function () {
     );
     await linkAnnotationToRecord(
       recordId,
+      annotation.libraryID,
       annotation.key,
       "population",
       "Adults 18-65",

@@ -1,11 +1,13 @@
 import { toCsvLine } from "../../utils/csv";
 import { safeGetField } from "../../utils/zoteroItem";
+import { getStableItemId } from "../../utils/stableItemId";
 import { getLatestCodebook } from "../coding/codebookService";
 import {
   getCodingRecords,
   resolveCanonicalVariableName,
 } from "../coding/codingService";
 import { databaseService } from "../db/database";
+import { getProjectById } from "../project/projectManager";
 
 /**
  * Core multi-value-row expansion (REQUIREMENTS 2.6.4 / EXP-06): a study
@@ -43,6 +45,8 @@ export async function exportCodingData(projectId: number): Promise<string> {
   const variableNames = (codebook?.variables ?? []).map((v) => v.name);
 
   await databaseService.init();
+  const project = await getProjectById(projectId);
+  const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
   const itemRows = (await databaseService.queryAsync(
     `SELECT DISTINCT item_key FROM coding_records WHERE project_id = ? AND is_pilot = 0`,
     [projectId],
@@ -50,15 +54,28 @@ export async function exportCodingData(projectId: number): Promise<string> {
 
   const lines: string[] = [];
   lines.push(
-    toCsvLine(["item_key", "authors", "year", "title", ...variableNames]),
+    toCsvLine([
+      "item_key",
+      // See stableItemId.ts / exportScreeningLog's own column of the same
+      // name -- lets coding results from an independently-worked copy
+      // (e.g. a second coder's own project) be matched back up by item
+      // without depending on item_key, which isn't stable across a
+      // separate import.
+      "project_item_id",
+      "authors",
+      "year",
+      "title",
+      "doi",
+      ...variableNames,
+    ]),
   );
 
   for (const { item_key: itemKey } of itemRows || []) {
-    const item = Zotero.Items.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
-      itemKey,
-    ) as Zotero.Item | false;
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey) as
+      | Zotero.Item
+      | false;
     if (!item) continue;
+    const stableId = await getStableItemId(projectId, itemKey);
 
     const authors = item
       .getCreators()
@@ -66,6 +83,7 @@ export async function exportCodingData(projectId: number): Promise<string> {
       .join("; ");
     const year = (safeGetField(item, "date").match(/\d{4}/) || [])[0] || "";
     const title = safeGetField(item, "title");
+    const doi = safeGetField(item, "DOI");
 
     const records = (await getCodingRecords(projectId, itemKey)).filter(
       (r) => r.confirmed,
@@ -81,7 +99,9 @@ export async function exportCodingData(projectId: number): Promise<string> {
 
     const rows = expandRecordsToRows(variableNames, valuesByVariable);
     for (const row of rows) {
-      lines.push(toCsvLine([itemKey, authors, year, title, ...row]));
+      lines.push(
+        toCsvLine([itemKey, stableId, authors, year, title, doi, ...row]),
+      );
     }
   }
 

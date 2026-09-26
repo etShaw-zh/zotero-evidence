@@ -1,0 +1,462 @@
+import { config } from "../../../package.json";
+import { getLocaleID, getString } from "../../utils/locale";
+import { getConsistencyItemResult } from "../consistency/consistencyItemResultsService";
+import { refreshProjectPaneContextCache } from "../project/projectContext";
+import { ProjectPaneContext } from "../project/projectContext";
+import { getLatestCriteria } from "../screening/criteriaService";
+import {
+  confirmDecision,
+  getScreeningState,
+  runAIJudgment,
+  ScreeningState,
+  TADecision,
+  undoDecision,
+} from "../screening/taScreeningService";
+import { EvidenceCommands } from "./commands";
+import {
+  currentDeciderId,
+  decisionLabel,
+  el,
+  escapeHtml,
+  refreshLibraryNativeSectionsHidden,
+  renderCardHeader,
+  renderConfigWarning,
+  renderPaneError,
+  resolveContextSync,
+  setNativeSectionsHidden,
+  shouldHideNativeSections,
+} from "./paneHelpers";
+
+const PANE_ID = "zotero-evidence-ta-queue";
+
+async function renderJudgmentArea(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+  body: HTMLDivElement,
+) {
+  container.innerHTML = "";
+
+  const criteriaRow = await getLatestCriteria(ctx.project.id, "ta");
+  if (!criteriaRow) {
+    container.appendChild(
+      renderConfigWarning(doc, {
+        text: getString("config-warning-no-criteria"),
+        buttonLabel: getString("config-warning-set-criteria-button"),
+        onClick: async () => {
+          await EvidenceCommands.criteriaDialog();
+          await renderJudgmentArea(container, doc, ctx, item, body);
+        },
+      }),
+    );
+    return;
+  }
+
+  // Fetched here, same as before keyword highlighting existed -- NOT
+  // hoisted up into onAsyncRender's critical path (that was tried and
+  // reverted: it added an extra await before the very first synchronous
+  // renderCardHeader call, widening the window for a stale, still-
+  // in-flight render from a PREVIOUSLY selected item to land after this
+  // one's, which is exactly the class of race this test suite's own
+  // comments already document as CI-flaky -- see
+  // test/taQueuePane.test.ts's dumpPaneDiagnostics comment). Re-render the
+  // header with highlights ONLY when there's something to highlight, so
+  // the common "no AI run yet" path -- most renders -- is byte-for-byte
+  // the same timing as before this feature existed.
+  const state = await getScreeningState(ctx.project.id, item.key);
+  const target = state?.aiKeywords.length
+    ? renderCardHeader(body, doc, item, state.aiKeywords)
+    : container;
+  await renderJudgmentContent(target, doc, ctx, item, state, body);
+}
+
+async function renderJudgmentContent(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+  state: ScreeningState | null,
+  body: HTMLDivElement,
+) {
+  container.innerHTML = "";
+
+  const runAI = async () => {
+    runBtn.setAttribute("disabled", "true");
+    runBtn.textContent = getString("ta-queue-loading");
+    try {
+      const result = await runAIJudgment(ctx.project.id, item);
+      const newState: ScreeningState = {
+        id: result.screeningRecordId,
+        aiDecision: result.decision,
+        aiReasoning: result.reasoning,
+        aiKeywords: result.keywords,
+        decision: null,
+        exclusionReason: null,
+      };
+      // Re-render the whole card, not just this judgment area -- the
+      // title/abstract above (already painted before this AI run existed)
+      // needs the freshly-returned keywords highlighted too, and
+      // renderCardHeader is the only thing that draws those. This does
+      // collapse an expanded abstract back to its default height; a minor
+      // cosmetic cost judged not worth threading expand-state through just
+      // to avoid.
+      const newContentArea = renderCardHeader(
+        body,
+        doc,
+        item,
+        newState.aiKeywords,
+      );
+      await renderJudgmentContent(
+        newContentArea,
+        doc,
+        ctx,
+        item,
+        newState,
+        body,
+      );
+    } catch (e: any) {
+      ztoolkit.getGlobal("alert")(
+        `${getString("ta-queue-error-run-ai")}\n${e?.message ?? e}`,
+      );
+      runBtn.removeAttribute("disabled");
+      runBtn.textContent = getString("ta-queue-run-ai");
+    }
+  };
+
+  const runBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: { innerHTML: getString("ta-queue-run-ai") },
+    listeners: [{ type: "click", listener: () => void runAI() }],
+  }) as HTMLButtonElement;
+
+  // If this item was part of a human-human consistency round and the two
+  // reviewers disagreed (an agreed item never reaches here -- it was
+  // already applied as this project's real result and left the queue, see
+  // humanConsistencyService.ts's applyAgreedResults), show both reviewers'
+  // own calls so whoever screens it next (a third opinion) has that
+  // context without leaving this pane. Rendered before the state==null
+  // early return below -- a disagreement can easily still be sitting here
+  // with no local AI judgment run yet.
+  const consistencyResult = await getConsistencyItemResult(
+    ctx.project.id,
+    item.key,
+  );
+  const formatReviewerLine = (
+    label: string,
+    reviewerName: string,
+    verdict: "include" | "exclude" | null,
+    reason: string,
+  ): string | null => {
+    if (!verdict) return null;
+    const who = reviewerName ? `${label} (${escapeHtml(reviewerName)})` : label;
+    const reasonHtml =
+      verdict === "exclude" && reason
+        ? ` — ${getString("ta-queue-consistency-reason", { args: { reason: escapeHtml(reason) } })}`
+        : "";
+    return `${who}: ${decisionLabel(verdict)}${reasonHtml}`;
+  };
+  const reviewerLines = consistencyResult
+    ? [
+        formatReviewerLine(
+          getString("ta-queue-consistency-reviewer-a"),
+          consistencyResult.aReviewer,
+          consistencyResult.aVerdict,
+          consistencyResult.aExclusionReason,
+        ),
+        formatReviewerLine(
+          getString("ta-queue-consistency-reviewer-b"),
+          consistencyResult.bReviewer,
+          consistencyResult.bVerdict,
+          consistencyResult.bExclusionReason,
+        ),
+      ].filter((line): line is string => line !== null)
+    : [];
+  if (reviewerLines.length > 0) {
+    container.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-section"],
+        children: [
+          {
+            tag: "h3",
+            namespace: "html",
+            properties: {
+              innerHTML: getString("ta-queue-consistency-title"),
+            },
+          },
+          ...reviewerLines.map((line) => ({
+            tag: "p",
+            namespace: "html" as const,
+            properties: { innerHTML: line },
+          })),
+        ],
+      }),
+    );
+  }
+
+  if (state?.aiDecision) {
+    container.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-judgment"],
+        children: [
+          {
+            tag: "strong",
+            namespace: "html",
+            properties: {
+              innerHTML: `${getString("ta-queue-ai-suggestion")} ${decisionLabel(state.aiDecision)}`,
+            },
+          },
+          {
+            tag: "p",
+            namespace: "html",
+            properties: { innerHTML: escapeHtml(state.aiReasoning || "") },
+          },
+        ],
+      }),
+    );
+  }
+
+  // AI judgment is optional -- a reviewer who doesn't want or need it
+  // should still be able to decide directly, so these buttons don't wait
+  // on `state` existing at all. confirmDecision's screeningRecordId is
+  // null in that case, which it already handles by inserting a fresh
+  // human-only screening_records row (no ai_decision) rather than
+  // requiring an existing one to update.
+  const doConfirm = async (decision: TADecision, reason: string | null) => {
+    try {
+      await confirmDecision(
+        ctx.project.id,
+        item,
+        ctx.collections,
+        state?.id ?? null,
+        decision,
+        currentDeciderId(),
+        reason,
+      );
+      new ztoolkit.ProgressWindow(config.addonName)
+        .createLine({
+          text: getString("ta-queue-confirmed"),
+          type: "success",
+          progress: 100,
+        })
+        .show();
+    } catch (e: any) {
+      ztoolkit.getGlobal("alert")(
+        `${getString("ta-queue-error-confirm")}\n${e?.message ?? e}`,
+      );
+    }
+  };
+
+  const buttonRow = el(doc, "div", { classList: ["zotero-evidence-buttons"] });
+  const decisions: TADecision[] = ["include", "exclude", "unclear"];
+  for (const decision of decisions) {
+    const isCurrent =
+      state?.decision === decision ||
+      (!state?.decision && state?.aiDecision === decision);
+    const btn = el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: decisionLabel(decision) },
+      classList: isCurrent ? ["selected"] : [],
+      listeners: [
+        { type: "click", listener: () => void doConfirm(decision, null) },
+      ],
+    });
+    buttonRow.appendChild(btn);
+  }
+  container.appendChild(buttonRow);
+
+  if (state?.decision) {
+    container.appendChild(
+      el(doc, "p", {
+        properties: {
+          innerHTML: `${getString("ta-queue-decided")}: ${decisionLabel(state.decision)}`,
+        },
+      }),
+    );
+  }
+
+  runBtn.textContent = getString(
+    state?.aiDecision ? "ta-queue-rerun-ai" : "ta-queue-run-ai",
+  );
+  container.appendChild(runBtn);
+}
+
+/**
+ * Read-only history view for the TA-Include/TA-Exclude/TA-Unclear
+ * collections (PNL-04): shows the screening_records trail instead of
+ * editable controls.
+ */
+async function renderHistoryArea(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+  body: HTMLDivElement,
+) {
+  container.innerHTML = "";
+
+  // Fetched here rather than hoisted into onAsyncRender -- see
+  // renderJudgmentArea's comment for why (a documented CI-flaky render
+  // race this test suite already has a history of, made easier to hit by
+  // adding latency before the critical path's first synchronous render).
+  const state = await getScreeningState(ctx.project.id, item.key);
+  const target = state?.aiKeywords.length
+    ? renderCardHeader(body, doc, item, state.aiKeywords)
+    : container;
+
+  target.appendChild(
+    el(doc, "h3", {
+      properties: { innerHTML: getString("ta-queue-history-title") },
+    }),
+  );
+
+  if (!state) {
+    target.appendChild(
+      el(doc, "p", {
+        properties: { innerHTML: getString("ta-queue-history-none") },
+      }),
+    );
+    return;
+  }
+
+  if (state.aiDecision) {
+    target.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-judgment"],
+        children: [
+          {
+            tag: "strong",
+            namespace: "html",
+            properties: {
+              innerHTML: `${getString("ta-queue-history-ai")} ${decisionLabel(state.aiDecision)}`,
+            },
+          },
+          {
+            tag: "p",
+            namespace: "html",
+            properties: { innerHTML: escapeHtml(state.aiReasoning || "") },
+          },
+        ],
+      }),
+    );
+  }
+
+  if (state.decision) {
+    target.appendChild(
+      el(doc, "p", {
+        properties: {
+          innerHTML: `${getString("ta-queue-history-human")} ${decisionLabel(state.decision)}`,
+        },
+      }),
+    );
+
+    const undoBtn = el(doc, "button", {
+      attributes: { type: "button" },
+      properties: { innerHTML: getString("ta-queue-undo") },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            try {
+              await undoDecision(ctx.project.id, item, ctx.collections);
+              new ztoolkit.ProgressWindow(config.addonName)
+                .createLine({
+                  text: getString("ta-queue-undo-done"),
+                  type: "success",
+                  progress: 100,
+                })
+                .show();
+            } catch (e: any) {
+              ztoolkit.getGlobal("alert")(
+                `${getString("ta-queue-error-undo")}\n${e?.message ?? e}`,
+              );
+            }
+          },
+        },
+      ],
+    });
+    target.appendChild(undoBtn);
+  }
+}
+
+export function registerTaQueuePane() {
+  Zotero.ItemPaneManager.registerSection({
+    paneID: PANE_ID,
+    pluginID: config.addonID,
+    // Magnifier -- TA-Screening is a quick title/abstract scan, distinct
+    // from FT-Screening's full-document read (page.svg) and Coding's
+    // tagging (tag.svg). Matches Zotero's own native item-pane icon style
+    // (chrome://zotero/skin/16/universal/*.svg, tinted via context-fill).
+    header: {
+      l10nID: getLocaleID("ta-queue-head-text"),
+      icon: "chrome://zotero/skin/16/universal/magnifier.svg",
+    },
+    sidenav: {
+      l10nID: getLocaleID("ta-queue-sidenav-tooltip"),
+      icon: "chrome://zotero/skin/16/universal/magnifier.svg",
+    },
+    onItemChange: ({ item, doc, body, setEnabled, tabType }) => {
+      // Must decide synchronously: Zotero renders based on this call's
+      // result before any promise from here would resolve, so the lookup
+      // has to be a synchronous cache read, not a fresh async DB query.
+      const ctx = tabType === "library" ? resolveContextSync(item) : null;
+      const relevant =
+        !!ctx &&
+        (ctx.role === "ta_queue" ||
+          ctx.role === "ta_include" ||
+          ctx.role === "ta_exclude" ||
+          ctx.role === "ta_unclear");
+      setEnabled(relevant);
+      // Deliberately NOT derived from `ctx` above -- that's gated by
+      // tabType for this section's OWN relevance (it has no reader-tab
+      // content), but native-hide is a single shared class every
+      // registered section's onItemChange can independently set, so it
+      // must be computed the same way regardless of which section or
+      // tabType is asking -- see shouldHideNativeSections's doc comment
+      // for why mixing the two once silently broke reader-tab hiding.
+      setNativeSectionsHidden(doc, body, shouldHideNativeSections(item));
+      // Keep the cache warm for next time in case it's gone stale (e.g. a
+      // project was created/renamed since the last refresh).
+      void refreshProjectPaneContextCache();
+    },
+    onDestroy: ({ doc }) => {
+      refreshLibraryNativeSectionsHidden(doc);
+    },
+    // registerSection silently fails (returns false, no section is created
+    // at all) without a synchronous onRender -- onAsyncRender alone isn't
+    // enough, confirmed empirically. Keep this even though the real content
+    // is built in onAsyncRender below.
+    onRender: () => {},
+    onAsyncRender: async ({ body, doc, item }) => {
+      const ctx = resolveContextSync(item);
+      if (
+        !ctx ||
+        !(
+          ctx.role === "ta_queue" ||
+          ctx.role === "ta_include" ||
+          ctx.role === "ta_exclude" ||
+          ctx.role === "ta_unclear"
+        )
+      ) {
+        return;
+      }
+      // renderCardHeader stays the first, synchronous thing this does (no
+      // keywords yet) -- exactly the timing this had before AI-keyword
+      // highlighting existed. renderJudgmentArea/renderHistoryArea each
+      // fetch screening state themselves and re-render the header (via
+      // `body`) ONLY when there's something to highlight; see their own
+      // comments for why that fetch isn't hoisted up here instead.
+      const contentArea = renderCardHeader(body, doc, item);
+      try {
+        if (ctx.role === "ta_queue") {
+          await renderJudgmentArea(contentArea, doc, ctx, item, body);
+        } else {
+          await renderHistoryArea(contentArea, doc, ctx, item, body);
+        }
+      } catch (e) {
+        ztoolkit.log("TA Queue pane render failed", item.key, e);
+        renderPaneError(doc, contentArea, e);
+      }
+    },
+  });
+}

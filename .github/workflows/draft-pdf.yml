@@ -1,0 +1,31 @@
+name: Draft PDF
+on:
+  push:
+    paths:
+      - paper/**
+      - .github/workflows/draft-pdf.yml
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    name: Paper Draft
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build draft PDF
+        uses: openjournals/openjournals-draft-action@a994a876f36e25076174d9ed133e01b1f1b9fcf3 # master
+        with:
+          journal: joss
+          paper-path: paper/paper.md
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper
+          path: paper/paper.pdf
+      - name: Commit PDF to repository
+        uses: EndBug/add-and-commit@61a88be553afe4206585b31aa72387c64295d08b # v9
+        with:
+          message: "(auto) Paper PDF Draft"
+          add: "paper/paper.pdf"

@@ -1,0 +1,456 @@
+import {
+  ProjectCollectionMap,
+  resolveProjectCollections,
+} from "../project/collectionStructure";
+import { getRootCollectionId } from "../project/projectContext";
+import { EvidenceProject, getProjectById } from "../project/projectManager";
+import { databaseService } from "../db/database";
+import { ensureStableItemId } from "../../utils/stableItemId";
+import {
+  ArchiveAnnotation,
+  ArchiveAttachment,
+  ArchiveCodebook,
+  ArchiveCodingRecord,
+  ArchiveConsistencyItemResult,
+  ArchiveConsistencyRound,
+  ArchiveFtCriterionCheck,
+  ArchiveItem,
+  ArchiveItemSource,
+  ArchiveManifest,
+  ArchiveScreeningCriteria,
+  ArchiveScreeningRecord,
+  ArchiveSynthesisTheme,
+  MANIFEST_FILENAME,
+} from "./archiveTypes";
+
+// zotero-types has no copyFile typing (see file.d.ts) even though it exists
+// on the real Zotero.File API (chrome/content/zotero/xpcom/file.js) -- cast
+// through `any`, same approach the rest of this module takes for
+// low-level/untyped Zotero internals.
+const ZoteroFileAny = Zotero.File as any;
+
+function roleMap(collections: ProjectCollectionMap): Map<number, string> {
+  const map = new Map<number, string>();
+  map.set(collections.sourcesId, "sources");
+  for (const [label, id] of Object.entries(collections.sourceCollectionIds)) {
+    map.set(id, `sources:${label}`);
+  }
+  map.set(collections.taQueueId, "taQueue");
+  map.set(collections.taIncludeId, "taInclude");
+  map.set(collections.taExcludeId, "taExclude");
+  map.set(collections.taUnclearId, "taUnclear");
+  map.set(collections.ftQueueId, "ftQueue");
+  map.set(collections.ftIncludeId, "ftInclude");
+  map.set(collections.ftExcludeId, "ftExclude");
+  map.set(collections.ftUnavailableId, "ftUnavailable");
+  map.set(collections.codingId, "coding");
+  return map;
+}
+
+async function ensureDir(dir: any): Promise<void> {
+  await ZoteroFileAny.createDirectoryIfMissingAsync(dir.path, {
+    ignoreExisting: true,
+  });
+}
+
+async function buildItems(
+  projectId: number,
+  collections: ProjectCollectionMap,
+  stagingDir: any,
+  itemKeys: Set<string> | null,
+): Promise<ArchiveItem[]> {
+  const root = Zotero.Collections.get(collections.rootId) as Zotero.Collection;
+  const roles = roleMap(collections);
+
+  const rolesByItemId = new Map<number, Set<string>>();
+  for (const d of root.getDescendents(false, "item", false)) {
+    const role = roles.get(d.parent);
+    if (!role) continue;
+    if (!rolesByItemId.has(d.id)) rolesByItemId.set(d.id, new Set());
+    rolesByItemId.get(d.id)!.add(role);
+  }
+
+  const filesDir = Zotero.File.pathToFile(stagingDir.path) as any;
+  filesDir.append("files");
+  await ensureDir(filesDir);
+
+  const items: ArchiveItem[] = [];
+  for (const [itemId, itemRoles] of rolesByItemId) {
+    const item = Zotero.Items.get(itemId) as Zotero.Item;
+    if (!item || item.deleted) continue;
+    if (itemKeys && !itemKeys.has(item.key)) continue;
+
+    // Mints one the first time this project_id + item_key is ever exported
+    // (idempotent afterward, and a backstop for an item added before
+    // dedupService.ts started assigning one at import time) -- see
+    // stableItemId.ts.
+    const stableId = await ensureStableItemId(projectId, item.key);
+
+    const attachments: ArchiveAttachment[] = [];
+    for (const attId of item.getAttachments(false)) {
+      const attachment = Zotero.Items.get(attId) as Zotero.Item;
+      if (!attachment || !attachment.isPDFAttachment()) continue;
+      const filePath = await attachment.getFilePathAsync();
+      if (!filePath) continue;
+
+      const itemDir = Zotero.File.pathToFile(filesDir.path) as any;
+      itemDir.append(item.key);
+      await ensureDir(itemDir);
+
+      const fileName = `${attachment.key}.pdf`;
+      const targetFile = Zotero.File.pathToFile(itemDir.path) as any;
+      targetFile.append(fileName);
+      await ZoteroFileAny.copyFile(filePath, targetFile.path);
+
+      const annotations: ArchiveAnnotation[] = attachment
+        .getAnnotations(false)
+        .map((a) => ({
+          key: a.key,
+          type: String((a as any).annotationType ?? ""),
+          color: (a as any).annotationColor ?? "",
+          text: (a as any).annotationText ?? "",
+          comment: (a as any).annotationComment ?? "",
+          position: (a as any).annotationPosition ?? "",
+          sortIndex: String((a as any).annotationSortIndex ?? ""),
+          pageLabel: (a as any).annotationPageLabel ?? "",
+        }));
+
+      attachments.push({
+        key: attachment.key,
+        relPath: `files/${item.key}/${fileName}`,
+        title: attachment.getField("title") as string,
+        contentType: "application/pdf",
+        annotations,
+      });
+    }
+
+    items.push({
+      key: item.key,
+      stableId,
+      roles: Array.from(itemRoles),
+      json: item.toJSON(),
+      attachments,
+    });
+  }
+  return items;
+}
+
+/**
+ * One row per record identification/dedup outcome (dedupService.ts), kept
+ * items and erased duplicates alike -- see ArchiveItemSource's own doc
+ * comment for why a duplicate's own itemKey never needs remapping on
+ * import (there's no live item behind it any more). Filtered by itemKeys
+ * same as buildScreeningTables below; a duplicate's key is never IN that
+ * set (it was erased before any export could ever see it as a live item),
+ * so a scoped sample archive naturally only ever carries kept items'
+ * source rows.
+ */
+async function buildItemSources(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<ArchiveItemSource[]> {
+  const allRows = (await databaseService.queryAsync(
+    `SELECT item_key, source_database, imported_at, original_record, is_duplicate_of FROM item_sources WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const rows = itemKeys
+    ? allRows.filter((row) => itemKeys.has(row.item_key))
+    : allRows;
+  return rows.map((row) => ({
+    itemKey: row.item_key,
+    sourceDatabase: row.source_database,
+    importedAt: row.imported_at,
+    originalRecord: row.original_record,
+    isDuplicateOf: row.is_duplicate_of,
+  }));
+}
+
+async function buildScreeningTables(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<{
+  criteria: ArchiveScreeningCriteria[];
+  records: ArchiveScreeningRecord[];
+}> {
+  const criteriaRows = (await databaseService.queryAsync(
+    `SELECT id, stage, version, criteria, created_at FROM screening_criteria WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const criteriaVersionById = new Map<number, number>();
+  for (const row of criteriaRows) criteriaVersionById.set(row.id, row.version);
+
+  // Criteria aren't per-item, so they're never filtered -- a reviewer needs
+  // the full criteria regardless of which subset of items they were sent.
+  const criteria: ArchiveScreeningCriteria[] = criteriaRows.map((row) => ({
+    stage: row.stage,
+    version: row.version,
+    criteria: row.criteria,
+    createdAt: row.created_at,
+  }));
+
+  const allRecordRows = (await databaseService.queryAsync(
+    `SELECT * FROM screening_records WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const recordRows = itemKeys
+    ? allRecordRows.filter((row) => itemKeys.has(row.item_key))
+    : allRecordRows;
+  const records: ArchiveScreeningRecord[] = recordRows.map((row) => ({
+    itemKey: row.item_key,
+    stage: row.stage,
+    criteriaVersion: row.criteria_id
+      ? (criteriaVersionById.get(row.criteria_id) ?? null)
+      : null,
+    fulltextReady: row.fulltext_ready,
+    fulltextReadyAt: row.fulltext_ready_at,
+    fulltextReadyBy: row.fulltext_ready_by,
+    decision: row.decision,
+    exclusionReason: row.exclusion_reason,
+    annotationKey: row.annotation_key,
+    pendingPosition: row.pending_position,
+    aiDecision: row.ai_decision,
+    aiReasoning: row.ai_reasoning,
+    aiModel: row.ai_model,
+    humanDecision: row.human_decision,
+    humanReasoning: row.human_reasoning,
+    decidedBy: row.decided_by,
+    decidedAt: row.decided_at,
+  }));
+
+  return { criteria, records };
+}
+
+async function buildFtCriterionChecks(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<ArchiveFtCriterionCheck[]> {
+  const allRows = (await databaseService.queryAsync(
+    `SELECT * FROM ft_criterion_checks WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const rows = itemKeys
+    ? allRows.filter((row) => itemKeys.has(row.item_key))
+    : allRows;
+  return rows.map((row) => ({
+    itemKey: row.item_key,
+    criterionType: row.criterion_type,
+    criterionText: row.criterion_text,
+    verdict: row.verdict,
+    reasoning: row.reasoning,
+    quote: row.quote,
+    annotationKey: row.annotation_key,
+    pendingPosition: row.pending_position,
+    source: row.source,
+    confirmed: row.confirmed,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+async function buildCodingTables(
+  projectId: number,
+  itemKeys: Set<string> | null,
+): Promise<{
+  codebooks: ArchiveCodebook[];
+  codingRecords: ArchiveCodingRecord[];
+  synthesisThemes: ArchiveSynthesisTheme[];
+}> {
+  const codebookRows = (await databaseService.queryAsync(
+    `SELECT id, version, locked, variables, created_at, updated_at FROM codebooks WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const codebookVersionById = new Map<number, number>();
+  for (const row of codebookRows) codebookVersionById.set(row.id, row.version);
+
+  // Codebooks aren't per-item either, so also never filtered -- same
+  // reasoning as screening criteria above.
+  const codebooks: ArchiveCodebook[] = codebookRows.map((row) => ({
+    version: row.version,
+    locked: row.locked,
+    variables: row.variables,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+
+  const allCodingRows = (await databaseService.queryAsync(
+    `SELECT * FROM coding_records WHERE project_id = ? ORDER BY id`,
+    [projectId],
+  )) as any[];
+  const codingRows = itemKeys
+    ? allCodingRows.filter((row) => itemKeys.has(row.item_key))
+    : allCodingRows;
+  const codingRecordIndexById = new Map<number, number>();
+  const codingRecords: ArchiveCodingRecord[] = codingRows.map((row, i) => {
+    codingRecordIndexById.set(row.id, i);
+    return {
+      index: i,
+      itemKey: row.item_key,
+      codebookVersion: codebookVersionById.get(row.codebook_id) ?? 0,
+      annotationKey: row.annotation_key,
+      pendingPosition: row.pending_position,
+      variableName: row.variable_name,
+      variableValue: row.variable_value,
+      pageNumber: row.page_number,
+      quote: row.quote,
+      isPilot: row.is_pilot,
+      source: row.source,
+      confirmed: row.confirmed,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
+
+  const themeRows = (await databaseService.queryAsync(
+    `SELECT st.* FROM synthesis_themes st
+     JOIN coding_records cr ON cr.id = st.coding_record_id
+     WHERE cr.project_id = ?`,
+    [projectId],
+  )) as any[];
+  const synthesisThemes: ArchiveSynthesisTheme[] = themeRows
+    .filter((row) => codingRecordIndexById.has(row.coding_record_id))
+    .map((row) => ({
+      codingRecordIndex: codingRecordIndexById.get(row.coding_record_id)!,
+      theme: row.theme,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+  return { codebooks, codingRecords, synthesisThemes };
+}
+
+/**
+ * Human-human consistency round history (humanConsistencyService.ts).
+ * Unlike every other builder in this file, this one is NEVER filtered by
+ * itemKeys -- it's only ever called for a full project export in the first
+ * place (see exportProjectArchive), since a round's own bookkeeping is the
+ * coordinator's business, not something a reviewer's scoped sample archive
+ * should carry.
+ */
+async function buildConsistencyTables(projectId: number): Promise<{
+  consistencyRounds: ArchiveConsistencyRound[];
+  consistencyItemResults: ArchiveConsistencyItemResult[];
+}> {
+  const roundRows = (await databaseService.queryAsync(
+    `SELECT * FROM consistency_rounds WHERE project_id = ? AND stage = 'full_pipeline' ORDER BY id`,
+    [projectId],
+  )) as any[];
+  const roundIndexById = new Map<number, number>();
+  const consistencyRounds: ArchiveConsistencyRound[] = roundRows.map(
+    (row, i) => {
+      roundIndexById.set(row.id, i);
+      return {
+        status: row.status,
+        itemKeys: JSON.parse(row.item_keys || "[]"),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    },
+  );
+
+  const resultRows = (await databaseService.queryAsync(
+    `SELECT * FROM consistency_item_results WHERE project_id = ?`,
+    [projectId],
+  )) as any[];
+  const consistencyItemResults: ArchiveConsistencyItemResult[] = resultRows
+    .filter((row) => roundIndexById.has(row.round_id))
+    .map((row) => ({
+      itemKey: row.item_key,
+      roundIndex: roundIndexById.get(row.round_id)!,
+      aReviewer: row.a_reviewer,
+      aVerdict: row.a_verdict,
+      aExclusionReason: row.a_exclusion_reason,
+      bReviewer: row.b_reviewer,
+      bVerdict: row.b_verdict,
+      bExclusionReason: row.b_exclusion_reason,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+  return { consistencyRounds, consistencyItemResults };
+}
+
+/**
+ * Archives a project into a single .zip: every item's bibliographic data +
+ * PDF attachments + annotations across the whole Collection tree, plus this
+ * plugin's own screening/coding/synthesis data for it. See archiveTypes.ts
+ * for why cross-references use archive-local keys rather than live database
+ * ids.
+ *
+ * `itemKeys`, when given, restricts the archive to just those items (and
+ * only the screening/coding rows that reference them) -- used by
+ * humanConsistencyService.ts to hand out a sampled subset for a pilot
+ * round instead of the whole project. Omitted/undefined archives
+ * everything, same as before this parameter existed.
+ */
+export async function exportProjectArchive(
+  projectId: number,
+  outputZipPath: string,
+  itemKeys?: string[],
+): Promise<void> {
+  await databaseService.init();
+  const project = await getProjectById(projectId);
+  if (!project) {
+    throw new Error(`No evidence project found with id ${projectId}`);
+  }
+  const rootId = getRootCollectionId(project as EvidenceProject);
+  if (rootId === null) {
+    throw new Error(`Root collection not found for project "${project.name}"`);
+  }
+  const collections = resolveProjectCollections(rootId);
+  const itemKeySet = itemKeys ? new Set(itemKeys) : null;
+
+  const stagingDir = Zotero.getTempDirectory() as any;
+  stagingDir.append(`evidence-archive-${Date.now()}`);
+  await ensureDir(stagingDir);
+
+  try {
+    const items = await buildItems(
+      projectId,
+      collections,
+      stagingDir,
+      itemKeySet,
+    );
+    const { criteria, records } = await buildScreeningTables(
+      projectId,
+      itemKeySet,
+    );
+    const ftCriterionChecks = await buildFtCriterionChecks(
+      projectId,
+      itemKeySet,
+    );
+    const { codebooks, codingRecords, synthesisThemes } =
+      await buildCodingTables(projectId, itemKeySet);
+    // Only for a full export -- see buildConsistencyTables's doc comment.
+    const { consistencyRounds, consistencyItemResults } = itemKeySet
+      ? { consistencyRounds: [], consistencyItemResults: [] }
+      : await buildConsistencyTables(projectId);
+    const itemSources = await buildItemSources(projectId, itemKeySet);
+
+    const manifest: ArchiveManifest = {
+      formatVersion: 1,
+      exportedAt: new Date().toISOString(),
+      project: { name: project.name, status: project.status },
+      items,
+      screeningCriteria: criteria,
+      screeningRecords: records,
+      ftCriterionChecks,
+      codebooks,
+      codingRecords,
+      synthesisThemes,
+      consistencyRounds,
+      consistencyItemResults,
+      itemSources,
+    };
+
+    const manifestFile = Zotero.File.pathToFile(stagingDir.path) as any;
+    manifestFile.append(MANIFEST_FILENAME);
+    await Zotero.File.putContentsAsync(
+      manifestFile.path,
+      JSON.stringify(manifest),
+    );
+
+    await Zotero.File.zipDirectory(stagingDir.path, outputZipPath, {});
+  } finally {
+    if (stagingDir.exists()) stagingDir.remove(true);
+  }
+}

@@ -1,4 +1,5 @@
 import { safeGetField } from "../../utils/zoteroItem";
+import { ensureStableItemId } from "../../utils/stableItemId";
 import { databaseService } from "../db/database";
 import {
   ensureSourceCollection,
@@ -62,7 +63,7 @@ function toCandidate(itemKey: string, item: Zotero.Item): CandidateRecord {
 
 /**
  * Loads the canonical (non-duplicate) items already recorded for this
- * project, across its entire history -- not just the current Screen Queue --
+ * project, across its entire history -- not just the current TA-Screen Queue --
  * per the incremental-import dedup scope in REQUIREMENTS.md 2.1.3.
  */
 async function loadCandidateIndex(
@@ -128,7 +129,7 @@ async function recordItemSource(
 /**
  * Given freshly-imported (but not yet filed) Zotero items, decides which are
  * new vs. duplicates of items already in the project's history:
- *  - New items are filed into Sources/<sourceLabel> and Screen Queue.
+ *  - New items are filed into Sources/<sourceLabel> and TA-Screen Queue.
  *  - Duplicates are recorded for provenance (their snapshot is preserved in
  *    item_sources.original_record) and then erased, so the library doesn't
  *    accumulate orphan duplicate entries outside any project collection.
@@ -168,8 +169,18 @@ export async function processImportedItems(
       await item.eraseTx();
       duplicateCount++;
     } else {
+      // Assigned here -- the moment an item actually enters a project --
+      // rather than lazily at export time (exportProjectArchive still
+      // calls this too, as a backstop for any item that predates this
+      // line, e.g. an already-existing project on upgrade). See
+      // stableItemId.ts for why every item needs one: it's what lets a
+      // reviewer's independently-imported copy be matched back up without
+      // depending on item_key, which is never stable across a separate
+      // library's own import. Lives in this plugin's own DB, never in the
+      // item itself.
+      await ensureStableItemId(projectId, item.key);
       await item.addToCollection(sourceCollectionId);
-      await item.addToCollection(collections.screenQueueId);
+      await item.addToCollection(collections.taQueueId);
       await item.saveTx();
       await recordItemSource(projectId, item.key, sourceLabel, snapshot, null);
       candidates.push(candidate);

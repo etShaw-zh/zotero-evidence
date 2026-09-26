@@ -52,8 +52,41 @@ collapsible-section {
   min-width: 0;
 }
 
-/* Hides native item-pane sections while the Screen Queue card is active
-   (see src/modules/ui/screenQueuePane.ts). Native sections all render with a
+/* This whole chain was built from the Reader context pane's DOM, where
+   #zotero-view-item-container's parent chain up to the resizable column
+   is entirely covered (Zotero itself puts min-width:0 on the vbox
+   wrapping #zotero-context-pane-inner). The library window's own item
+   pane has a DIFFERENT parent above #zotero-view-item-container:
+   <item-details id="zotero-item-details"> (a plain layout custom element,
+   not tied to any splitter/collapse/persisted-width machinery -- that
+   machinery lives one level further up, on <item-pane>/<deck>, which
+   must NOT be touched here: adding min-width:0 directly to #zotero-item-
+   pane was tried and reverted, since it broke the item pane splitter's
+   own drag/collapse threshold and made the whole pane render wider than
+   its persisted width, not just our content). <item-details> is the same
+   tag in both Reader and library (see paneHelpers.ts's note on the
+   duplicated #zotero-view-item id), so this rule applies to both, but
+   only the library side was ever missing this link -- confirmed live:
+   .zotero-view-item-main still overflowed even with its own min-width:0
+   above, because ITS containing block (this element) was never
+   constrained to shrink in the first place. */
+item-details {
+  min-width: 0;
+}
+
+/* item-pane-sidenav's own base rule (.inherit-flex, its icon-button strip
+   container -- see itemPaneSidenav.js's `this._buttonContainer`) sets
+   `gap: inherit`, pulling in whatever gap the parent sidenav element
+   happens to have. With this plugin's sections added to the strip that
+   inherited gap misspaces the icon buttons -- drop just this one
+   declaration back to the property's own default rather than hardcoding a
+   replacement value. */
+item-pane-sidenav .inherit-flex {
+  gap: unset;
+}
+
+/* Hides native item-pane sections while the TA Queue card is active
+   (see src/modules/ui/taQueuePane.ts). Native sections all render with a
    stable data-pane attribute matching Zotero.ItemPaneManager's BuiltInPaneID
    list, confirmed by inspecting a live item pane. */
 #zotero-view-item.zotero-evidence-hide-native > [data-pane="info"],
@@ -112,6 +145,16 @@ collapsible-section {
   max-height: none;
 }
 
+/* TA-Screening's AI-supplied keyword highlights (paneHelpers.ts's
+   highlightKeywords) in the title/abstract -- a plain <mark> already
+   contrasts fine against both light and dark Zotero themes on its own
+   (opaque background, dark text), this just softens the corners/padding
+   to read as intentional rather than a raw browser default. */
+.zotero-evidence-card mark {
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
 .zotero-evidence-judgment {
   margin: 8px 0;
   padding: 8px;
@@ -129,6 +172,7 @@ collapsible-section {
 
 .zotero-evidence-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 8px 0;
 }
@@ -136,6 +180,59 @@ collapsible-section {
 .zotero-evidence-buttons button.selected {
   font-weight: bold;
   outline: 2px solid #2ea8e5;
+}
+
+/* The final Include/Exclude call (FT-Screening's reader-tab checklist) is
+   THE decision this whole pane exists to support -- every other button
+   here (run/refresh/confirm/flip/reject) is a step toward it, so it gets
+   visibly bigger and bolder rather than blending in at the same size. */
+.zotero-evidence-ft-finalize-row {
+  margin-top: 12px;
+}
+
+/* flex: 1 1 auto (not "1 1 0") is the actual fix here -- a flex-basis of 0
+   makes the browser size the button's box from the flex algorithm alone,
+   but a native <button>'s internal label doesn't always get re-measured to
+   match a computed width smaller than its own text, so the label painted
+   past the button's own border. Starting the basis from the button's real
+   content size (auto) and letting it grow from there avoids that mismatch
+   while still splitting the row evenly between two same-length labels. */
+.zotero-evidence-ft-finalize-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: 1.05em;
+  font-weight: bold;
+  border-radius: 6px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+}
+
+.zotero-evidence-ft-finalize-button.include {
+  color: #2e7d32;
+  border-color: rgba(46, 125, 50, 0.4);
+}
+
+.zotero-evidence-ft-finalize-button.include:hover {
+  background: rgba(46, 125, 50, 0.08);
+}
+
+.zotero-evidence-ft-finalize-button.exclude {
+  color: #a33;
+  border-color: rgba(170, 51, 51, 0.4);
+}
+
+.zotero-evidence-ft-finalize-button.exclude:hover {
+  background: rgba(170, 51, 51, 0.08);
+}
+
+.zotero-evidence-ft-finalize-button.selected.include {
+  background: rgba(46, 125, 50, 0.15);
+  outline: 2px solid #2e7d32;
+}
+
+.zotero-evidence-ft-finalize-button.selected.exclude {
+  background: rgba(170, 51, 51, 0.15);
+  outline: 2px solid #a33;
 }
 
 .zotero-evidence-attachment-status {
@@ -153,13 +250,6 @@ collapsible-section {
 
 .zotero-evidence-exclude-reason.open {
   display: flex;
-}
-
-.zotero-evidence-ft-annotation {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin: 8px 0;
 }
 
 .zotero-evidence-unavailable-button {
@@ -351,4 +441,155 @@ collapsible-section {
   gap: 6px;
   align-items: center;
   margin-top: 6px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Same fix as .zotero-evidence-coding-link-picker-controls select above:
+   a select's native intrinsic width follows its longest option (here, full
+   Codebook variable names and annotation quote previews), and flex-wrap on
+   the parent alone doesn't stop a single item from being that wide -- each
+   flex item's default min-width is auto (its unshrunk content size), so it
+   still overflows the sidebar without min-width:0 here too. */
+.zotero-evidence-coding-form select,
+.zotero-evidence-coding-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(100%, 200px);
+  box-sizing: border-box;
+}
+
+.zotero-evidence-coding-form button {
+  flex: 0 0 auto;
+}
+
+/* FT-Screening criterion checklist (ftQueuePane.ts) -- rows reuse Coding's
+   compact suggestion/confirmed-row and card/badge classes directly (see
+   .zotero-evidence-coding-suggestion-row etc. above) so the two AI-assisted
+   checklists (Coding's variables, FT's eligibility criteria) read as the
+   same kind of UI. Only the manual-add form's outer wrapper margin is
+   FT-specific -- the form itself reuses .zotero-evidence-coding-form. */
+.zotero-evidence-ft-manual-check {
+  margin: 10px 0;
+}
+
+/* Shared wrapper for each distinct block of the reader-tab Coding editor
+   from "Add mapping manually" down (renderCodingArea in codingPane.ts) --
+   a top border + consistent spacing so different features (manual
+   mapping, the key-literature flag, notes) read as visually separate
+   steps instead of running together with nothing between them, including
+   separating the first of these from the suggestions/confirmed-list area
+   above it. */
+.zotero-evidence-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.zotero-evidence-section h3 {
+  font-size: 0.95em;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+}
+
+/* Key-literature flag toggle (keyLiteratureService.ts / codingPane.ts's
+   renderKeyLiteratureToggle) -- amber to match the tag color it assigns
+   in Zotero's items list (KEY_LITERATURE_COLOR, #e5a50a), so the sidebar
+   button and the highlighted row read as the same "flagged" concept.
+   Styled explicitly (padding/radius/border) rather than left at native
+   button defaults -- at native size it read as an afterthought next to
+   the rest of this pane's deliberately-styled controls. */
+.zotero-evidence-flag-button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 0.95em;
+  text-align: center;
+  cursor: pointer;
+}
+
+.zotero-evidence-flag-button:hover {
+  background: rgba(229, 165, 10, 0.1);
+  border-color: rgba(229, 165, 10, 0.5);
+}
+
+.zotero-evidence-flag-button.flagged {
+  background: rgba(229, 165, 10, 0.15);
+  border-color: rgba(229, 165, 10, 0.5);
+  font-weight: bold;
+}
+
+/* Coding's free-text analytic-memo section (renderNotesSection in
+   codingPane.ts) -- the hint is styled like .zotero-evidence-coding-ai-quote
+   (muted, italic scaffolding text) rather than a heading, since it's a
+   prompt to read, not a label. */
+.zotero-evidence-notes-hint {
+  color: #666;
+  font-style: italic;
+  font-size: 0.9em;
+  margin: 0 0 6px 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
+}
+
+/* max-width:100% + box-sizing:border-box here matter more than usual: a
+   <textarea> has its own native intrinsic width unrelated to its actual
+   content, so without this it can push the sidebar wider exactly like the
+   overflow bugs fixed above this file -- not just shrink to fit one.
+   Explicit border/radius/padding for the same reason as
+   .zotero-evidence-flag-button above: native textarea chrome looked
+   noticeably plainer than the rest of this pane. */
+.zotero-evidence-notes-textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.zotero-evidence-notes-textarea:focus {
+  outline: none;
+  border-color: #2ea8e5;
+  box-shadow: 0 0 0 1px rgba(46, 168, 229, 0.3);
+}
+
+/* Shared "this stage isn't configured yet" chip (paneHelpers.ts's
+   renderConfigWarning) -- used by TA-Queue/FT-Queue's missing-criteria
+   message, Coding's missing-codebook message, and every stage row in the
+   Project Overview pane, so the same underlying condition looks and
+   behaves identically no matter which pane shows it. Color is the same
+   #a33 all of those used individually before this was unified. */
+.zotero-evidence-config-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(170, 51, 51, 0.08);
+  color: #a33;
+  font-size: 0.9em;
+}
+
+.zotero-evidence-config-warning button {
+  flex: 0 0 auto;
+}
+
+/* Right-aligned "go to this collection" button per stage row. */
+.zotero-evidence-overview-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }

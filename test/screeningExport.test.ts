@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { databaseService } from "../src/modules/db/database";
 import { processImportedItems } from "../src/modules/dedup/dedupService";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
@@ -7,6 +8,7 @@ import {
   computePrismaData,
   exportScreeningLog,
   formatPrismaCsv,
+  isPrismaDataEmpty,
   PrismaData,
 } from "../src/modules/export/screeningExport";
 import { confirmDecision as taConfirmDecision } from "../src/modules/screening/taScreeningService";
@@ -14,6 +16,7 @@ import {
   confirmDecision as ftConfirmDecision,
   markUnavailable,
 } from "../src/modules/screening/ftScreeningService";
+import { confirmCheck } from "../src/modules/screening/ftCriterionCheckService";
 
 // processImportedItems (like the real Zotero.Translate.Import path it
 // normally consumes) expects already-saved items with real keys -- it reads
@@ -46,18 +49,24 @@ describe("Phase 6: screeningExport", function () {
           databases: [{ name: "Web of Science", records: 2 }],
           totalRecords: 2,
           duplicatesRemoved: 0,
+          uniqueRecords: 2,
         },
         screening: {
           screened: 1,
           excluded: 1,
           unclearToFt: 0,
           includedToFt: 0,
+          pending: 0,
+        },
+        retrieval: {
+          soughtForRetrieval: 0,
+          notRetrieved: 0,
         },
         eligibility: {
-          fullTextAssessed: 0,
+          assessedForEligibility: 0,
           excluded: 0,
-          unavailable: 0,
           reasons: [{ reason: "Sample size < 30", count: 1 }],
+          pending: 0,
         },
         included: { finalStudies: 0 },
       };
@@ -67,6 +76,7 @@ describe("Phase 6: screeningExport", function () {
       assert.equal(lines[0], "Stage,Count");
       assert.include(lines, "Identification: Web of Science,2");
       assert.include(lines, "Identification: total_records,2");
+      assert.include(lines, "Identification: deduplicated_records,2");
       assert.include(lines, "TA-Screening: screened,1");
       assert.include(lines, "TA-Screening: excluded,1");
       const separatorIndex = lines.indexOf("");
@@ -78,6 +88,104 @@ describe("Phase 6: screeningExport", function () {
       assert.deepEqual(reasonsTable.slice(1), [
         "Sample size < 30,FT-Screening,1",
       ]);
+    });
+
+    it("only shows a pending-items row (TA or FT) when the review isn't fully screened yet", function () {
+      const base: PrismaData = {
+        identification: {
+          databases: [],
+          totalRecords: 0,
+          duplicatesRemoved: 0,
+          uniqueRecords: 0,
+        },
+        screening: {
+          screened: 0,
+          excluded: 0,
+          unclearToFt: 0,
+          includedToFt: 0,
+          pending: 0,
+        },
+        retrieval: { soughtForRetrieval: 0, notRetrieved: 0 },
+        eligibility: {
+          assessedForEligibility: 0,
+          excluded: 0,
+          reasons: [],
+          pending: 0,
+        },
+        included: { finalStudies: 0 },
+      };
+
+      const complete = formatPrismaCsv(base);
+      assert.notInclude(complete, "pending_not_yet_screened");
+
+      const taIncomplete = formatPrismaCsv({
+        ...base,
+        screening: { ...base.screening, pending: 5 },
+      });
+      assert.include(
+        taIncomplete.split("\n"),
+        "TA-Screening: pending_not_yet_screened,5",
+      );
+
+      const ftIncomplete = formatPrismaCsv({
+        ...base,
+        eligibility: { ...base.eligibility, pending: 3 },
+      });
+      assert.include(
+        ftIncomplete.split("\n"),
+        "FT-Screening: pending_not_yet_screened,3",
+      );
+    });
+  });
+
+  describe("isPrismaDataEmpty (pure)", function () {
+    const empty: PrismaData = {
+      identification: {
+        databases: [],
+        totalRecords: 0,
+        duplicatesRemoved: 0,
+        uniqueRecords: 0,
+      },
+      screening: {
+        screened: 0,
+        excluded: 0,
+        unclearToFt: 0,
+        includedToFt: 0,
+        pending: 0,
+      },
+      retrieval: { soughtForRetrieval: 0, notRetrieved: 0 },
+      eligibility: {
+        assessedForEligibility: 0,
+        excluded: 0,
+        reasons: [],
+        pending: 0,
+      },
+      included: { finalStudies: 0 },
+    };
+
+    it("is true when every count is zero", function () {
+      assert.isTrue(isPrismaDataEmpty(empty));
+    });
+
+    it("is false when identification.totalRecords is 0 but screening/eligibility/included counts aren't -- the exact shape a project restored from an archive predating item_sources being carried through export/import produces (see archiveExportService.ts)", function () {
+      assert.isFalse(
+        isPrismaDataEmpty({
+          ...empty,
+          screening: { ...empty.screening, screened: 5, excluded: 2 },
+        }),
+      );
+      assert.isFalse(
+        isPrismaDataEmpty({
+          ...empty,
+          eligibility: { ...empty.eligibility, assessedForEligibility: 3 },
+        }),
+      );
+      assert.isFalse(
+        isPrismaDataEmpty({
+          ...empty,
+          included: { finalStudies: 1 },
+        }),
+      );
     });
   });
 
@@ -148,15 +256,25 @@ describe("Phase 6: screeningExport", function () {
       "test",
     );
 
-    // FT-Screening: item2 exclude, item4 include, item5 unavailable
-    await ftConfirmDecision(
-      project.id,
-      item2,
-      collections,
-      "exclude",
-      "test",
-      "Sample size < 30",
+    // FT-Screening: item2 exclude, item4 include, item5 unavailable.
+    // PRISMA's reasons breakdown now reads confirmed ft_criterion_checks
+    // rows rather than a single exclusion_reason string -- seed one
+    // directly, matching what confirmCheck would have written.
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `INSERT INTO ft_criterion_checks
+        (project_id, item_key, criterion_type, criterion_text, verdict, source, confirmed, created_at, updated_at)
+       VALUES (?, ?, 'exclusion', 'Sample size < 30', 'exclude', 'human', 1, ?, ?)`,
+      [
+        project.id,
+        item2.key,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
     );
+    await ftConfirmDecision(project.id, item2, collections, "exclude", "test", [
+      "Sample size < 30",
+    ]);
     await ftConfirmDecision(project.id, item4, collections, "include", "test");
     await markUnavailable(project.id, item5, collections, "test");
 
@@ -168,22 +286,117 @@ describe("Phase 6: screeningExport", function () {
     ]);
     assert.equal(data.identification.totalRecords, 5);
     assert.equal(data.identification.duplicatesRemoved, 1);
+    assert.equal(data.identification.uniqueRecords, 4);
 
     assert.equal(data.screening.screened, 4);
     assert.equal(data.screening.excluded, 1);
     assert.equal(data.screening.unclearToFt, 1);
     assert.equal(data.screening.includedToFt, 2);
+    // Every item in this scenario reaches a TA decision -- nothing left in
+    // TA-Screen Queue.
+    assert.equal(data.screening.pending, 0);
     assert.isUndefined((data.screening as any).reasons);
 
-    assert.equal(data.eligibility.fullTextAssessed, 3);
+    assert.equal(data.retrieval.soughtForRetrieval, 3);
+    assert.equal(data.retrieval.notRetrieved, 1);
+    assert.equal(data.eligibility.assessedForEligibility, 2);
     assert.equal(data.eligibility.excluded, 1);
-    assert.equal(data.eligibility.unavailable, 1);
+    // "Full text unavailable" must NOT appear here -- a paper that was
+    // never retrieved was never assessed for eligibility, so it can't
+    // have an eligibility exclusion reason.
     assert.deepEqual(data.eligibility.reasons, [
       { reason: "Sample size < 30", count: 1 },
-      { reason: "Full text unavailable", count: 1 },
     ]);
+    // item2/item4/item5 all reach an FT decision (exclude/include/
+    // unavailable) -- nothing left in FT-Screen Queue.
+    assert.equal(data.eligibility.pending, 0);
 
     assert.equal(data.included.finalStudies, 1);
+  });
+
+  it("computePrismaData counts an item still sitting undecided in TA-Screen Queue as pending", async function () {
+    const project = await createProject(`Prisma Pending Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const decided = await makeImportCandidateItem(
+      "Decided Paper",
+      "Doe",
+      "2024",
+    );
+    const undecided = await makeImportCandidateItem(
+      "Undecided Paper",
+      "Roe",
+      "2024",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      decided,
+      undecided,
+    ]);
+    await taConfirmDecision(
+      project.id,
+      decided,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+    // `undecided` is left sitting in TA-Screen Queue -- no decision made.
+
+    const data = await computePrismaData(project.id);
+
+    assert.equal(data.screening.screened, 1);
+    assert.equal(data.screening.pending, 1);
+  });
+
+  it("computePrismaData counts an item still sitting undecided in FT-Screen Queue as pending", async function () {
+    const project = await createProject(`Prisma FT Pending Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const decided = await makeImportCandidateItem(
+      "FT Decided Paper",
+      "Doe",
+      "2024",
+    );
+    const undecided = await makeImportCandidateItem(
+      "FT Undecided Paper",
+      "Roe",
+      "2024",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      decided,
+      undecided,
+    ]);
+    // Both pass TA screening, so both move into FT-Screen Queue.
+    await taConfirmDecision(
+      project.id,
+      decided,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+    await taConfirmDecision(
+      project.id,
+      undecided,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+    await ftConfirmDecision(
+      project.id,
+      decided,
+      collections,
+      "include",
+      "test",
+    );
+    // `undecided` is left sitting in FT-Screen Queue -- no FT decision made.
+
+    const data = await computePrismaData(project.id);
+
+    assert.equal(data.eligibility.pending, 1);
   });
 
   it("exportScreeningLog produces one row per screening_records entry with a header", async function () {
@@ -203,19 +416,116 @@ describe("Phase 6: screeningExport", function () {
       "include",
       "test",
     );
-    await ftConfirmDecision(
-      project.id,
-      item,
-      collections,
-      "exclude",
-      "test",
+    await ftConfirmDecision(project.id, item, collections, "exclude", "test", [
       "No control group",
-    );
+    ]);
 
     const csv = await exportScreeningLog(project.id);
     const lines = csv.split("\n");
     assert.equal(lines.length, 3); // header + ta_screening row + ft_screening row
     assert.include(lines[0], "exclusion_reason");
+    assert.include(lines[0], "ai_model");
     assert.isTrue(lines.some((l) => l.includes("No control group")));
+  });
+
+  it("exportScreeningLog includes the AI model that produced each ai_decision", async function () {
+    const project = await createProject(
+      `Screening Log Model Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeImportCandidateItem(
+      "AI-Judged Paper",
+      "Roe",
+      "2024",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      item,
+    ]);
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage, ai_decision, ai_reasoning, ai_model)
+       VALUES (?, ?, 'ta_screening', 'include', 'fits the criteria', 'gpt-4o-mini')`,
+      [project.id, item.key],
+    );
+
+    const csv = await exportScreeningLog(project.id);
+    const lines = csv.split("\n");
+    const header = lines[0].split(",");
+    const modelColumn = header.indexOf("ai_model");
+    assert.isAbove(modelColumn, -1);
+    const dataRow = lines[1].split(",");
+    assert.equal(dataRow[modelColumn], "gpt-4o-mini");
+  });
+
+  it("exportScreeningLog includes each item's DOI, for reviewers' collected CSVs to be matched back up by DOI", async function () {
+    const project = await createProject(`Screening Log DOI Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeImportCandidateItem(
+      "DOI Paper",
+      "Poe",
+      "2024",
+      "10.1000/example.doi",
+    );
+    await processImportedItems(project.id, collections, "Web of Science", [
+      item,
+    ]);
+    await taConfirmDecision(
+      project.id,
+      item,
+      collections,
+      null,
+      "include",
+      "test",
+    );
+
+    const csv = await exportScreeningLog(project.id);
+    const lines = csv.split("\n");
+    const header = lines[0].split(",");
+    const doiColumn = header.indexOf("doi");
+    assert.isAbove(doiColumn, -1);
+    const dataRow = lines[1].split(",");
+    assert.equal(dataRow[doiColumn], "10.1000/example.doi");
+  });
+
+  it("exportScreeningLog includes ai_model for FT-Screening rows too, not just TA-Screening", async function () {
+    const project = await createProject(
+      `Screening Log FT Model Test ${Date.now()}`,
+    );
+    const item = await makeImportCandidateItem(
+      "FT AI-Checked Paper",
+      "Loe",
+      "2024",
+    );
+    await databaseService.init();
+    const now = new Date().toISOString();
+    // Mirrors what runCriterionChecks() (ftCriterionCheckService.ts) itself
+    // inserts for one AI-suggested check, including the model column that
+    // used to be missing entirely -- confirmCheck() below then triggers
+    // refreshAggregate(), which is what actually snapshots it onto
+    // screening_records.ai_model (what exportScreeningLog reads).
+    await databaseService.queryAsync(
+      `INSERT INTO ft_criterion_checks
+        (project_id, item_key, criterion_type, criterion_text, verdict, source, confirmed, model, created_at, updated_at)
+       VALUES (?, ?, 'inclusion', 'Adults 18-65', 'include', 'ai', 0, 'glm-4-flash', ?, ?)`,
+      [project.id, item.key, now, now],
+    );
+    const checkId = await databaseService.getLastInsertId();
+    await confirmCheck(checkId, item, project.id);
+
+    const csv = await exportScreeningLog(project.id);
+    const lines = csv.split("\n");
+    const header = lines[0].split(",");
+    const modelColumn = header.indexOf("ai_model");
+    const stageColumn = header.indexOf("stage");
+    const ftRow = lines
+      .slice(1)
+      .map((l) => l.split(","))
+      .find((fields) => fields[stageColumn] === "ft_screening");
+    assert.isDefined(ftRow);
+    assert.equal(ftRow![modelColumn], "glm-4-flash");
   });
 });

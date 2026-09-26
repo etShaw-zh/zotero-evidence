@@ -1,7 +1,9 @@
 import { assert } from "chai";
 import {
   createProject,
+  deleteProject,
   EvidenceProject,
+  getProjectById,
 } from "../src/modules/project/projectManager";
 import {
   CODING,
@@ -11,7 +13,7 @@ import {
   FT_SCREENING,
   FT_UNAVAILABLE,
   resolveProjectCollections,
-  SCREEN_QUEUE,
+  TA_QUEUE,
   SOURCES,
   TA_EXCLUDE,
   TA_INCLUDE,
@@ -19,6 +21,8 @@ import {
   TA_UNCLEAR,
 } from "../src/modules/project/collectionStructure";
 import { importLiteratureFile } from "../src/modules/import/importService";
+import { databaseService } from "../src/modules/db/database";
+import { saveCodebook } from "../src/modules/coding/codebookService";
 
 // Project rows and Zotero Collections live in separate id spaces
 // (evidence_projects.id is a SQLite autoincrement; Collection ids are
@@ -88,10 +92,148 @@ describe("Phase 1: project structure, import, dedup", function () {
     const project = await createProject(`Evidence Test ${Date.now()}`);
     const collections = resolveProjectCollections(getRootCollectionId(project));
     assert.isNumber(collections.sourcesId);
-    assert.isNumber(collections.screenQueueId);
+    assert.isNumber(collections.taQueueId);
     assert.isNumber(collections.taIncludeId);
     assert.isNumber(collections.ftQueueId);
     assert.isNumber(collections.codingId);
+  });
+
+  it("createProject stores and threads through an explicit libraryID (group-library support)", async function () {
+    // No real Group library is constructible offline in this test harness,
+    // so this proves the plumbing (explicit param -> stored column ->
+    // resolveProjectCollections's own libraryID) rather than a second real
+    // library -- the only library actually available here is still
+    // userLibraryID, passed explicitly instead of relying on the default.
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const project = await createProject(
+      `Evidence LibraryID Test ${Date.now()}`,
+      libraryID,
+    );
+    assert.equal(project.libraryID, libraryID);
+
+    const reread = await getProjectById(project.id);
+    assert.equal(reread?.libraryID, libraryID);
+
+    const collections = resolveProjectCollections(getRootCollectionId(project));
+    assert.equal(collections.libraryID, libraryID);
+  });
+
+  it("rowToProject falls back to the personal library for pre-migration rows with no library_id", async function () {
+    const project = await createProject(
+      `Evidence Legacy Row Test ${Date.now()}`,
+    );
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `UPDATE evidence_projects SET library_id = NULL WHERE id = ?`,
+      [project.id],
+    );
+    const reread = await getProjectById(project.id);
+    assert.equal(reread?.libraryID, Zotero.Libraries.userLibraryID);
+  });
+
+  it("deleteProject erases the Collection tree, its items, and every DB row for the project", async function () {
+    const project = await createProject(`Evidence Delete Test ${Date.now()}`);
+    const collections = resolveProjectCollections(getRootCollectionId(project));
+
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "Delete Test Item");
+    await item.saveTx();
+    item.addToCollection(collections.taQueueId);
+    await item.saveTx();
+    const itemId = item.id;
+
+    await databaseService.init();
+    await databaseService.queryAsync(
+      `INSERT INTO screening_criteria (project_id, stage, version, criteria, created_at)
+       VALUES (?, 'ta', 1, '{}', ?)`,
+      [project.id, new Date().toISOString()],
+    );
+    await databaseService.queryAsync(
+      `INSERT INTO screening_records (project_id, item_key, stage) VALUES (?, ?, 'ta_screening')`,
+      [project.id, item.key],
+    );
+    const codebook = await saveCodebook(project.id, [
+      { name: "population", type: "text" },
+    ]);
+    await databaseService.queryAsync(
+      `INSERT INTO coding_records
+        (project_id, codebook_id, item_key, variable_name, variable_value, confirmed, created_at, updated_at)
+       VALUES (?, ?, ?, 'population', 'Adults', 1, ?, ?)`,
+      [
+        project.id,
+        codebook.id,
+        item.key,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
+    );
+    const codingRecordId = await databaseService.getLastInsertId();
+    await databaseService.queryAsync(
+      `INSERT INTO synthesis_themes (coding_record_id, theme, created_at, updated_at)
+       VALUES (?, 'Theme A', ?, ?)`,
+      [codingRecordId, new Date().toISOString(), new Date().toISOString()],
+    );
+    // Both added after deleteProject's own cleanup list was first written --
+    // a real row in either of these (not just an empty table) is what
+    // actually reproduces the "FOREIGN KEY constraint failed" bug: an empty
+    // table never violates the constraint, so omitting these let that
+    // regression ship unnoticed.
+    await databaseService.queryAsync(
+      `INSERT INTO ft_criterion_checks
+        (project_id, item_key, criterion_type, criterion_text, verdict, source, confirmed, created_at, updated_at)
+       VALUES (?, ?, 'inclusion', 'Adults 18-65', 'include', 'human', 1, ?, ?)`,
+      [
+        project.id,
+        item.key,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
+    );
+    await databaseService.queryAsync(
+      `INSERT INTO consistency_rounds
+        (project_id, stage, phase, status, item_keys, created_at, updated_at)
+       VALUES (?, 'ta_screening', 'pilot', 'sampled', '[]', ?, ?)`,
+      [project.id, new Date().toISOString(), new Date().toISOString()],
+    );
+
+    await deleteProject(project.id);
+
+    assert.isFalse(
+      !!Zotero.Collections.get(collections.rootId),
+      "root Collection should be gone",
+    );
+    assert.isFalse(!!Zotero.Items.get(itemId), "item should be erased");
+    assert.isNull(
+      await getProjectById(project.id),
+      "evidence_projects row should be gone",
+    );
+    for (const table of [
+      "screening_criteria",
+      "screening_records",
+      "codebooks",
+      "coding_records",
+      "item_sources",
+      "ft_criterion_checks",
+      "consistency_rounds",
+    ]) {
+      const rows = await databaseService.queryAsync(
+        `SELECT * FROM ${table} WHERE project_id = ?`,
+        [project.id],
+      );
+      assert.isEmpty(
+        rows,
+        `${table} should have no rows for the deleted project`,
+      );
+    }
+    const themeRows = await databaseService.queryAsync(
+      `SELECT * FROM synthesis_themes WHERE coding_record_id = ?`,
+      [codingRecordId],
+    );
+    assert.isEmpty(
+      themeRows,
+      "synthesis_themes should have no rows for the deleted project",
+    );
   });
 
   it("names a new project's top-level Collections with pipeline-order number prefixes", async function () {
@@ -100,11 +242,11 @@ describe("Phase 1: project structure, import, dedup", function () {
     const nameOf = (id: number) =>
       (Zotero.Collections.get(id) as Zotero.Collection).name;
     assert.equal(nameOf(collections.sourcesId), SOURCES);
-    assert.equal(nameOf(collections.screenQueueId), SCREEN_QUEUE);
+    assert.equal(nameOf(collections.taQueueId), TA_QUEUE);
     assert.equal(nameOf(collections.ftQueueId), FT_QUEUE);
     assert.equal(nameOf(collections.codingId), CODING);
     assert.isTrue(SOURCES.startsWith("1."));
-    assert.isTrue(SCREEN_QUEUE.startsWith("2."));
+    assert.isTrue(TA_QUEUE.startsWith("2."));
     assert.isTrue(TA_SCREENING.startsWith("3."));
     assert.isTrue(FT_QUEUE.startsWith("4."));
     assert.isTrue(FT_SCREENING.startsWith("5."));
@@ -126,7 +268,7 @@ describe("Phase 1: project structure, import, dedup", function () {
 
     const root = await makeCollection(`Legacy Naming Test ${Date.now()}`);
     const sources = await makeCollection("Sources", root.id);
-    const screenQueue = await makeCollection("Screen Queue", root.id);
+    const taQueue = await makeCollection("Screen Queue", root.id);
     const taScreening = await makeCollection(
       "Title-Abstract Screening",
       root.id,
@@ -148,7 +290,7 @@ describe("Phase 1: project structure, import, dedup", function () {
 
     const collections = resolveProjectCollections(root.id);
     assert.equal(collections.sourcesId, sources.id);
-    assert.equal(collections.screenQueueId, screenQueue.id);
+    assert.equal(collections.taQueueId, taQueue.id);
     assert.equal(collections.ftQueueId, ftQueue.id);
     assert.equal(collections.codingId, coding.id);
   });
@@ -165,6 +307,62 @@ describe("Phase 1: project structure, import, dedup", function () {
       );
       throw e;
     }
+  });
+
+  it("importLiteratureFile accepts any source label, not just the built-in WoS/Scopus/PubMed presets", async function () {
+    // The Import dialog now offers a free-text source field (with the
+    // presets as suggestions) instead of a fixed 3-item picker, since
+    // nothing downstream actually requires one of those three strings --
+    // ensureSourceCollection() creates the Sources sub-collection on demand
+    // for any label, and item_sources.source_database is a plain,
+    // unconstrained TEXT column. This proves that's still true.
+    const project = await createProject(`Custom Source Test ${Date.now()}`);
+    const collections = resolveProjectCollections(getRootCollectionId(project));
+
+    const customSourceRis = `TY  - JOUR
+TI  - A Custom-Source Test Article
+AU  - Example, Author
+PY  - 2023
+DO  - 10.1000/custom-source-example.001
+ER  -
+`;
+    const path = writeFixtureFile(
+      `custom-source-${Date.now()}.ris`,
+      customSourceRis,
+    );
+
+    const result = await importLiteratureFile(
+      project.id,
+      collections.rootId,
+      "PsycINFO",
+      path,
+    );
+    assert.equal(result.totalParsed, 1);
+    assert.equal(result.newCount, 1);
+
+    const refreshedCollections = resolveProjectCollections(collections.rootId);
+    assert.property(
+      refreshedCollections.sourceCollectionIds,
+      "PsycINFO",
+      "a Sources/PsycINFO sub-collection should have been created on demand",
+    );
+    const psycInfoItems = (
+      Zotero.Collections.get(
+        refreshedCollections.sourceCollectionIds.PsycINFO,
+      ) as Zotero.Collection
+    ).getChildItems();
+    assert.equal(psycInfoItems.length, 1);
+    assert.equal(
+      psycInfoItems[0].getField("title"),
+      "A Custom-Source Test Article",
+    );
+
+    await databaseService.init();
+    const rows = (await databaseService.queryAsync(
+      `SELECT source_database FROM item_sources WHERE project_id = ? AND item_key = ?`,
+      [project.id, psycInfoItems[0].key],
+    )) as { source_database: string }[];
+    assert.equal(rows[0]?.source_database, "PsycINFO");
   });
 });
 
@@ -206,13 +404,13 @@ async function runImportDedupTest() {
     "1 Scopus record duplicates a WoS DOI",
   );
 
-  const screenQueueCollection = Zotero.Collections.get(
-    collections.screenQueueId,
+  const taQueueCollection = Zotero.Collections.get(
+    collections.taQueueId,
   ) as Zotero.Collection;
-  const screenQueueItems = screenQueueCollection.getChildItems();
+  const taQueueItems = taQueueCollection.getChildItems();
   assert.equal(
-    screenQueueItems.length,
+    taQueueItems.length,
     4,
-    "Screen Queue should contain 4 unique records (3 WoS + 1 new Scopus)",
+    "TA-Screen Queue should contain 4 unique records (3 WoS + 1 new Scopus)",
   );
 }

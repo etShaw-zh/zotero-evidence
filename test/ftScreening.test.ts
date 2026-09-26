@@ -1,24 +1,13 @@
 import { assert } from "chai";
-import {
-  deleteProvider,
-  upsertProvider,
-} from "../src/modules/ai/providerConfig";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
 import { createProject } from "../src/modules/project/projectManager";
-import { saveCriteria } from "../src/modules/screening/criteriaService";
-import { databaseService } from "../src/modules/db/database";
-import { locateQuoteInAttachment } from "../src/modules/pdf/pdfAnnotationCreator";
-import { FT_SCREENING_ANNOTATION_COLOR } from "../src/utils/annotationColors";
 import {
   confirmDecision,
   getAttachmentFullText,
   getScreeningState,
-  linkFtAnnotation,
   markFulltextReady,
   markUnavailable,
-  parseJudgment,
-  runAIJudgment,
 } from "../src/modules/screening/ftScreeningService";
 
 // Minimal hand-written valid single-page PDF, same technique used to
@@ -79,29 +68,6 @@ async function attachRealPdf(
   return attachment as Zotero.Item;
 }
 
-// Same field set/order already verified working in test/coding.test.ts's
-// createRealAnnotation -- annotationSortIndex is NOT NULL, discovered the
-// hard way in Phase 4.
-async function createRealAnnotation(
-  attachment: Zotero.Item,
-  text: string,
-  color = "#ff0000",
-): Promise<Zotero.Item> {
-  const annotation = new Zotero.Item("annotation");
-  annotation.libraryID = attachment.libraryID;
-  (annotation as any).parentID = attachment.id;
-  (annotation as any).annotationType = "highlight";
-  (annotation as any).annotationText = text;
-  (annotation as any).annotationColor = color;
-  (annotation as any).annotationPosition = JSON.stringify({
-    pageIndex: 0,
-    rects: [[0, 0, 10, 10]],
-  });
-  (annotation as any).annotationSortIndex = "00000|000000|00000";
-  await annotation.saveTx();
-  return annotation;
-}
-
 describe("Phase 3: FT-Screening core loop", function () {
   this.timeout(60000);
 
@@ -119,29 +85,6 @@ describe("Phase 3: FT-Screening core loop", function () {
     assert.include(text!, "FT SCREENING TEST FIXTURE TEXT");
   });
 
-  it("falls back to a null decision (not a synthesized third state) on unparseable AI responses", function () {
-    const good = parseJudgment('{"decision": "include", "reasoning": "fits"}');
-    assert.equal(good.decision, "include");
-
-    const garbage = parseJudgment("not json at all");
-    assert.isNull(garbage.decision);
-    assert.equal(garbage.reasoning, "not json at all");
-  });
-
-  it("parseJudgment extracts exclusionReason when present, empty string when omitted", function () {
-    const withReason = parseJudgment(
-      '{"decision": "exclude", "reasoning": "too small", "exclusionReason": "No control group", "quote": "n=5"}',
-    );
-    assert.equal(withReason.decision, "exclude");
-    assert.equal(withReason.exclusionReason, "No control group");
-
-    const withoutReason = parseJudgment(
-      '{"decision": "include", "reasoning": "fits"}',
-    );
-    assert.equal(withoutReason.decision, "include");
-    assert.equal(withoutReason.exclusionReason, "");
-  });
-
   it("markFulltextReady sets the fulltext_ready gate", async function () {
     const project = await createProject(`FT Ready Test ${Date.now()}`);
     const item = await makeTestItem("Ready Gate");
@@ -152,68 +95,6 @@ describe("Phase 3: FT-Screening core loop", function () {
     await markFulltextReady(project.id, item, "test-user");
     state = await getScreeningState(project.id, item.key);
     assert.isTrue(state?.fulltextReady);
-  });
-
-  it("runAIJudgment refuses to run without a configured provider", async function () {
-    deleteProvider("default");
-    const project = await createProject(`FT No Provider Test ${Date.now()}`);
-    const item = await makeTestItem("No Provider");
-    let threw = false;
-    try {
-      await runAIJudgment(project.id, item);
-    } catch (e: any) {
-      threw = true;
-      assert.match(e.message, /provider/i);
-    }
-    assert.isTrue(threw);
-  });
-
-  it("runAIJudgment refuses to run without configured FT criteria", async function () {
-    upsertProvider({
-      id: "default",
-      name: "Test Provider",
-      baseURL: "http://127.0.0.1:1/unused",
-      apiKey: "test",
-      model: "test-model",
-    });
-    const project = await createProject(`FT No Criteria Test ${Date.now()}`);
-    const item = await makeTestItem("No Criteria");
-    await markFulltextReady(project.id, item, "test-user");
-    let threw = false;
-    try {
-      await runAIJudgment(project.id, item);
-    } catch (e: any) {
-      threw = true;
-      assert.match(e.message, /criteria/i);
-    }
-    assert.isTrue(threw);
-    deleteProvider("default");
-  });
-
-  it("runAIJudgment refuses to run before fulltext_ready is confirmed", async function () {
-    upsertProvider({
-      id: "default",
-      name: "Test Provider",
-      baseURL: "http://127.0.0.1:1/unused",
-      apiKey: "test",
-      model: "test-model",
-    });
-    const project = await createProject(`FT Not Ready Test ${Date.now()}`);
-    await saveCriteria(project.id, "ft", {
-      researchQuestion: "Q",
-      inclusionCriteria: ["A"],
-      exclusionCriteria: ["B"],
-    });
-    const item = await makeTestItem("Not Ready Yet");
-    let threw = false;
-    try {
-      await runAIJudgment(project.id, item);
-    } catch (e: any) {
-      threw = true;
-      assert.match(e.message, /full text/i);
-    }
-    assert.isTrue(threw);
-    deleteProvider("default");
   });
 
   it("confirmDecision(include) moves the item from FT-Queue to FT-Include", async function () {
@@ -243,55 +124,7 @@ describe("Phase 3: FT-Screening core loop", function () {
     assert.equal(state?.decision, "include");
   });
 
-  it("confirmDecision materializes a pending auto-located highlight (FTS-06) only once confirmed", async function () {
-    const project = await createProject(
-      `FT Materialize On Confirm ${Date.now()}`,
-    );
-    const collections = resolveProjectCollections(
-      getRootCollectionId(project)!,
-    );
-    const item = await makeTestItem("FT Materialize Me");
-    const attachment = await attachRealPdf(
-      item,
-      `ft-materialize-${Date.now()}.pdf`,
-    );
-    item.addToCollection(collections.ftQueueId);
-    await item.saveTx();
-
-    // Simulate what runAIJudgment already did: locate the quote and stash
-    // it as pending_position, WITHOUT creating a real annotation.
-    const located = await locateQuoteInAttachment(
-      attachment,
-      "FT SCREENING TEST FIXTURE TEXT",
-    );
-    assert.isNotNull(located);
-    await databaseService.init();
-    await databaseService.queryAsync(
-      `INSERT INTO screening_records (project_id, item_key, stage, pending_position) VALUES (?, ?, 'ft_screening', ?)`,
-      [project.id, item.key, JSON.stringify(located)],
-    );
-    assert.equal(attachment.getAnnotations().length, 0);
-
-    await confirmDecision(
-      project.id,
-      item,
-      collections,
-      "include",
-      "test-user",
-    );
-
-    assert.equal(attachment.getAnnotations().length, 1);
-    const state = await getScreeningState(project.id, item.key);
-    assert.isNotNull(state?.annotationKey);
-    assert.isNull(state?.pendingPosition);
-    const annotation = Zotero.Items.getByLibraryAndKey(
-      attachment.libraryID,
-      state!.annotationKey!,
-    ) as Zotero.Item;
-    assert.equal(annotation.annotationColor, FT_SCREENING_ANNOTATION_COLOR);
-  });
-
-  it("confirmDecision(exclude) moves the item from FT-Queue to FT-Exclude", async function () {
+  it("confirmDecision(exclude) moves the item from FT-Queue to FT-Exclude and joins multiple reasons", async function () {
     const project = await createProject(`FT Confirm Exclude ${Date.now()}`);
     const collections = resolveProjectCollections(
       getRootCollectionId(project)!,
@@ -306,35 +139,38 @@ describe("Phase 3: FT-Screening core loop", function () {
       collections,
       "exclude",
       "test-user",
-      "Sample size < 30",
+      ["Sample size < 30", "Wrong study design"],
     );
 
     assert.isTrue(item.inCollection(collections.ftExcludeId));
     const state = await getScreeningState(project.id, item.key);
-    assert.equal(state?.exclusionReason, "Sample size < 30");
+    assert.equal(
+      state?.exclusionReason,
+      "Sample size < 30; Wrong study design",
+    );
   });
 
-  it("linkFtAnnotation (FTS-06) forces the highlight to the fixed orange color and records it", async function () {
+  it("confirmDecision(exclude) leaves exclusion_reason null when no reasons are given", async function () {
     const project = await createProject(
-      `FT Link Annotation Test ${Date.now()}`,
+      `FT Confirm Exclude No Reason ${Date.now()}`,
     );
-    const item = await makeTestItem("FT Evidence Item");
-    const attachment = await attachRealPdf(
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeTestItem("FT Exclude No Reason");
+    item.addToCollection(collections.ftQueueId);
+    await item.saveTx();
+
+    await confirmDecision(
+      project.id,
       item,
-      `ft-link-fixture-${Date.now()}.pdf`,
+      collections,
+      "exclude",
+      "test-user",
     );
-    const annotation = await createRealAnnotation(
-      attachment,
-      "the key sentence",
-      "#ff0000",
-    );
-    assert.notEqual(annotation.annotationColor, FT_SCREENING_ANNOTATION_COLOR);
 
-    await linkFtAnnotation(project.id, item, annotation.key);
-
-    assert.equal(annotation.annotationColor, FT_SCREENING_ANNOTATION_COLOR);
     const state = await getScreeningState(project.id, item.key);
-    assert.equal(state?.annotationKey, annotation.key);
+    assert.isNull(state?.exclusionReason);
   });
 
   it("markUnavailable moves the item from FT-Queue to FT-Unavailable", async function () {

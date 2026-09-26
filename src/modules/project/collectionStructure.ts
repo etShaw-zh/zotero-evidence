@@ -13,8 +13,8 @@ export type SourceDatabaseLabel = (typeof SOURCE_DATABASE_LABELS)[number];
 // resolveProjectCollections() below also recognizes every prior generation
 // of names (and FT-Screen Queue's prior nested position under FT-Screening)
 // so projects created at any point keep resolving without a migration.
-export const SCREEN_QUEUE = "2. TA-Screen Queue";
-export const SCREEN_QUEUE_LEGACY_NAMES = ["Screen Queue", "2. Screen Queue"];
+export const TA_QUEUE = "2. TA-Screen Queue";
+export const TA_QUEUE_LEGACY_NAMES = ["Screen Queue", "2. Screen Queue"];
 export const TA_SCREENING = "3. TA-Screening Results";
 export const TA_SCREENING_LEGACY_NAMES = [
   "Title-Abstract Screening",
@@ -46,11 +46,21 @@ export interface ProjectCollectionMap {
   rootKey: string;
   libraryID: number;
   sourcesId: number;
-  screenQueueId: number;
+  taQueueId: number;
+  // The "3. TA-Screening Results"/"5. FT-Screening Results" parent
+  // Collections themselves -- never populated directly by any service
+  // (confirmDecision always adds to one of the *Include/*Exclude/*Unclear
+  // children below, never to the parent), but a user can still drag an
+  // item into either by hand. Exposed so projectContext.ts can map them to
+  // PaneRole "other" too, same as sourcesId/rootId, so native panes stay
+  // hidden and the title read-only there -- see that file's buildContextMap
+  // for the parallel reasoning.
+  taScreeningId: number;
   taIncludeId: number;
   taExcludeId: number;
   taUnclearId: number;
   ftQueueId: number;
+  ftScreeningId: number;
   ftIncludeId: number;
   ftExcludeId: number;
   ftUnavailableId: number;
@@ -86,7 +96,7 @@ export async function createProjectCollectionStructure(
     sourceCollectionIds[label] = c.id;
   }
 
-  const screenQueue = await createCollection(SCREEN_QUEUE, libraryID, root.id);
+  const taQueue = await createCollection(TA_QUEUE, libraryID, root.id);
 
   const taScreening = await createCollection(TA_SCREENING, libraryID, root.id);
   const taInclude = await createCollection(
@@ -131,11 +141,13 @@ export async function createProjectCollectionStructure(
     rootKey: root.key,
     libraryID,
     sourcesId: sources.id,
-    screenQueueId: screenQueue.id,
+    taQueueId: taQueue.id,
+    taScreeningId: taScreening.id,
     taIncludeId: taInclude.id,
     taExcludeId: taExclude.id,
     taUnclearId: taUnclear.id,
     ftQueueId: ftQueue.id,
+    ftScreeningId: ftScreening.id,
     ftIncludeId: ftInclude.id,
     ftExcludeId: ftExclude.id,
     ftUnavailableId: ftUnavailable.id,
@@ -163,11 +175,11 @@ export function resolveProjectCollections(
     children.find((c) => c.name === name || legacyNames.includes(c.name));
 
   const sources = byName(SOURCES, SOURCES_LEGACY_NAMES);
-  const screenQueue = byName(SCREEN_QUEUE, SCREEN_QUEUE_LEGACY_NAMES);
+  const taQueue = byName(TA_QUEUE, TA_QUEUE_LEGACY_NAMES);
   const taScreening = byName(TA_SCREENING, TA_SCREENING_LEGACY_NAMES);
   const ftScreening = byName(FT_SCREENING, FT_SCREENING_LEGACY_NAMES);
   const coding = byName(CODING, CODING_LEGACY_NAMES);
-  if (!sources || !screenQueue || !taScreening || !ftScreening || !coding) {
+  if (!sources || !taQueue || !taScreening || !ftScreening || !coding) {
     throw new Error(
       `Project collection structure is incomplete for collection ${rootId}`,
     );
@@ -213,11 +225,13 @@ export function resolveProjectCollections(
     rootKey: root.key,
     libraryID,
     sourcesId: sources.id,
-    screenQueueId: screenQueue.id,
+    taQueueId: taQueue.id,
+    taScreeningId: taScreening.id,
     taIncludeId: taInclude.id,
     taExcludeId: taExclude.id,
     taUnclearId: taUnclear.id,
     ftQueueId: ftQueue.id,
+    ftScreeningId: ftScreening.id,
     ftIncludeId: ftInclude.id,
     ftExcludeId: ftExclude.id,
     ftUnavailableId: ftUnavailable.id,

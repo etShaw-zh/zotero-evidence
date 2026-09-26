@@ -10,7 +10,7 @@ export interface ImportResult {
 
 /**
  * Imports one exported-search-results file into a project's Sources
- * collection, then runs dedup (see dedupService) to decide Screen Queue
+ * collection, then runs dedup (see dedupService) to decide TA-Screen Queue
  * membership.
  */
 export async function importLiteratureFile(

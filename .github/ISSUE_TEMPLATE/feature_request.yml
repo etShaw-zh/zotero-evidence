@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose an improvement to a research workflow
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: Describe the research need and workflow before suggesting interface details.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Research workflow
+      description: What review or evidence-synthesis workflow are you performing?
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or repeated task does this request address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the outcome you would like, without limiting the proposal to a particular interface.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other tools you considered.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Expected impact
+      description: Explain who benefits and how this changes the research workflow.
+    validations:
+      required: true

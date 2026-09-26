@@ -49,6 +49,20 @@ export default defineConfig({
         external: ["chrome://*"],
         outfile: `.scaffold/build/addon/content/scripts/mupdf-worker.js`,
       },
+      {
+        // Zotero.PreferencePanes.register()'s `scripts` load into the
+        // Settings window's OWN document, a separate sandbox from the main
+        // Zotero window this plugin's main bundle runs in -- same reason
+        // the MuPDF worker above is its own bundle rather than an import
+        // inside the main one. Reaches the running plugin instance via
+        // Zotero[addonInstance].api (see hooks.ts onStartup) rather than
+        // importing any module, since nothing in src/modules is loaded
+        // into this sandbox.
+        entryPoints: ["src/modules/ui/preferencesPane.ts"],
+        bundle: true,
+        target: "firefox115",
+        outfile: `.scaffold/build/addon/content/scripts/preferences-pane.js`,
+      },
     ],
   },
 

@@ -1,6 +1,12 @@
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
+import { getRunProgress } from "../ai/aiRunTracker";
 import { CodebookVariable, getLatestCodebook } from "../coding/codebookService";
+import { getNote, saveNote } from "../coding/codingNotesService";
+import {
+  isKeyLiterature,
+  setKeyLiterature,
+} from "../coding/keyLiteratureService";
 import {
   addManualRecord,
   CodingRecord,
@@ -14,16 +20,24 @@ import {
 } from "../coding/codingService";
 import { ProjectPaneContext } from "../project/projectContext";
 import { safeGetField } from "../../utils/zoteroItem";
+import { EvidenceCommands } from "./commands";
 import {
   annotationOptionLabel,
   el,
   escapeHtml,
   quotePreview,
+  refreshAnnotationOptions,
+  refreshLibraryNativeSectionsHidden,
   renderCardHeader,
+  renderConfigWarning,
   renderPaneError,
+  renderRowActionsLegend,
   resolveAttachment,
   resolveContextSync,
   setNativeSectionsHidden,
+  shouldHideNativeSections,
+  sortAnnotationsByNewest,
+  stageLabel,
 } from "./paneHelpers";
 
 const PANE_ID = "zotero-evidence-coding";
@@ -99,6 +113,7 @@ function locationForAnnotation(
 function renderInlineLinkPicker(
   doc: Document,
   item: Zotero.Item,
+  attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   record: CodingRecord,
   onChanged: () => void,
@@ -137,7 +152,7 @@ function renderInlineLinkPicker(
           innerHTML: getString("coding-choose-annotation"),
         },
       },
-      ...annotations.map((a) => ({
+      ...sortAnnotationsByNewest(annotations).map((a) => ({
         tag: "option",
         namespace: "html",
         properties: { value: a.key, innerHTML: annotationOptionLabel(a) },
@@ -145,6 +160,29 @@ function renderInlineLinkPicker(
     ],
   }) as HTMLSelectElement;
   pickerControls.appendChild(select);
+
+  if (attachment) {
+    pickerControls.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        properties: { innerHTML: getString("annotation-refresh") },
+        listeners: [
+          {
+            type: "click",
+            listener: (ev: Event) => {
+              ev.stopPropagation();
+              refreshAnnotationOptions(
+                doc,
+                select,
+                attachment,
+                getString("coding-choose-annotation"),
+              );
+            },
+          },
+        ],
+      }),
+    );
+  }
 
   const linkBtn = el(doc, "button", {
     attributes: { type: "button" },
@@ -164,6 +202,7 @@ function renderInlineLinkPicker(
           try {
             await linkAnnotationToRecord(
               record.id,
+              item.libraryID,
               key,
               record.variableName,
               record.variableValue,
@@ -238,6 +277,42 @@ function renderSuggestionRow(
     classList: ["zotero-evidence-coding-row-actions"],
   }) as HTMLElement;
 
+  // Only offered when auto-locate actually found a position for this
+  // suggestion (same gate acceptAllBtn already applies below) --
+  // confirmRecord() only ever materializes a real, evidence-backed
+  // annotation (what "confirmed" means here) when there's a pending
+  // position to place it at; without one, it would silently just re-save
+  // the text fields with nothing to show for it. An unlocated suggestion
+  // still needs the manual link picker (click the row) instead.
+  if (located) {
+    const confirmBtn = el(doc, "button", {
+      attributes: { type: "button", title: getString("coding-confirm-one") },
+      properties: { innerHTML: "✓" },
+      listeners: [
+        {
+          type: "click",
+          listener: async (ev: Event) => {
+            ev.stopPropagation();
+            try {
+              await confirmRecord(
+                record.id,
+                item,
+                record.variableName,
+                record.variableValue,
+              );
+              onChanged();
+            } catch (e: any) {
+              ztoolkit.getGlobal("alert")(
+                `${getString("coding-error-confirm")}\n${e?.message ?? e}`,
+              );
+            }
+          },
+        },
+      ],
+    });
+    actions.appendChild(confirmBtn);
+  }
+
   const rejectBtn = el(doc, "button", {
     attributes: { type: "button", title: getString("coding-reject-one") },
     properties: { innerHTML: "✕" },
@@ -278,7 +353,14 @@ function renderSuggestionRow(
       return;
     }
     wrap.appendChild(
-      renderInlineLinkPicker(doc, item, annotations, record, onChanged),
+      renderInlineLinkPicker(
+        doc,
+        item,
+        attachment,
+        annotations,
+        record,
+        onChanged,
+      ),
     );
   });
 
@@ -318,6 +400,12 @@ function renderPendingSuggestionsCard(
         }),
       },
     }),
+  );
+  card.appendChild(
+    renderRowActionsLegend(doc, [
+      { symbol: "✓", label: getString("coding-confirm-one") },
+      { symbol: "✕", label: getString("coding-reject-one") },
+    ]),
   );
 
   for (const record of pending) {
@@ -426,6 +514,13 @@ function renderConfirmedList(
       properties: { innerHTML: getString("coding-confirmed-title") },
     }),
   );
+  if (onChanged) {
+    container.appendChild(
+      renderRowActionsLegend(doc, [
+        { symbol: "↺", label: getString("coding-undo-confirm") },
+      ]),
+    );
+  }
 
   const list = el(doc, "div", {
     classList: ["zotero-evidence-confirmed-list"],
@@ -522,6 +617,7 @@ async function renderManualAddForm(
   item: Zotero.Item,
   codebookId: number,
   variables: CodebookVariable[],
+  attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   onChanged: () => void,
 ) {
@@ -554,7 +650,7 @@ async function renderManualAddForm(
           innerHTML: getString("coding-choose-annotation-optional"),
         },
       },
-      ...annotations.map((a) => ({
+      ...sortAnnotationsByNewest(annotations).map((a) => ({
         tag: "option",
         namespace: "html",
         properties: { value: a.key, innerHTML: annotationOptionLabel(a) },
@@ -562,6 +658,28 @@ async function renderManualAddForm(
     ],
   }) as HTMLSelectElement;
   form.appendChild(annotationSelect);
+
+  if (attachment) {
+    form.appendChild(
+      el(doc, "button", {
+        attributes: { type: "button" },
+        properties: { innerHTML: getString("annotation-refresh") },
+        listeners: [
+          {
+            type: "click",
+            listener: () => {
+              refreshAnnotationOptions(
+                doc,
+                annotationSelect,
+                attachment,
+                getString("coding-choose-annotation-optional"),
+              );
+            },
+          },
+        ],
+      }),
+    );
+  }
 
   const addBtn = el(doc, "button", {
     attributes: { type: "button" },
@@ -608,6 +726,116 @@ async function renderManualAddForm(
   container.appendChild(form);
 }
 
+/**
+ * Toggle for keyLiteratureService's "key literature" flag (a real Zotero
+ * tag under the hood -- see that file for why). Rendered right before the
+ * notes section, by request, as a compact self-labeling button rather
+ * than a checkbox: its own text says which action clicking it will take
+ * ("Mark"/"Unmark"), so its current state doesn't need a separate label.
+ */
+function renderKeyLiteratureToggle(
+  container: HTMLElement,
+  doc: Document,
+  item: Zotero.Item,
+  onChanged: () => void,
+): void {
+  const flagged = isKeyLiterature(item);
+  const btn = el(doc, "button", {
+    classList: ["zotero-evidence-flag-button", ...(flagged ? ["flagged"] : [])],
+    attributes: { type: "button" },
+    properties: {
+      innerHTML: flagged
+        ? getString("coding-key-literature-unflag")
+        : getString("coding-key-literature-flag"),
+    },
+    listeners: [
+      {
+        type: "click",
+        listener: async () => {
+          try {
+            await setKeyLiterature(item, !flagged);
+            onChanged();
+          } catch (e: any) {
+            ztoolkit.getGlobal("alert")(
+              `${getString("coding-error-flag")}\n${e?.message ?? e}`,
+            );
+          }
+        },
+      },
+    ],
+  });
+  container.appendChild(btn);
+}
+
+/**
+ * Free-text analytic memo (REQUIREMENTS: none yet -- added by request),
+ * separate from the Codebook variable-mapping workflow above it: after
+ * reviewing the AI's suggestions and forming their own understanding of
+ * the paper, the human can jot down thoughts connecting it to the
+ * research question without those thoughts having to map onto any single
+ * Codebook variable. Optional (an empty save just clears any existing
+ * note -- see codingNotesService.saveNote) and deliberately NOT included
+ * in exportCodingData/exportSynthesisData, by request: this is the
+ * researcher's own working notes, not a data column.
+ */
+async function renderNotesSection(
+  container: HTMLElement,
+  doc: Document,
+  ctx: ProjectPaneContext,
+  item: Zotero.Item,
+): Promise<void> {
+  const existing = await getNote(ctx.project.id, item.key);
+
+  container.appendChild(
+    el(doc, "h3", {
+      properties: { innerHTML: getString("coding-notes-title") },
+    }),
+  );
+  container.appendChild(
+    el(doc, "p", {
+      classList: ["zotero-evidence-notes-hint"],
+      properties: { innerHTML: getString("coding-notes-hint") },
+    }),
+  );
+
+  const textarea = el(doc, "textarea", {
+    classList: ["zotero-evidence-notes-textarea"],
+    attributes: {
+      rows: "5",
+      placeholder: getString("coding-notes-placeholder"),
+    },
+    properties: { value: existing },
+  }) as HTMLTextAreaElement;
+  container.appendChild(textarea);
+
+  const saveBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: { innerHTML: getString("coding-notes-save") },
+    listeners: [
+      {
+        type: "click",
+        listener: async () => {
+          try {
+            await saveNote(ctx.project.id, item.key, textarea.value);
+            new ztoolkit.ProgressWindow(addon.data.config.addonName)
+              .createLine({
+                text: getString("progress-coding-note-saved"),
+                type: "success",
+                progress: 100,
+              })
+              .show();
+          } catch (e: any) {
+            ztoolkit.getGlobal("alert")(
+              `${getString("coding-error-note-save")}\n${e?.message ?? e}`,
+            );
+          }
+        },
+      },
+    ],
+  });
+  container.appendChild(saveBtn);
+}
+
 async function renderCodingArea(
   container: HTMLElement,
   doc: Document,
@@ -619,9 +847,13 @@ async function renderCodingArea(
   const codebookRow = await getLatestCodebook(ctx.project.id);
   if (!codebookRow || codebookRow.variables.length === 0) {
     container.appendChild(
-      el(doc, "p", {
-        properties: { innerHTML: getString("coding-no-codebook") },
-        styles: { color: "var(--fill-secondary, #a33)" },
+      renderConfigWarning(doc, {
+        text: getString("config-warning-no-codebook"),
+        buttonLabel: getString("config-warning-import-codebook-button"),
+        onClick: async () => {
+          await EvidenceCommands.codebookImportDialog();
+          await renderCodingArea(container, doc, ctx, item);
+        },
       }),
     );
     return;
@@ -659,19 +891,54 @@ async function renderCodingArea(
     await renderCodingArea(container, doc, ctx, item);
   };
 
+  // Fetched up front (not just below, where the list itself needs it) so
+  // the generate button can tell "first run" from "there's already
+  // something here" -- same run/rerun distinction, and now the same verb
+  // ("运行"/"重新运行"), as TA-Queue's and FT-Queue's own AI buttons. This
+  // button used to always say "生成 AI 建议" regardless of whether records
+  // already existed, and used a different verb ("生成") entirely -- both
+  // gaps are what coding-generate-suggestions/coding-regenerate-suggestions
+  // close now, even though the key NAMES still say "generate" (left alone
+  // deliberately -- renaming them is an internal detail, not something a
+  // user sees; only the displayed strings needed to match).
+  const records = await getCodingRecords(ctx.project.id, item.key);
+  const generateLabel = getString(
+    records.length > 0
+      ? "coding-regenerate-suggestions"
+      : "coding-generate-suggestions",
+  );
+
   const buttonRow = el(doc, "div", { classList: ["zotero-evidence-buttons"] });
 
+  // A run started from a DIFFERENT render of this same area (e.g. before
+  // "刷新" rebuilt everything from scratch) may still be in flight -- ask
+  // the shared tracker instead of assuming idle, so this fresh button
+  // reflects reality instead of quietly resetting to the idle label while
+  // the real call is still going (see aiRunTracker.ts's doc comment for
+  // why that specifically is what used to invite a duplicate run).
+  const inProgress = getRunProgress(ctx.project.id, item.key);
   const generateBtn = el(doc, "button", {
-    attributes: { type: "button" },
-    properties: { innerHTML: getString("coding-generate-suggestions") },
+    attributes: {
+      type: "button",
+      ...(inProgress ? { disabled: "true" } : {}),
+    },
+    properties: {
+      innerHTML: inProgress ? stageLabel(inProgress) : generateLabel,
+    },
     listeners: [
       {
         type: "click",
         listener: async () => {
           generateBtn.setAttribute("disabled", "true");
-          generateBtn.textContent = getString("coding-loading");
+          generateBtn.textContent = stageLabel({ stage: "reading" });
           try {
-            const result = await generateSuggestions(ctx.project.id, item);
+            const result = await generateSuggestions(
+              ctx.project.id,
+              item,
+              (stage, detail) => {
+                generateBtn.textContent = stageLabel({ stage, ...detail });
+              },
+            );
             item.addToCollection(ctx.collections.codingId);
             await item.saveTx();
             if (result.count === 0) {
@@ -681,10 +948,10 @@ async function renderCodingArea(
           } catch (e: any) {
             ztoolkit.log("Coding generateSuggestions failed", item.key, e);
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-generate")}\n${e?.stack ?? e?.message ?? e}`,
+              `${getString("coding-error-generate")}\n${e?.message ?? e}`,
             );
             generateBtn.removeAttribute("disabled");
-            generateBtn.textContent = getString("coding-generate-suggestions");
+            generateBtn.textContent = generateLabel;
           }
         },
       },
@@ -701,7 +968,6 @@ async function renderCodingArea(
   container.appendChild(buttonRow);
 
   const annotations = attachment ? attachment.getAnnotations() : [];
-  const records = await getCodingRecords(ctx.project.id, item.key);
 
   const listArea = el(doc, "div", {
     classList: ["zotero-evidence-coding-list"],
@@ -735,21 +1001,38 @@ async function renderCodingArea(
     );
   }
 
-  container.appendChild(
+  const manualAddSection = el(doc, "div", {
+    classList: ["zotero-evidence-section"],
+  }) as HTMLElement;
+  manualAddSection.appendChild(
     el(doc, "h3", {
       properties: { innerHTML: getString("coding-manual-add-title") },
     }),
   );
+  container.appendChild(manualAddSection);
   await renderManualAddForm(
-    container,
+    manualAddSection,
     doc,
     ctx,
     item,
     codebookRow.id,
     codebookRow.variables,
+    attachment,
     annotations,
     () => void rerender(),
   );
+
+  const flagSection = el(doc, "div", {
+    classList: ["zotero-evidence-section"],
+  }) as HTMLElement;
+  container.appendChild(flagSection);
+  renderKeyLiteratureToggle(flagSection, doc, item, () => void rerender());
+
+  const notesSection = el(doc, "div", {
+    classList: ["zotero-evidence-section"],
+  }) as HTMLElement;
+  container.appendChild(notesSection);
+  await renderNotesSection(notesSection, doc, ctx, item);
 }
 
 function renderHeader(
@@ -801,23 +1084,28 @@ export function registerCodingPane() {
   Zotero.ItemPaneManager.registerSection({
     paneID: PANE_ID,
     pluginID: config.addonID,
+    // Tag -- Coding assigns codebook variable/value tags to extracted
+    // evidence, distinct from TA-Screening's scan (magnifier.svg) and
+    // FT-Screening's document read (page.svg). Matches Zotero's own native
+    // item-pane icon style (chrome://zotero/skin/16/universal/*.svg,
+    // tinted via context-fill).
     header: {
       l10nID: getLocaleID("coding-head-text"),
-      icon: "chrome://zotero/skin/16/universal/book.svg",
+      icon: "chrome://zotero/skin/16/universal/tag.svg",
     },
     sidenav: {
       l10nID: getLocaleID("coding-sidenav-tooltip"),
-      icon: "chrome://zotero/skin/20/universal/save.svg",
+      icon: "chrome://zotero/skin/16/universal/tag.svg",
     },
     // The reader's own right-side context pane turns out to reuse the same
     // stacked item-details sections (info/abstract/attachments/notes) as
     // the library item pane -- just switched via its sidenav's tabs instead
     // of scrolled -- so the same #zotero-view-item/.zotero-evidence-hide-
-    // native toggle used by screenQueuePane.ts/ftQueuePane.ts applies here
+    // native toggle used by taQueuePane.ts/ftQueuePane.ts applies here
     // too (a no-op if that container doesn't exist in some reader layout).
     // Goal: opening a PDF for a Coding/FT-Include item shouldn't leave Info/
     // Abstract as the only thing worth looking at in that pane.
-    onItemChange: ({ item, doc, setEnabled, tabType }) => {
+    onItemChange: ({ item, doc, body, setEnabled, tabType }) => {
       const ctx = resolveContextSync(item);
       const relevant =
         (tabType === "reader" &&
@@ -825,13 +1113,19 @@ export function registerCodingPane() {
           (ctx.role === "ft_include" || ctx.role === "coding")) ||
         (tabType === "library" && !!ctx && ctx.role === "coding");
       setEnabled(relevant);
-      setNativeSectionsHidden(doc, !!ctx);
+      // Deliberately calling shouldHideNativeSections(item) here rather
+      // than reusing `ctx` above (even though they happen to agree in this
+      // section, since this section's own relevance was never tabType-
+      // gated) -- every registered section computing native-hide the exact
+      // same way is what keeps this correct regardless of registration
+      // order or how many sections exist; see that function's doc comment.
+      setNativeSectionsHidden(doc, body, shouldHideNativeSections(item));
     },
     onDestroy: ({ doc }) => {
-      setNativeSectionsHidden(doc, false);
+      refreshLibraryNativeSectionsHidden(doc);
     },
     // Required for registerSection to actually succeed -- see
-    // screenQueuePane.ts for the empirically-confirmed reason.
+    // taQueuePane.ts for the empirically-confirmed reason.
     onRender: () => {},
     onAsyncRender: async ({ body, doc, item, tabType }) => {
       const ctx = resolveContextSync(item);

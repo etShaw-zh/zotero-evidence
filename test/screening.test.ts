@@ -20,6 +20,10 @@ import {
   runAIJudgment,
   undoDecision,
 } from "../src/modules/screening/taScreeningService";
+import {
+  isDisagreementFlagged,
+  setDisagreementFlag,
+} from "../src/modules/consistency/disagreementFlagService";
 
 async function makeTestItem(title: string): Promise<Zotero.Item> {
   const item = new Zotero.Item("journalArticle");
@@ -59,6 +63,7 @@ describe("Phase 2: TA-Screening core loop", function () {
     const good = parseJudgment('{"decision": "include", "reasoning": "fits"}');
     assert.equal(good.decision, "include");
     assert.equal(good.reasoning, "fits");
+    assert.deepEqual(good.keywords, []);
 
     const fenced = parseJudgment(
       '```json\n{"decision": "exclude", "reasoning": "no"}\n```',
@@ -68,6 +73,39 @@ describe("Phase 2: TA-Screening core loop", function () {
     const garbage = parseJudgment("not json at all");
     assert.equal(garbage.decision, "unclear");
     assert.equal(garbage.reasoning, "not json at all");
+    assert.deepEqual(garbage.keywords, []);
+  });
+
+  it("parseJudgment extracts and sanitizes verbatim keywords, dropping non-string/blank entries and capping at 8", function () {
+    const result = parseJudgment(
+      JSON.stringify({
+        decision: "include",
+        reasoning: "fits",
+        keywords: [
+          "randomized controlled trial",
+          "  ",
+          42,
+          "children aged 6-12",
+          "k1",
+          "k2",
+          "k3",
+          "k4",
+          "k5",
+          "k6",
+          "k7",
+        ],
+      }),
+    );
+    assert.deepEqual(result.keywords, [
+      "randomized controlled trial",
+      "children aged 6-12",
+      "k1",
+      "k2",
+      "k3",
+      "k4",
+      "k5",
+      "k6",
+    ]);
   });
 
   it("confirmDecision(include) moves the item to TA-Include and FT-Queue", async function () {
@@ -76,7 +114,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Include Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -88,12 +126,41 @@ describe("Phase 2: TA-Screening core loop", function () {
       "test-user",
     );
 
-    assert.isFalse(item.inCollection(collections.screenQueueId));
+    assert.isFalse(item.inCollection(collections.taQueueId));
     assert.isTrue(item.inCollection(collections.taIncludeId));
     assert.isTrue(item.inCollection(collections.ftQueueId));
 
     const state = await getScreeningState(project.id, item.key);
     assert.equal(state?.decision, "include");
+  });
+
+  it("confirmDecision clears a pending reviewer-disagreement flag, regardless of the final decision", async function () {
+    const project = await createProject(
+      `Confirm Clears Disagreement Flag Test ${Date.now()}`,
+    );
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+    const item = await makeTestItem("Flagged Disagreement Item");
+    item.addToCollection(collections.taQueueId);
+    await item.saveTx();
+
+    // Simulates what humanConsistencyService.ts's applyAgreedResults does
+    // when two reviewers disagree on an item -- flags it, then leaves it
+    // in TA-Screen Queue for a third reviewer.
+    await setDisagreementFlag(item, true);
+    assert.isTrue(isDisagreementFlagged(item));
+
+    await confirmDecision(
+      project.id,
+      item,
+      collections,
+      null,
+      "exclude",
+      "third-reviewer",
+    );
+
+    assert.isFalse(isDisagreementFlagged(item));
   });
 
   it("confirmDecision(unclear) also moves the item into FT-Queue", async function () {
@@ -102,7 +169,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Unclear Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -124,7 +191,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Exclude Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -139,7 +206,7 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     assert.isTrue(item.inCollection(collections.taExcludeId));
     assert.isFalse(item.inCollection(collections.ftQueueId));
-    assert.isFalse(item.inCollection(collections.screenQueueId));
+    assert.isFalse(item.inCollection(collections.taQueueId));
 
     const state = await getScreeningState(project.id, item.key);
     assert.equal(state?.exclusionReason, "Not empirical");
@@ -153,7 +220,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Exclude Me No Reason");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -175,7 +242,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Undo Include Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -193,7 +260,7 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     assert.isFalse(item.inCollection(collections.taIncludeId));
     assert.isFalse(item.inCollection(collections.ftQueueId));
-    assert.isTrue(item.inCollection(collections.screenQueueId));
+    assert.isTrue(item.inCollection(collections.taQueueId));
 
     const state = await getScreeningState(project.id, item.key);
     assert.isNull(state?.decision);
@@ -206,7 +273,7 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Undo Exclude Me");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await confirmDecision(
@@ -225,7 +292,7 @@ describe("Phase 2: TA-Screening core loop", function () {
 
     assert.isFalse(item.inCollection(collections.taExcludeId));
     assert.isFalse(item.inCollection(collections.ftQueueId));
-    assert.isTrue(item.inCollection(collections.screenQueueId));
+    assert.isTrue(item.inCollection(collections.taQueueId));
 
     const state = await getScreeningState(project.id, item.key);
     assert.isNull(state?.decision);
@@ -238,12 +305,12 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
     const item = await makeTestItem("Never Screened");
-    item.addToCollection(collections.screenQueueId);
+    item.addToCollection(collections.taQueueId);
     await item.saveTx();
 
     await undoDecision(project.id, item, collections);
 
-    assert.isTrue(item.inCollection(collections.screenQueueId));
+    assert.isTrue(item.inCollection(collections.taQueueId));
   });
 
   it("runAIJudgment refuses to run without a configured provider", async function () {
@@ -287,9 +354,9 @@ describe("Phase 2: TA-Screening core loop", function () {
       getRootCollectionId(project)!,
     );
 
-    const screenQueue = await findProjectPaneContext(collections.screenQueueId);
-    assert.equal(screenQueue?.role, "screen_queue");
-    assert.equal(screenQueue?.project.id, project.id);
+    const taQueue = await findProjectPaneContext(collections.taQueueId);
+    assert.equal(taQueue?.role, "ta_queue");
+    assert.equal(taQueue?.project.id, project.id);
 
     const taInclude = await findProjectPaneContext(collections.taIncludeId);
     assert.equal(taInclude?.role, "ta_include");
@@ -303,8 +370,21 @@ describe("Phase 2: TA-Screening core loop", function () {
     const ftQueue = await findProjectPaneContext(collections.ftQueueId);
     assert.equal(ftQueue?.role, "ft_queue");
 
-    // Sources/<db> and Coding are not TA-Screening-pane collections.
-    const unrelated = await findProjectPaneContext(collections.sourcesId);
-    assert.isNull(unrelated);
+    // Root, Sources, and the TA-/FT-Screening Results PARENT collections
+    // (as opposed to their *Include/*Exclude/*Unclear children, asserted
+    // above) all resolve to "other" so setNativeSectionsHidden (native
+    // panes hidden, title read-only) applies there too, same as every
+    // pipeline-stage collection -- none of these are ever populated
+    // directly by any service, but a user can still drag an item into one
+    // by hand, and projectOverviewPane.ts also renders its project-wide
+    // dashboard for this role (see PaneRole's doc comment).
+    const root = await findProjectPaneContext(getRootCollectionId(project)!);
+    assert.equal(root?.role, "other");
+    const sources = await findProjectPaneContext(collections.sourcesId);
+    assert.equal(sources?.role, "other");
+    const taScreening = await findProjectPaneContext(collections.taScreeningId);
+    assert.equal(taScreening?.role, "other");
+    const ftScreening = await findProjectPaneContext(collections.ftScreeningId);
+    assert.equal(ftScreening?.role, "other");
   });
 });

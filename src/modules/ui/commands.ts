@@ -1,42 +1,75 @@
 import { FluentMessageId } from "../../../typings/i10n";
-import { getPref } from "../../utils/prefs";
+import { config } from "../../../package.json";
 import { getString } from "../../utils/locale";
 import { runWithConcurrency } from "../../utils/concurrency";
 import {
+  AIProviderConfig,
+  DEFAULT_PROVIDER_CONCURRENCY,
+  deleteProvider,
   getActiveProvider,
+  listProviders,
+  migrateLegacyProviders,
   setActiveProviderId,
   upsertProvider,
 } from "../ai/providerConfig";
+import { callChatCompletion } from "../ai/aiClient";
+import { fetchAvailableModels } from "../ai/modelDiscovery";
+import {
+  AI_PROVIDER_PRESETS,
+  CUSTOM_PRESET_ID,
+  findPresetById,
+} from "../ai/providerPresets";
+import { getAIUsageStats } from "../ai/usageService";
+import { exportProjectArchive } from "../archive/archiveExportService";
+import { importProjectArchive } from "../archive/archiveImportService";
 import {
   CodebookVariable,
+  formatCodebookCsv,
   getLatestCodebook,
   parseCodebookCsv,
   saveCodebook,
 } from "../coding/codebookService";
-import { computeCodingStats } from "../coding/codingService";
+import {
+  computeCodingStats,
+  generateSuggestions,
+} from "../coding/codingService";
+import {
+  getSynthesisRows,
+  runSynthesis,
+  SynthesisRow,
+} from "../synthesis/synthesisService";
 import { exportCodingData } from "../export/codingExport";
+import { exportSynthesisData } from "../export/synthesisExport";
 import {
   computePrismaData,
   exportScreeningLog,
   formatPrismaCsv,
+  isPrismaDataEmpty,
 } from "../export/screeningExport";
 import {
   importDirectToCoding,
   importLiteratureFile,
 } from "../import/importService";
-import { escapeHtml } from "./paneHelpers";
+import {
+  currentDeciderId,
+  escapeHtml,
+  getSelectedCollectionIdCompat,
+  quotePreview,
+  resolveAttachment,
+} from "./paneHelpers";
 import {
   resolveProjectCollections,
   SOURCE_DATABASE_LABELS,
-  SourceDatabaseLabel,
 } from "../project/collectionStructure";
 import {
+  findOwningProjectIdSync,
   findProjectPaneContext,
   getRootCollectionId,
   refreshProjectPaneContextCache,
 } from "../project/projectContext";
 import {
   createProject,
+  deleteProject,
   EvidenceProject,
   listProjects,
 } from "../project/projectManager";
@@ -44,52 +77,115 @@ import {
   getLatestCriteria,
   saveCriteria,
   ScreeningCriteria,
-  ScreeningStage,
 } from "../screening/criteriaService";
 import {
   confirmDecision,
   getScreeningState,
   runAIJudgment,
 } from "../screening/taScreeningService";
+import { markUnavailable } from "../screening/ftScreeningService";
+import { runCriterionChecks } from "../screening/ftCriterionCheckService";
+import {
+  getFinalVerdictConsistency,
+  ScreeningConsistencyStats,
+} from "../consistency/consistencyService";
+import {
+  applyAgreedResults,
+  computeRoundConsistency,
+  ConsistencyRound,
+  getAllRounds,
+  HumanConsistencyResult,
+  recordCollectedCsv,
+  recoverRoundFromArchive,
+  startRound,
+} from "../consistency/humanConsistencyService";
+import { CategoryKappa } from "../consistency/kappa";
 
 export class EvidenceCommands {
   static registerMenus() {
     ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-new-project",
-      label: getString("menu-new-project"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceNewProject"),
+      tag: "menu",
+      id: "zotero-evidence-project-menu",
+      label: getString("menu-group-project"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-new-project",
+          label: getString("menu-new-project"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceNewProject"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-delete-project",
+          label: getString("menu-delete-project"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceDeleteProject"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-archive-project",
+          label: getString("menu-archive-project"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceArchiveProject"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-restore-archive",
+          label: getString("menu-restore-archive"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceRestoreArchive"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-progress",
+          label: getString("menu-progress"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceProgress"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-import",
-      label: getString("menu-import"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceImport"),
+      tag: "menu",
+      id: "zotero-evidence-import-menu",
+      label: getString("menu-group-import"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-import",
+          label: getString("menu-import"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceImport"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-import-extract",
+          label: getString("menu-import-extract"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceImportExtract"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-import-extract",
-      label: getString("menu-import-extract"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceImportExtract"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-criteria",
-      label: getString("menu-criteria"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceCriteria"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-ft-criteria",
-      label: getString("menu-ft-criteria"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceFtCriteria"),
+      tag: "menu",
+      id: "zotero-evidence-criteria-menu",
+      label: getString("menu-group-criteria"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-criteria",
+          label: getString("menu-criteria"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceCriteria"),
+        },
+      ],
     });
     ztoolkit.Menu.register("menuFile", {
       tag: "menu",
       id: "zotero-evidence-codebook-menu",
       label: getString("menu-codebook"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
       children: [
         {
           tag: "menuitem",
@@ -105,6 +201,23 @@ export class EvidenceCommands {
           commandListener: () =>
             addon.hooks.onDialogEvents("evidenceCodebookAddVariable"),
         },
+        // Ordered 增删改查 (create/delete/update/read) from here down, to
+        // match how these operations are conventionally grouped rather
+        // than the order they were originally added in.
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-delete-variable",
+          label: getString("menu-codebook-delete-variable"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookDeleteVariable"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-codebook-edit-variable",
+          label: getString("menu-codebook-edit-variable"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceCodebookEditVariable"),
+        },
         {
           tag: "menuitem",
           id: "zotero-evidence-codebook-view",
@@ -114,62 +227,174 @@ export class EvidenceCommands {
         },
         {
           tag: "menuitem",
-          id: "zotero-evidence-codebook-edit-notes",
-          label: getString("menu-codebook-edit-notes"),
+          id: "zotero-evidence-codebook-export",
+          label: getString("menu-codebook-export"),
           commandListener: () =>
-            addon.hooks.onDialogEvents("evidenceCodebookEditNotes"),
+            addon.hooks.onDialogEvents("evidenceCodebookExport"),
         },
       ],
     });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menu",
+      id: "zotero-evidence-synthesis-menu",
+      label: getString("menu-group-synthesis"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-synthesis",
+          label: getString("menu-synthesis"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceSynthesis"),
+        },
+      ],
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menu",
+      id: "zotero-evidence-consistency-menu",
+      label: getString("menu-group-consistency"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-consistency",
+          label: getString("menu-consistency"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceConsistency"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-human-consistency",
+          label: getString("menu-human-consistency"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceHumanConsistency"),
+        },
+      ],
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menu",
+      id: "zotero-evidence-export-menu",
+      label: getString("menu-group-export"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-prisma",
+          label: getString("menu-export-prisma"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportPrisma"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-screening-log",
+          label: getString("menu-export-screening-log"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportScreeningLog"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-coding",
+          label: getString("menu-export-coding"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportCoding"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-export-synthesis",
+          label: getString("menu-export-synthesis"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceExportSynthesis"),
+        },
+      ],
+    });
+    ztoolkit.Menu.register("menuFile", {
+      tag: "menu",
+      id: "zotero-evidence-ai-menu",
+      label: getString("menu-group-ai"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      children: [
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-ai-provider",
+          label: getString("menu-ai-provider"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceAIProvider"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-ai-usage",
+          label: getString("menu-ai-usage"),
+          commandListener: () => addon.hooks.onDialogEvents("evidenceAIUsage"),
+        },
+      ],
+    });
+    // Standalone menuitem, not a submenu -- a single action doesn't need
+    // one, and it's the same "just register a plain menuitem directly"
+    // shape registerItemMenus below already uses for the right-click menu.
     ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
     ztoolkit.Menu.register("menuFile", {
       tag: "menuitem",
-      id: "zotero-evidence-export-prisma",
-      label: getString("menu-export-prisma"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceExportPrisma"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-export-screening-log",
-      label: getString("menu-export-screening-log"),
-      commandListener: () =>
-        addon.hooks.onDialogEvents("evidenceExportScreeningLog"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-export-coding",
-      label: getString("menu-export-coding"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceExportCoding"),
-    });
-    ztoolkit.Menu.register("menuFile", { tag: "menuseparator" });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-ai-provider",
-      label: getString("menu-ai-provider"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceAIProvider"),
-    });
-    ztoolkit.Menu.register("menuFile", {
-      tag: "menuitem",
-      id: "zotero-evidence-progress",
-      label: getString("menu-progress"),
-      commandListener: () => addon.hooks.onDialogEvents("evidenceProgress"),
+      id: "zotero-evidence-user-guide",
+      label: getString("menu-user-guide"),
+      icon: `chrome://${config.addonRef}/content/icons/icon.svg`,
+      commandListener: () => addon.hooks.onDialogEvents("evidenceUserGuide"),
     });
   }
 
   static registerItemMenus() {
+    // Same icon as every menuFile group above -- marks these three as
+    // Evidence's own entries in the item right-click menu, not a native
+    // Zotero action, at a glance.
+    const icon = `chrome://${config.addonRef}/content/icons/icon.svg`;
     ztoolkit.Menu.register("item", {
       tag: "menuitem",
       id: "zotero-evidence-batch-run-ai",
       label: getString("menu-batch-run-ai"),
+      icon,
       commandListener: () => addon.hooks.onDialogEvents("evidenceBatchRunAI"),
     });
     ztoolkit.Menu.register("item", {
       tag: "menuitem",
       id: "zotero-evidence-batch-confirm-ai",
       label: getString("menu-batch-confirm-ai"),
+      icon,
       commandListener: () =>
         addon.hooks.onDialogEvents("evidenceBatchConfirmAI"),
     });
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-evidence-batch-mark-unavailable",
+      label: getString("menu-batch-mark-unavailable"),
+      icon,
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceBatchMarkUnavailable"),
+    });
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-evidence-batch-run-ft-ai",
+      label: getString("menu-batch-run-ft-ai"),
+      icon,
+      commandListener: () => addon.hooks.onDialogEvents("evidenceBatchRunFtAI"),
+    });
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-evidence-batch-run-coding-ai",
+      label: getString("menu-batch-run-coding-ai"),
+      icon,
+      commandListener: () =>
+        addon.hooks.onDialogEvents("evidenceBatchRunCodingAI"),
+    });
+  }
+
+  // A brand-new project's Collection tree is empty until the user imports
+  // literature -- every item-pane section (including Project Overview)
+  // needs a selected ITEM to render at all, so there's nothing for this
+  // plugin to show at that point no matter what. Rather than fabricate an
+  // item just to have something on-screen, this just opens the README in
+  // the user's browser -- always current, no per-project item to maintain
+  // or exclude from exports/archives.
+  static openUserGuide() {
+    Zotero.launchURL("https://github.com/etShaw-zh/zotero-evidence#readme");
   }
 
   // ztoolkit.Dialog builds every content row as an XUL <hbox flex="1">
@@ -193,9 +418,21 @@ export class EvidenceCommands {
     },
     title: string,
     width: number,
+    // A more content-dense dialog (many rows, nested flex containers --
+    // e.g. the AI provider edit dialog) can have sizeToContent() below
+    // under-measure its true height at the 50ms/300ms marks Gecko's
+    // layout pass hasn't always settled by then, cutting off everything
+    // past whatever it measured (confirmed visually: only the first two
+    // rows rendered). Passing an explicit starting height sidesteps
+    // relying on that measurement being right -- sizeToContent() can still
+    // shrink or grow it correctly afterward, but the window is never
+    // smaller than this to begin with. Optional and omitted by every
+    // pre-existing caller, so their behavior is unchanged.
+    minHeight?: number,
   ) {
     dialog.open(title, {
       width,
+      ...(minHeight ? { height: minHeight } : {}),
       left: 60,
       top: 60,
       centerscreen: false,
@@ -203,17 +440,31 @@ export class EvidenceCommands {
       fitContent: false,
     });
     const win = dialog.window;
+    // Enforced as a floor after EVERY sizeToContent() call below, not just
+    // passed as a starting height -- if sizeToContent()'s under-measurement
+    // is deterministic for a given layout, only setting the initial height
+    // would just have the first sizeToContent() call shrink it right back
+    // down to the same too-small size a moment later.
+    const enforceMinHeight = () => {
+      if (minHeight && win && win.outerHeight < minHeight) {
+        win.resizeTo(win.outerWidth, minHeight);
+      }
+    };
     win?.setTimeout(() => {
       const doc = win.document;
       doc.querySelectorAll('vbox > hbox[flex="1"]').forEach((row: Element) => {
         row.setAttribute("flex", "0");
       });
       win.sizeToContent();
+      enforceMinHeight();
       // Some dialogs populate a row's content (e.g. a status line or a
       // rendered list) asynchronously after open, on their own ~50ms
       // delay -- resize once more, later, so the window fits that too
       // instead of sizing to what was still empty a moment earlier.
-      win.setTimeout(() => win.sizeToContent(), 250);
+      win.setTimeout(() => {
+        win.sizeToContent();
+        enforceMinHeight();
+      }, 250);
     }, 50);
   }
 
@@ -239,9 +490,44 @@ export class EvidenceCommands {
     dialogData.unloadLock.promise.then(() => win.clearInterval(handle));
   }
 
+  // Every "pick a project" dialog needs *some* initial project id to
+  // pre-select/pre-fill from. Defaulting to projects[0] (whatever
+  // listProjects() happens to return first) is wrong -- if the user doesn't
+  // notice/change the dropdown, actions silently apply to an arbitrary
+  // project instead of the one they're actually looking at (e.g.
+  // criteriaDialog silently overwriting a DIFFERENT project's criteria).
+  // Prefer whichever project owns the Collection currently selected in the
+  // library pane -- root, "1. Sources", a source-database child, a
+  // TA-/FT-Screening collection, all of it, via findOwningProjectIdSync --
+  // and only fall back to projects[0] when nothing relevant is selected.
+  private static defaultProjectId(projects: EvidenceProject[]): number {
+    const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
+    const ownerId = findOwningProjectIdSync(collectionId);
+    if (ownerId !== null && projects.some((p) => p.id === ownerId)) {
+      return ownerId;
+    }
+    return projects[0].id;
+  }
+
   static async newProjectDialog() {
-    const dialogData: { [key: string]: any } = { projectName: "" };
-    const dialog = new ztoolkit.Dialog(3, 1)
+    // Only libraries the user can actually write to are offered -- a
+    // read-only Group Library membership couldn't save the Collection tree
+    // this creates. Most users only ever have the personal library, so the
+    // picker itself is only shown when there's an actual choice to make;
+    // one option would just be clutter.
+    const writableLibraries = Zotero.Libraries.getAll().filter((lib) =>
+      Zotero.Libraries.isEditable(lib.libraryID),
+    );
+    const showLibraryPicker = writableLibraries.length > 1;
+
+    const dialogData: { [key: string]: any } = {
+      projectName: "",
+      libraryID: String(Zotero.Libraries.userLibraryID),
+    };
+
+    const cols = showLibraryPicker ? 2 : 1;
+    const dialog = new ztoolkit.Dialog(showLibraryPicker ? 4 : 3, cols)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString("dialog-new-project-title") },
@@ -266,14 +552,45 @@ export class EvidenceCommands {
           },
         },
         false,
-      )
+      );
+
+    if (showLibraryPicker) {
+      dialog
+        .addCell(3, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-new-project-library-label"),
+          },
+        })
+        .addCell(
+          3,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            attributes: { "data-bind": "libraryID", "data-prop": "value" },
+            children: writableLibraries.map((lib) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(lib.libraryID),
+                innerHTML: escapeHtml(lib.name),
+              },
+            })),
+          },
+          false,
+        );
+    }
+
+    dialog
       .addButton(getString("dialog-confirm"), "confirm")
       .addButton(getString("dialog-cancel"), "cancel")
       .setDialogData(dialogData);
     EvidenceCommands.openSizedDialog(
       dialog,
       getString("dialog-new-project-title"),
-      460,
+      showLibraryPicker ? 480 : 460,
     );
 
     await dialogData.unloadLock.promise;
@@ -284,8 +601,10 @@ export class EvidenceCommands {
       ztoolkit.getGlobal("alert")(getString("error-project-name-required"));
       return;
     }
+    const libraryID =
+      Number(dialogData.libraryID) || Zotero.Libraries.userLibraryID;
 
-    const project = await createProject(name);
+    const project = await createProject(name, libraryID);
     await refreshProjectPaneContextCache();
     new ztoolkit.ProgressWindow(addon.data.config.addonName)
       .createLine({
@@ -298,7 +617,162 @@ export class EvidenceCommands {
       .show();
   }
 
-  static async importDialog() {
+  static async deleteProjectDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const defaultProjectId = EvidenceCommands.defaultProjectId(projects);
+    const dialogData: { [key: string]: any } = {
+      projectId: String(defaultProjectId),
+      confirmName: "",
+    };
+
+    const dialog = new ztoolkit.Dialog(5, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-delete-project-title") },
+      })
+      .addCell(1, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-delete-project-label") },
+      })
+      .addCell(
+        1,
+        1,
+        {
+          tag: "select",
+          namespace: "html",
+          id: "evidence-delete-project-select",
+          attributes: { "data-bind": "projectId", "data-prop": "value" },
+          children: projects.map((p) => ({
+            tag: "option",
+            namespace: "html",
+            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
+          })),
+        },
+        false,
+      )
+      .addCell(2, 0, {
+        tag: "p",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-delete-project-warning"),
+        },
+        styles: { color: "var(--fill-secondary, #a33)", fontWeight: "bold" },
+      })
+      .addCell(3, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-delete-project-name-display-label"),
+        },
+      })
+      .addCell(
+        3,
+        1,
+        {
+          tag: "label",
+          namespace: "html",
+          id: "evidence-delete-project-name-display",
+          properties: {
+            innerHTML: escapeHtml(
+              projects.find((p) => p.id === defaultProjectId)?.name ?? "",
+            ),
+          },
+          styles: { fontWeight: "bold" },
+        },
+        false,
+      )
+      .addCell(4, 0, {
+        tag: "label",
+        namespace: "html",
+        attributes: { for: "evidence-delete-project-confirm" },
+        properties: {
+          innerHTML: getString("dialog-delete-project-confirm-label"),
+        },
+      })
+      .addCell(
+        4,
+        1,
+        {
+          tag: "input",
+          namespace: "html",
+          id: "evidence-delete-project-confirm",
+          attributes: {
+            "data-bind": "confirmName",
+            "data-prop": "value",
+            type: "text",
+          },
+        },
+        false,
+      )
+      .addButton(getString("dialog-delete-project-confirm-button"), "confirm")
+      .addButton(getString("dialog-cancel"), "cancel")
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-delete-project-title"),
+      520,
+    );
+
+    // The name-to-type-to-confirm display must track whichever project is
+    // currently selected in the dropdown, not just the initial default --
+    // see watchSelectValue's own comment for why polling is needed instead
+    // of a change-event listener. Same delay as every other dialog that
+    // wires up watchSelectValue (criteriaDialog, codebookViewDialog, ...):
+    // dialog.window/its DOM aren't necessarily ready the instant
+    // openSizedDialog() returns, so grabbing the <select> immediately can
+    // silently find nothing and watchSelectValue no-ops.
+    await Zotero.Promise.delay(50);
+    const projectSelectEl = dialog.window?.document.getElementById(
+      "evidence-delete-project-select",
+    ) as HTMLSelectElement | null;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      projectSelectEl,
+      (value) => {
+        const project = projects.find((p) => p.id === Number(value));
+        const displayEl = dialog.window?.document.getElementById(
+          "evidence-delete-project-name-display",
+        );
+        if (displayEl && project) displayEl.textContent = project.name;
+      },
+    );
+
+    await dialogData.unloadLock.promise;
+    if (dialogData._lastButtonId !== "confirm") return;
+
+    const projectId = Number(dialogData.projectId);
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    const typedName = String(dialogData.confirmName || "").trim();
+    if (typedName !== project.name) {
+      ztoolkit.getGlobal("alert")(
+        getString("error-delete-project-name-mismatch"),
+      );
+      return;
+    }
+
+    await deleteProject(project.id);
+    await refreshProjectPaneContextCache();
+    new ztoolkit.ProgressWindow(addon.data.config.addonName)
+      .createLine({
+        text: getString("progress-project-deleted", {
+          args: { name: project.name },
+        }),
+        type: "success",
+        progress: 100,
+      })
+      .show();
+  }
+
+  static async archiveProjectDialog() {
     const projects = await listProjects();
     if (projects.length === 0) {
       ztoolkit.getGlobal("alert")(getString("error-no-projects"));
@@ -306,12 +780,319 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
+    };
+    const dialog = new ztoolkit.Dialog(2, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-archive-project-title") },
+      })
+      .addCell(1, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-archive-project-label") },
+      })
+      .addCell(
+        1,
+        1,
+        {
+          tag: "select",
+          namespace: "html",
+          id: "evidence-archive-project-select",
+          attributes: { "data-bind": "projectId", "data-prop": "value" },
+          children: projects.map((p) => ({
+            tag: "option",
+            namespace: "html",
+            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
+          })),
+        },
+        false,
+      )
+      .addButton(getString("dialog-confirm"), "confirm")
+      .addButton(getString("dialog-cancel"), "cancel")
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-archive-project-title"),
+      480,
+    );
+
+    await dialogData.unloadLock.promise;
+    if (dialogData._lastButtonId !== "confirm") return;
+
+    const projectId = Number(dialogData.projectId);
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    const outputPath = await new ztoolkit.FilePicker(
+      getString("dialog-archive-project-title"),
+      "save",
+      [["Zip Archive (*.zip)", "*.zip"]],
+      `${project.name}.zip`,
+    ).open();
+    if (!outputPath || typeof outputPath !== "string") return;
+
+    const progressWindow = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+    )
+      .createLine({
+        text: getString("progress-archive-project-running", {
+          args: { name: project.name },
+        }),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+    try {
+      await exportProjectArchive(project.id, outputPath);
+      progressWindow.changeLine({
+        text: getString("progress-archive-project-done", {
+          args: { name: project.name },
+        }),
+        type: "success",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(5000);
+    } catch (e) {
+      progressWindow.changeLine({
+        text: getString("error-archive-project-failed"),
+        type: "error",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(8000);
+      throw e;
+    }
+  }
+
+  static async restoreArchiveDialog() {
+    // Same reasoning as newProjectDialog: an archive carries no library of
+    // its own (you might restore it into a different library than it was
+    // archived from), so the picker offers every *writable* library, and
+    // only appears at all when there's an actual choice to make.
+    const writableLibraries = Zotero.Libraries.getAll().filter((lib) =>
+      Zotero.Libraries.isEditable(lib.libraryID),
+    );
+    const showLibraryPicker = writableLibraries.length > 1;
+
+    const dialogData: { [key: string]: any } = {
+      filePath: "",
+      libraryID: String(Zotero.Libraries.userLibraryID),
+    };
+
+    const fileLabelRow = showLibraryPicker ? 2 : 1;
+    const fileButtonRow = showLibraryPicker ? 3 : 2;
+
+    const dialog = new ztoolkit.Dialog(showLibraryPicker ? 4 : 3, 2).addCell(
+      0,
+      0,
+      {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-restore-archive-title") },
+      },
+    );
+
+    if (showLibraryPicker) {
+      dialog
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-new-project-library-label"),
+          },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            attributes: { "data-bind": "libraryID", "data-prop": "value" },
+            children: writableLibraries.map((lib) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(lib.libraryID),
+                innerHTML: escapeHtml(lib.name),
+              },
+            })),
+          },
+          false,
+        );
+    }
+
+    dialog
+      .addCell(fileLabelRow, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-restore-archive-file-label"),
+        },
+      })
+      .addCell(
+        fileLabelRow,
+        1,
+        {
+          tag: "label",
+          namespace: "html",
+          id: "evidence-restore-archive-file-display",
+          properties: {
+            innerHTML: getString("dialog-import-file-none"),
+          },
+        },
+        false,
+      )
+      .addCell(
+        fileButtonRow,
+        1,
+        {
+          tag: "button",
+          namespace: "html",
+          attributes: { type: "button" },
+          properties: { innerHTML: getString("dialog-import-file-button") },
+          listeners: [
+            {
+              type: "click",
+              listener: async () => {
+                const path = await new ztoolkit.FilePicker(
+                  getString("dialog-import-file-button"),
+                  "open",
+                  [["Zip Archive (*.zip)", "*.zip"]],
+                ).open();
+                if (path && typeof path === "string") {
+                  dialogData.filePath = path;
+                  const displayEl = dialog.window?.document.getElementById(
+                    "evidence-restore-archive-file-display",
+                  );
+                  if (displayEl) displayEl.textContent = path;
+                }
+              },
+            },
+          ],
+        },
+        false,
+      )
+      .addButton(getString("dialog-restore-archive-confirm-button"), "confirm")
+      .addButton(getString("dialog-cancel"), "cancel")
+      .setDialogData(dialogData);
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-restore-archive-title"),
+      520,
+    );
+
+    await dialogData.unloadLock.promise;
+    if (dialogData._lastButtonId !== "confirm") return;
+    if (!dialogData.filePath) {
+      ztoolkit.getGlobal("alert")(getString("error-no-file-selected"));
+      return;
+    }
+    const libraryID =
+      Number(dialogData.libraryID) || Zotero.Libraries.userLibraryID;
+
+    const progressWindow = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+    )
+      .createLine({
+        text: getString("progress-restore-archive-running"),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+    try {
+      const project = await importProjectArchive(
+        String(dialogData.filePath),
+        libraryID,
+      );
+      progressWindow.changeLine({
+        text: getString("progress-restore-archive-done", {
+          args: { name: project.name },
+        }),
+        type: "success",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(5000);
+    } catch (e) {
+      progressWindow.changeLine({
+        text: getString("error-restore-archive-failed"),
+        type: "error",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(8000);
+      throw e;
+    }
+  }
+
+  static async importDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    // The Sources sub-collection this feeds (ensureSourceCollection,
+    // collectionStructure.ts) and item_sources.source_database (plain TEXT,
+    // no CHECK constraint) both already accept any string -- SOURCE_DATABASE_
+    // LABELS was only ever a UI convenience for the three most common
+    // databases, not an actual limit on what Zotero's own translators can
+    // import. A free-text field plus a "presets" picker keeps that one-click
+    // convenience (including whatever custom labels this project has
+    // already used, so repeat imports reuse the same string instead of
+    // drifting) while allowing any source name.
+    //
+    // Empirically confirmed: a plain HTML <input list="..."> + <datalist> --
+    // the normal way to do this on the web -- doesn't show its suggestion
+    // popup inside Zotero's XUL dialog window, presumably because that
+    // relies on browser-chrome autocomplete UI this embedded HTML content
+    // doesn't get. A second, ordinary <select> that copies its chosen value
+    // into the text input avoids that entirely: both pieces (bound text
+    // input, watched select) are patterns already proven to work in this
+    // exact dialog framework elsewhere in this file.
+    const sourceLabelOptions = (projectId: number): string[] => {
+      const labels = new Set<string>(SOURCE_DATABASE_LABELS);
+      const project = projects.find((p) => p.id === projectId);
+      const rootId = project ? getRootCollectionId(project) : null;
+      if (rootId !== null) {
+        try {
+          const collections = resolveProjectCollections(rootId!);
+          for (const label of Object.keys(collections.sourceCollectionIds)) {
+            labels.add(label);
+          }
+        } catch {
+          // Structure incomplete -- fall back to just the built-in presets.
+        }
+      }
+      return Array.from(labels);
+    };
+
+    const refreshSourcePresetSelect = (doc: Document, projectId: number) => {
+      const select = doc.getElementById(
+        "evidence-import-source-preset",
+      ) as HTMLSelectElement | null;
+      if (!select) return;
+      select.innerHTML = "";
+      const placeholder = doc.createElement("option");
+      placeholder.setAttribute("value", "");
+      placeholder.textContent = getString(
+        "dialog-import-source-preset-placeholder",
+      );
+      select.appendChild(placeholder);
+      for (const label of sourceLabelOptions(projectId)) {
+        const option = doc.createElement("option");
+        option.setAttribute("value", label);
+        option.textContent = label;
+        select.appendChild(option);
+      }
+      select.value = "";
+    };
+
+    const defaultProjectId = EvidenceCommands.defaultProjectId(projects);
+    const dialogData: { [key: string]: any } = {
+      projectId: String(defaultProjectId),
       sourceLabel: SOURCE_DATABASE_LABELS[0] as string,
       filePath: "",
     };
 
-    const dialog = new ztoolkit.Dialog(5, 2)
+    const dialog = new ztoolkit.Dialog(7, 2)
       .addCell(0, 0, {
         tag: "h1",
         properties: { innerHTML: getString("dialog-import-title") },
@@ -346,15 +1127,45 @@ export class EvidenceCommands {
         2,
         1,
         {
-          tag: "select",
+          tag: "div",
           namespace: "html",
-          id: "evidence-import-source",
-          attributes: { "data-bind": "sourceLabel", "data-prop": "value" },
-          children: SOURCE_DATABASE_LABELS.map((label) => ({
-            tag: "option",
-            namespace: "html",
-            properties: { value: label, innerHTML: label },
-          })),
+          styles: { display: "flex", gap: "4px", alignItems: "center" },
+          children: [
+            {
+              tag: "input",
+              namespace: "html",
+              id: "evidence-import-source",
+              attributes: {
+                type: "text",
+                "data-bind": "sourceLabel",
+                "data-prop": "value",
+              },
+              styles: { flex: "1 1 auto", minWidth: "0" },
+            },
+            {
+              tag: "select",
+              namespace: "html",
+              id: "evidence-import-source-preset",
+              styles: { flex: "0 0 auto" },
+              children: [
+                {
+                  tag: "option",
+                  namespace: "html",
+                  properties: {
+                    value: "",
+                    innerHTML: getString(
+                      "dialog-import-source-preset-placeholder",
+                    ),
+                  },
+                },
+                ...sourceLabelOptions(defaultProjectId).map((label) => ({
+                  tag: "option",
+                  namespace: "html",
+                  properties: { value: label, innerHTML: escapeHtml(label) },
+                })),
+              ],
+            },
+          ],
         },
         false,
       )
@@ -410,7 +1221,105 @@ export class EvidenceCommands {
         },
         false,
       )
-      .addButton(getString("dialog-confirm"), "confirm")
+      .addCell(5, 0, {
+        tag: "p",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-import-wait-note"),
+        },
+        styles: { color: "var(--fill-secondary, #666)", fontSize: "0.9em" },
+      })
+      .addCell(6, 0, {
+        tag: "p",
+        namespace: "html",
+        id: "evidence-import-status",
+        properties: { innerHTML: "" },
+        styles: { fontWeight: "bold" },
+      })
+      .addButton(getString("dialog-confirm"), "confirm", {
+        // Importing can take a while for large files -- rather than close
+        // immediately (the previous behavior: the window vanished the
+        // instant you clicked Confirm, with only a toast notification once
+        // it was already done, which is exactly what looked like a freeze),
+        // keep the dialog open, show live status in it, and only close it
+        // once the import has actually finished.
+        noClose: true,
+        callback: async () => {
+          const doc = dialog.window?.document;
+          const statusEl = doc?.getElementById("evidence-import-status");
+          const confirmBtn = doc?.getElementById(
+            "confirm",
+          ) as HTMLButtonElement | null;
+          const cancelBtn = doc?.getElementById(
+            "cancel",
+          ) as HTMLButtonElement | null;
+
+          if (!dialogData.filePath) {
+            if (statusEl) {
+              statusEl.textContent = getString("error-no-file-selected");
+            }
+            return;
+          }
+          const sourceLabel = String(dialogData.sourceLabel || "").trim();
+          if (!sourceLabel) {
+            if (statusEl) {
+              statusEl.textContent = getString("error-import-source-required");
+            }
+            return;
+          }
+
+          const projectId = Number(dialogData.projectId);
+          const project = projects.find((p) => p.id === projectId);
+          if (!project) return;
+
+          const rootCollection = Zotero.Collections.getByLibraryAndKey(
+            project.libraryID,
+            project.collectionKey,
+          );
+          if (!rootCollection) {
+            if (statusEl) {
+              statusEl.textContent = getString("error-import-failed");
+            }
+            return;
+          }
+
+          if (confirmBtn) confirmBtn.disabled = true;
+          if (cancelBtn) cancelBtn.disabled = true;
+          if (statusEl) {
+            statusEl.textContent = getString("dialog-import-status-running");
+          }
+
+          try {
+            const result = await importLiteratureFile(
+              project.id,
+              (rootCollection as Zotero.Collection).id,
+              sourceLabel,
+              dialogData.filePath as string,
+            );
+            dialog.window?.close();
+            new ztoolkit.ProgressWindow(addon.data.config.addonName)
+              .createLine({
+                text: getString("progress-import-result", {
+                  args: {
+                    total: result.totalParsed,
+                    added: result.newCount,
+                    duplicates: result.duplicateCount,
+                  },
+                }),
+                type: "success",
+                progress: 100,
+              })
+              .show();
+          } catch (e: any) {
+            ztoolkit.log("Import failed", e);
+            if (statusEl) {
+              statusEl.textContent = `${getString("error-import-failed")} ${e?.message ?? e}`;
+            }
+            if (confirmBtn) confirmBtn.disabled = false;
+            if (cancelBtn) cancelBtn.disabled = false;
+          }
+        },
+      })
       .addButton(getString("dialog-cancel"), "cancel")
       .setDialogData(dialogData);
     EvidenceCommands.openSizedDialog(
@@ -419,52 +1328,50 @@ export class EvidenceCommands {
       560,
     );
 
-    await dialogData.unloadLock.promise;
-    if (dialogData._lastButtonId !== "confirm") return;
-    if (!dialogData.filePath) {
-      ztoolkit.getGlobal("alert")(getString("error-no-file-selected"));
-      return;
-    }
-
-    const projectId = Number(dialogData.projectId);
-    const project = projects.find((p) => p.id === projectId);
-    if (!project) return;
-
-    const rootCollection = Zotero.Collections.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
-      project.collectionKey,
+    // Switching the project should offer THAT project's already-used
+    // source labels (plus the built-in presets), not leave the previous
+    // project's custom labels sitting in the presets list as if they
+    // applied here too. Same delay as every other dialog that wires up
+    // watchSelectValue -- see its own comment for why.
+    await Zotero.Promise.delay(50);
+    const projectSelectEl = dialog.window?.document.getElementById(
+      "evidence-import-project",
+    ) as HTMLSelectElement | undefined;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      projectSelectEl,
+      (value) => {
+        if (dialog.window) {
+          refreshSourcePresetSelect(dialog.window.document, Number(value));
+        }
+      },
     );
-    if (!rootCollection) {
-      ztoolkit.getGlobal("alert")(getString("error-import-failed"));
-      return;
-    }
 
-    try {
-      const result = await importLiteratureFile(
-        project.id,
-        (rootCollection as Zotero.Collection).id,
-        dialogData.sourceLabel as SourceDatabaseLabel,
-        dialogData.filePath as string,
-      );
-      new ztoolkit.ProgressWindow(addon.data.config.addonName)
-        .createLine({
-          text: getString("progress-import-result", {
-            args: {
-              total: result.totalParsed,
-              added: result.newCount,
-              duplicates: result.duplicateCount,
-            },
-          }),
-          type: "success",
-          progress: 100,
-        })
-        .show();
-    } catch (e: any) {
-      ztoolkit.log("Import failed", e);
-      ztoolkit.getGlobal("alert")(
-        `${getString("error-import-failed")}\n${e?.message ?? e}`,
-      );
-    }
+    // Picking a preset just fills the free-text field with it -- the field
+    // itself (not this select) is what's bound to dialogData.sourceLabel,
+    // so it stays editable afterward.
+    const presetSelectEl = dialog.window?.document.getElementById(
+      "evidence-import-source-preset",
+    ) as HTMLSelectElement | undefined;
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      dialog.window,
+      presetSelectEl,
+      (value) => {
+        if (!value) return;
+        dialogData.sourceLabel = value;
+        const sourceInputEl = dialog.window?.document.getElementById(
+          "evidence-import-source",
+        ) as HTMLInputElement | undefined;
+        if (sourceInputEl) sourceInputEl.value = value;
+        // Reset to the placeholder so the same preset can be picked again
+        // later (e.g. after the user has typed something else in between)
+        // -- a <select> that already shows "Web of Science" wouldn't fire
+        // another change event if you picked "Web of Science" again.
+        if (presetSelectEl) presetSelectEl.value = "";
+      },
+    );
   }
 
   static async importExtractDialog() {
@@ -475,7 +1382,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
       filePath: "",
     };
 
@@ -577,7 +1484,7 @@ export class EvidenceCommands {
     if (!project) return;
 
     const rootCollection = Zotero.Collections.getByLibraryAndKey(
-      Zotero.Libraries.userLibraryID,
+      project.libraryID,
       project.collectionKey,
     );
     if (!rootCollection) {
@@ -607,28 +1514,40 @@ export class EvidenceCommands {
     }
   }
 
-  static async criteriaDialog(stage: ScreeningStage = "ta") {
+  // One shared set of eligibility criteria per project now, not separate
+  // TA/FT ones -- standard Cochrane/PRISMA practice: the same criteria are
+  // screened liberally at title/abstract (limited information, so only
+  // exclude on a clear mismatch) and strictly at full-text (complete
+  // information, so apply the criteria directly and record why). Storage
+  // still keeps a 'ta' and an 'ft' screening_criteria row per project
+  // (unchanged schema, and each screening service still reads its own
+  // stage) -- this dialog just always writes the same content to both, so
+  // every other reader of getLatestCriteria(projectId, stage) keeps
+  // working unmodified.
+  static async criteriaDialog() {
+    const titleKey = "dialog-criteria-title";
     const projects = await listProjects();
     if (projects.length === 0) {
       ztoolkit.getGlobal("alert")(getString("error-no-projects"));
       return;
     }
 
-    const titleKey =
-      stage === "ft" ? "dialog-ft-criteria-title" : "dialog-criteria-title";
-
-    // Reflect whatever's already saved for a project/stage back into the
-    // form -- previously this dialog always opened blank, silently
-    // discarding the existing criteria the moment you hit Save again.
+    // Reflect whatever's already saved back into the form -- previously
+    // this dialog always opened blank, silently discarding the existing
+    // criteria the moment you hit Save again. 'ta' is read as the
+    // canonical copy to display; if a project still has divergent TA/FT
+    // criteria from before this dialog unified them, saving here
+    // overwrites both with this (the TA) content.
     const criteriaFields = (criteria: ScreeningCriteria | null) => ({
       researchQuestion: criteria?.researchQuestion ?? "",
       inclusionCriteria: (criteria?.inclusionCriteria ?? []).join("\n"),
       exclusionCriteria: (criteria?.exclusionCriteria ?? []).join("\n"),
     });
 
-    const initial = await getLatestCriteria(projects[0].id, stage);
+    const defaultProjectId = EvidenceCommands.defaultProjectId(projects);
+    const initial = await getLatestCriteria(defaultProjectId, "ta");
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(defaultProjectId),
       ...criteriaFields(initial?.criteria ?? null),
     };
 
@@ -743,7 +1662,7 @@ export class EvidenceCommands {
       async (value) => {
         const doc = selectEl!.ownerDocument;
         if (!doc) return;
-        const latest = await getLatestCriteria(Number(value), stage);
+        const latest = await getLatestCriteria(Number(value), "ta");
         const fields = criteriaFields(latest?.criteria ?? null);
         for (const [key, fieldValue] of Object.entries(fields)) {
           const field = doc.querySelector(`[data-bind="${key}"]`) as
@@ -764,11 +1683,15 @@ export class EvidenceCommands {
         .map((l) => l.trim())
         .filter(Boolean);
 
-    await saveCriteria(Number(dialogData.projectId), stage, {
+    const criteria = {
       researchQuestion: String(dialogData.researchQuestion || "").trim(),
       inclusionCriteria: toLines(dialogData.inclusionCriteria),
       exclusionCriteria: toLines(dialogData.exclusionCriteria),
-    });
+    };
+    const projectId = Number(dialogData.projectId);
+    // Same criteria for both stages -- see this method's doc comment.
+    await saveCriteria(projectId, "ta", criteria);
+    await saveCriteria(projectId, "ft", criteria);
 
     new ztoolkit.ProgressWindow(addon.data.config.addonName)
       .createLine({
@@ -779,25 +1702,231 @@ export class EvidenceCommands {
       .show();
   }
 
+  /**
+   * IDs used to look up elements post-open (dialog.window.document
+   * .getElementById) from listeners defined during construction -- same
+   * pattern as the file-picker button elsewhere in this file.
+   */
+  private static readonly AI_DLG = {
+    baseURL: "evidence-ai-baseurl-input",
+    model: "evidence-ai-model-input",
+    fetchModelsBtn: "evidence-ai-fetch-models-btn",
+    modelResultsStatus: "evidence-ai-model-results-status",
+    modelResults: "evidence-ai-model-results-list",
+    apiKey: "evidence-ai-apikey-input",
+    testBtn: "evidence-ai-test-btn",
+    testStatus: "evidence-ai-test-status",
+    concurrency: "evidence-ai-concurrency-input",
+  } as const;
+
+  /** All 5 provider slots this dialog manages -- 4 named presets plus one
+   * "custom" slot for local/other OpenAI-compatible servers. Each slot has
+   * AT MOST one saved AIProviderConfig, stored under its own fixed id
+   * (the preset id, or "custom") -- there's no separate "saved
+   * configurations" concept to manage on top of this; the provider IS the
+   * config slot. This is a deliberate simplification (previous revisions
+   * of this dialog let you create/name/switch between arbitrary saved
+   * configs, which turned out both confusing to use and to depend on
+   * "change" events this dialog's window embedding doesn't reliably
+   * deliver for live cross-field updates -- see git history). */
+  private static aiProviderSlots(): { id: string; name: string }[] {
+    return [
+      ...AI_PROVIDER_PRESETS.map((p) => ({ id: p.id, name: p.name })),
+      {
+        id: CUSTOM_PRESET_ID,
+        name: getString("dialog-ai-provider-custom-option"),
+      },
+    ];
+  }
+
+  /**
+   * Step 1: pick which of the 5 provider slots to configure. Each row is a
+   * plain clickable div (not a <select>) -- click listeners are the one
+   * interaction type proven reliable in this dialog's window embedding
+   * throughout this feature's development; a live "change" listener meant
+   * to react to a dropdown pick was not. Picking a row closes this picker
+   * and opens aiProviderEditDialog() scoped to just that one provider, so
+   * there's no "switch provider mid-form" case to handle at all -- each
+   * edit dialog open is for exactly one provider from the start.
+   */
+  /**
+   * One-line summary of the currently active provider, for the Settings
+   * pane's status line (preferencesPane.ts, via addon.api) -- distinct
+   * from aiProviderDialog's per-SLOT status text below (5 rows, one per
+   * preset), this is just the single provider actually in effect.
+   */
+  static getActiveProviderSummary(): string {
+    const active = getActiveProvider();
+    if (!active) return getString("prefs-pane-status-unconfigured");
+    return getString("prefs-pane-status-configured", {
+      args: {
+        name: active.name,
+        model: active.model || "—",
+        concurrency: active.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+      },
+    });
+  }
+
   static async aiProviderDialog() {
-    const existing = getActiveProvider();
+    migrateLegacyProviders();
+    const providers = listProviders();
+    const active = getActiveProvider();
+    const slots = EvidenceCommands.aiProviderSlots();
+
+    const dialog = new ztoolkit.Dialog(slots.length + 1, 1).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-ai-provider-picker-title") },
+    });
+
+    slots.forEach((slot, i) => {
+      const saved = providers.find((p) => p.id === slot.id);
+      const isActive = active?.id === slot.id;
+      const baseStatusText = isActive
+        ? saved?.model
+          ? getString("dialog-ai-provider-status-active-model", {
+              args: { model: saved.model },
+            })
+          : getString("dialog-ai-provider-status-active")
+        : saved
+          ? saved.model
+            ? getString("dialog-ai-provider-status-configured-model", {
+                args: { model: saved.model },
+              })
+            : getString("dialog-ai-provider-status-configured")
+          : getString("dialog-ai-provider-status-unconfigured");
+      // Concurrency only means anything once a provider is actually saved
+      // (an unconfigured slot has no key to rate-limit against) -- appended
+      // as a suffix onto whichever of the 4 base status strings above
+      // applies, rather than quadrupling the fluent strings with a
+      // concurrency-bearing variant of each.
+      const statusText = saved
+        ? `${baseStatusText}${getString(
+            "dialog-ai-provider-status-concurrency-suffix",
+            {
+              args: {
+                concurrency: saved.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+              },
+            },
+          )}`
+        : baseStatusText;
+      dialog.addCell(
+        i + 1,
+        0,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 10px",
+            cursor: "pointer",
+            borderRadius: "4px",
+            maxWidth: "100%",
+            boxSizing: "border-box",
+          },
+          children: [
+            {
+              tag: "span",
+              namespace: "html",
+              properties: { innerHTML: escapeHtml(slot.name) },
+              styles: {
+                fontWeight: isActive ? "bold" : "normal",
+                flex: "0 0 auto",
+              },
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              properties: { innerHTML: escapeHtml(statusText) },
+              attributes: { title: statusText },
+              styles: {
+                fontSize: "0.85em",
+                color: isActive ? "#2e7d32" : saved ? "#2ea8e5" : "#888",
+                flex: "1 1 auto",
+                minWidth: "0",
+                textAlign: "right",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              },
+            },
+          ],
+          listeners: [
+            {
+              type: "mouseenter",
+              listener: (ev: Event) => {
+                (ev.currentTarget as HTMLElement).style.background =
+                  "rgba(46,134,222,0.08)";
+              },
+            },
+            {
+              type: "mouseleave",
+              listener: (ev: Event) => {
+                (ev.currentTarget as HTMLElement).style.background = "";
+              },
+            },
+            {
+              type: "click",
+              listener: () => {
+                dialog.window?.close();
+                void EvidenceCommands.aiProviderEditDialog(slot.id);
+              },
+            },
+          ],
+        },
+        false,
+      );
+    });
+
+    dialog.addButton(getString("dialog-cancel"), "cancel").setDialogData({});
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-ai-provider-picker-title"),
+      380,
+      280,
+    );
+  }
+
+  /**
+   * Step 2: edit ONE provider slot's configuration. Field order is
+   * deliberate -- Base URL and API Key both come before the "fetch model
+   * list" action that depends on them, and Model comes after so a fetched
+   * result can be applied into it while it's still visible on screen.
+   */
+  private static async aiProviderEditDialog(slotId: string) {
+    const preset = findPresetById(slotId);
+    const slotName =
+      preset?.name ?? getString("dialog-ai-provider-custom-option");
+    const existing = listProviders().find((p) => p.id === slotId) ?? null;
+
     const dialogData: { [key: string]: any } = {
-      name: existing?.name ?? "Default Provider",
-      baseURL:
-        existing?.baseURL ?? "https://api.openai.com/v1/chat/completions",
+      baseURL: existing?.baseURL ?? preset?.baseURL ?? "",
       apiKey: existing?.apiKey ?? "",
-      model: existing?.model ?? "gpt-4o-mini",
+      model: existing?.model ?? "",
+      concurrency: String(
+        existing?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY,
+      ),
     };
 
-    const dialog = new ztoolkit.Dialog(5, 2)
+    const ID = EvidenceCommands.AI_DLG;
+
+    const dialog = new ztoolkit.Dialog(9, 2)
       .addCell(0, 0, {
         tag: "h1",
-        properties: { innerHTML: getString("dialog-ai-provider-title") },
+        properties: {
+          innerHTML: getString("dialog-ai-provider-edit-title", {
+            args: { name: slotName },
+          }),
+        },
       })
       .addCell(1, 0, {
         tag: "label",
         namespace: "html",
-        properties: { innerHTML: getString("dialog-ai-provider-name-label") },
+        properties: {
+          innerHTML: getString("dialog-ai-provider-baseurl-label"),
+        },
       })
       .addCell(
         1,
@@ -805,8 +1934,9 @@ export class EvidenceCommands {
         {
           tag: "input",
           namespace: "html",
+          id: ID.baseURL,
           attributes: {
-            "data-bind": "name",
+            "data-bind": "baseURL",
             "data-prop": "value",
             type: "text",
           },
@@ -817,7 +1947,7 @@ export class EvidenceCommands {
         tag: "label",
         namespace: "html",
         properties: {
-          innerHTML: getString("dialog-ai-provider-baseurl-label"),
+          innerHTML: getString("dialog-ai-provider-apikey-label"),
         },
       })
       .addCell(
@@ -826,46 +1956,7 @@ export class EvidenceCommands {
         {
           tag: "input",
           namespace: "html",
-          attributes: {
-            "data-bind": "baseURL",
-            "data-prop": "value",
-            type: "text",
-          },
-        },
-        false,
-      )
-      .addCell(3, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: { innerHTML: getString("dialog-ai-provider-model-label") },
-      })
-      .addCell(
-        3,
-        1,
-        {
-          tag: "input",
-          namespace: "html",
-          attributes: {
-            "data-bind": "model",
-            "data-prop": "value",
-            type: "text",
-          },
-        },
-        false,
-      )
-      .addCell(4, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: {
-          innerHTML: getString("dialog-ai-provider-apikey-label"),
-        },
-      })
-      .addCell(
-        4,
-        1,
-        {
-          tag: "input",
-          namespace: "html",
+          id: ID.apiKey,
           attributes: {
             "data-bind": "apiKey",
             "data-prop": "value",
@@ -874,26 +1965,392 @@ export class EvidenceCommands {
         },
         false,
       )
-      .addButton(getString("dialog-confirm"), "confirm")
+      .addCell(3, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        3,
+        1,
+        {
+          tag: "label",
+          namespace: "html",
+          styles: {
+            fontSize: "0.9em",
+            color: preset ? "#2ea8e5" : "#888",
+            cursor: preset ? "pointer" : "default",
+            textDecoration: preset ? "underline" : "none",
+          },
+          properties: {
+            innerHTML: preset
+              ? getString("dialog-ai-provider-docs-hint", {
+                  args: { name: preset.name },
+                })
+              : getString("dialog-ai-provider-docs-hint-custom"),
+          },
+          listeners: preset
+            ? [
+                {
+                  type: "click",
+                  listener: () => Zotero.launchURL(preset.docsURL),
+                },
+              ]
+            : [],
+        },
+        false,
+      )
+      .addCell(4, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-ai-provider-model-label") },
+      })
+      .addCell(
+        4,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: {
+            display: "flex",
+            gap: "6px",
+            alignItems: "center",
+            flexWrap: "wrap",
+            maxWidth: "100%",
+            minWidth: "0",
+            boxSizing: "border-box",
+          },
+          children: [
+            {
+              tag: "input",
+              namespace: "html",
+              id: ID.model,
+              attributes: {
+                "data-bind": "model",
+                "data-prop": "value",
+                type: "text",
+              },
+              styles: {
+                flex: "1 1 auto",
+                minWidth: "0",
+                maxWidth: "320px",
+                boxSizing: "border-box",
+              },
+            },
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.fetchModelsBtn,
+              attributes: { type: "button" },
+              properties: {
+                innerHTML: getString("dialog-ai-provider-fetch-models"),
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: async (ev: Event) => {
+                    const win = dialog.window;
+                    if (!win) return;
+                    const btn = ev.target as HTMLButtonElement;
+                    const baseURLEl = win.document.getElementById(
+                      ID.baseURL,
+                    ) as HTMLInputElement | null;
+                    const apiKeyEl = win.document.getElementById(
+                      ID.apiKey,
+                    ) as HTMLInputElement | null;
+                    const resultsEl = win.document.getElementById(
+                      ID.modelResults,
+                    ) as HTMLElement | null;
+                    const statusEl = win.document.getElementById(
+                      ID.modelResultsStatus,
+                    ) as HTMLElement | null;
+                    if (!baseURLEl || !resultsEl) return;
+                    btn.setAttribute("disabled", "true");
+                    const originalLabel = btn.innerHTML;
+                    btn.innerHTML = getString("dialog-ai-provider-fetching");
+                    try {
+                      const models = await fetchAvailableModels(
+                        baseURLEl.value,
+                        apiKeyEl?.value ?? "",
+                      );
+                      if (statusEl) {
+                        statusEl.textContent = getString(
+                          "dialog-ai-provider-model-results-placeholder",
+                          { args: { count: models.length } },
+                        );
+                      }
+                      // Deliberately NOT a native <select> -- both a live
+                      // "change" listener and a separate Apply button
+                      // reading a select's .value failed to reliably
+                      // reflect a real user's pick back into the form in
+                      // this dialog's window embedding. A plain clickable,
+                      // scrollable row list uses only click events, the
+                      // one interaction type proven reliable throughout
+                      // this dialog.
+                      resultsEl.innerHTML = "";
+                      for (const m of models) {
+                        const row = win.document.createElement("div");
+                        row.textContent =
+                          m.length > 60 ? `${m.slice(0, 57)}…` : m;
+                        row.title = m;
+                        row.style.padding = "4px 8px";
+                        row.style.cursor = "pointer";
+                        row.style.overflow = "hidden";
+                        row.style.textOverflow = "ellipsis";
+                        row.style.whiteSpace = "nowrap";
+                        // Absolute pixel cap, not a percentage -- this
+                        // dialog nests HTML content inside ztoolkit
+                        // Dialog's own XUL hbox/vbox grid wrappers, and a
+                        // percentage max-width only holds if every
+                        // ancestor in that chain resolves its own width
+                        // top-down first. A fixed px value needs no
+                        // ancestor cooperation to hold.
+                        row.style.maxWidth = "360px";
+                        row.style.boxSizing = "border-box";
+                        row.addEventListener("mouseenter", () => {
+                          row.style.background = "rgba(46,134,222,0.12)";
+                        });
+                        row.addEventListener("mouseleave", () => {
+                          row.style.background = "";
+                        });
+                        row.addEventListener("click", () => {
+                          const modelEl = win.document.getElementById(
+                            ID.model,
+                          ) as HTMLInputElement | null;
+                          if (modelEl) modelEl.value = m;
+                        });
+                        resultsEl.appendChild(row);
+                      }
+                      if (models.length > 0)
+                        resultsEl.removeAttribute("hidden");
+                      else resultsEl.setAttribute("hidden", "true");
+                    } catch (e: any) {
+                      ztoolkit.getGlobal("alert")(
+                        `${getString("dialog-ai-provider-fetch-models-error")}\n${e?.message ?? e}`,
+                      );
+                    } finally {
+                      btn.removeAttribute("disabled");
+                      btn.innerHTML = originalLabel;
+                    }
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        false,
+      )
+      .addCell(5, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        5,
+        1,
+        {
+          tag: "span",
+          namespace: "html",
+          id: ID.modelResultsStatus,
+          styles: { fontSize: "0.85em", color: "#888", display: "block" },
+        },
+        false,
+      )
+      .addCell(6, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        6,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          id: ID.modelResults,
+          attributes: { hidden: "true" },
+          styles: {
+            maxWidth: "380px",
+            minWidth: "0",
+            boxSizing: "border-box",
+            maxHeight: "160px",
+            overflowY: "auto",
+            overflowX: "hidden",
+            border: "1px solid rgba(0,0,0,0.15)",
+            borderRadius: "4px",
+          },
+        },
+        false,
+      )
+      .addCell(7, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        7,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: { display: "flex", gap: "8px", alignItems: "center" },
+          children: [
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.testBtn,
+              attributes: { type: "button" },
+              properties: {
+                innerHTML: getString("dialog-ai-provider-test-connection"),
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: async (ev: Event) => {
+                    const win = dialog.window;
+                    if (!win) return;
+                    const btn = ev.target as HTMLButtonElement;
+                    const statusEl = win.document.getElementById(
+                      ID.testStatus,
+                    ) as HTMLElement | null;
+                    const baseURLEl = win.document.getElementById(
+                      ID.baseURL,
+                    ) as HTMLInputElement | null;
+                    const apiKeyEl = win.document.getElementById(
+                      ID.apiKey,
+                    ) as HTMLInputElement | null;
+                    const modelEl = win.document.getElementById(
+                      ID.model,
+                    ) as HTMLInputElement | null;
+                    if (!statusEl || !baseURLEl || !modelEl) return;
+                    btn.setAttribute("disabled", "true");
+                    statusEl.style.color = "#888";
+                    statusEl.textContent = getString(
+                      "dialog-ai-provider-testing",
+                    );
+                    try {
+                      const testConfig: AIProviderConfig = {
+                        id: "connection-test",
+                        name: "connection-test",
+                        baseURL: baseURLEl.value,
+                        apiKey: apiKeyEl?.value ?? "",
+                        model: modelEl.value,
+                      };
+                      await callChatCompletion(
+                        testConfig,
+                        [{ role: "user", content: "Reply with just: OK" }],
+                        "connection_test",
+                      );
+                      statusEl.style.color = "#2e7d32";
+                      statusEl.textContent = getString(
+                        "dialog-ai-provider-test-success",
+                      );
+                    } catch (e: any) {
+                      statusEl.style.color = "#a33";
+                      statusEl.textContent = `${getString("dialog-ai-provider-test-failed")} ${e?.message ?? e}`;
+                    } finally {
+                      btn.removeAttribute("disabled");
+                    }
+                  },
+                },
+              ],
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              id: ID.testStatus,
+              styles: { fontSize: "0.9em" },
+            },
+          ],
+        },
+        false,
+      )
+      .addCell(8, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: {
+          innerHTML: getString("dialog-ai-provider-concurrency-label"),
+        },
+      })
+      .addCell(
+        8,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: { display: "flex", flexDirection: "column", gap: "2px" },
+          children: [
+            {
+              tag: "input",
+              namespace: "html",
+              id: ID.concurrency,
+              attributes: {
+                "data-bind": "concurrency",
+                "data-prop": "value",
+                type: "number",
+                min: "1",
+                max: "10",
+                step: "1",
+              },
+              styles: { width: "60px" },
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              properties: {
+                innerHTML: getString("dialog-ai-provider-concurrency-hint"),
+              },
+              styles: { fontSize: "0.8em", color: "#888" },
+            },
+          ],
+        },
+        false,
+      )
+      .addButton(getString("dialog-ai-provider-clear"), "clear", {
+        noClose: true,
+        callback: () => {
+          const win = dialog.window;
+          if (!win) return;
+          const confirmFn = ztoolkit.getGlobal("confirm");
+          if (!confirmFn(getString("dialog-ai-provider-clear-confirm"))) return;
+          deleteProvider(slotId);
+          win.close();
+        },
+      })
       .addButton(getString("dialog-cancel"), "cancel")
+      .addButton(getString("dialog-confirm"), "confirm")
       .setDialogData(dialogData);
+
     EvidenceCommands.openSizedDialog(
       dialog,
-      getString("dialog-ai-provider-title"),
-      600,
+      getString("dialog-ai-provider-edit-title", { args: { name: slotName } }),
+      400,
+      400,
     );
 
     await dialogData.unloadLock.promise;
     if (dialogData._lastButtonId !== "confirm") return;
 
+    const parsedConcurrency = Number(dialogData.concurrency);
+    const concurrency = Math.min(
+      10,
+      Math.max(
+        1,
+        Number.isFinite(parsedConcurrency)
+          ? Math.round(parsedConcurrency)
+          : DEFAULT_PROVIDER_CONCURRENCY,
+      ),
+    );
+
     upsertProvider({
-      id: "default",
-      name: String(dialogData.name || "Default Provider"),
+      id: slotId,
+      name: slotName,
       baseURL: String(dialogData.baseURL || ""),
       apiKey: String(dialogData.apiKey || ""),
       model: String(dialogData.model || ""),
+      concurrency,
     });
-    setActiveProviderId("default");
+    setActiveProviderId(slotId);
 
     new ztoolkit.ProgressWindow(addon.data.config.addonName)
       .createLine({
@@ -902,6 +2359,75 @@ export class EvidenceCommands {
         progress: 100,
       })
       .show();
+  }
+
+  static async aiUsageDialog() {
+    const stats = await getAIUsageStats();
+
+    const purposeLabel = (purpose: string): string => {
+      switch (purpose) {
+        case "ta_screening":
+          return getString("ai-usage-purpose-ta-screening");
+        case "ft_screening":
+          return getString("ai-usage-purpose-ft-screening");
+        case "coding":
+          return getString("ai-usage-purpose-coding");
+        case "synthesis":
+          return getString("ai-usage-purpose-synthesis");
+        case "connection_test":
+          return getString("ai-usage-purpose-connection-test");
+        default:
+          return purpose;
+      }
+    };
+
+    const rows = [
+      ...stats.byPurpose.map((r) => ({ ...r, label: purposeLabel(r.purpose) })),
+      { ...stats.total, label: getString("ai-usage-purpose-total") },
+    ];
+
+    const columns = 5;
+    const dialog = new ztoolkit.Dialog(rows.length + 2, columns).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-ai-usage-title") },
+    });
+    const headers = [
+      getString("dialog-ai-usage-col-purpose"),
+      getString("dialog-ai-usage-col-calls"),
+      getString("dialog-ai-usage-col-prompt-tokens"),
+      getString("dialog-ai-usage-col-completion-tokens"),
+      getString("dialog-ai-usage-col-total-tokens"),
+    ];
+    headers.forEach((h, col) =>
+      dialog.addCell(1, col, {
+        tag: "strong",
+        namespace: "html",
+        properties: { innerHTML: h },
+      }),
+    );
+    rows.forEach((r, i) => {
+      const row = i + 2;
+      const values = [
+        r.label,
+        r.calls,
+        r.promptTokens,
+        r.completionTokens,
+        r.totalTokens,
+      ];
+      values.forEach((v, col) =>
+        dialog.addCell(row, col, {
+          tag: r.purpose === "total" ? "strong" : "span",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(String(v)) },
+        }),
+      );
+    });
+    dialog.addButton(getString("dialog-close"), "close");
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-ai-usage-title"),
+      620,
+    );
   }
 
   static async progressDialog() {
@@ -934,13 +2460,13 @@ export class EvidenceCommands {
           ]);
           return {
             name: p.name,
-            pending: countItems(collections.screenQueueId),
+            pending: countItems(collections.taQueueId),
             include: prisma.screening.includedToFt,
             exclude: prisma.screening.excluded,
             unclear: prisma.screening.unclearToFt,
             ftInclude: prisma.included.finalStudies,
             ftExclude: prisma.eligibility.excluded,
-            ftUnavailable: prisma.eligibility.unavailable,
+            ftUnavailable: prisma.retrieval.notRetrieved,
             codingConfirmed: coding.itemsWithConfirmedEvidence,
             codingTotal: coding.totalInCoding,
           };
@@ -1004,12 +2530,102 @@ export class EvidenceCommands {
     );
   }
 
-  private static async resolveScreenQueueBatchContext() {
+  // Shared by all three AI batch runners (TA/FT/Coding): the ProgressWindow
+  // line those runners already show stays a single short summary line no
+  // matter how many items failed -- dumping every failed title + reason
+  // into that one line would make it unreadable once more than a couple of
+  // items fail (e.g. a whole batch of items with no PDF yet). This is the
+  // on-demand detail view for that case: only opened when there's at least
+  // one failure, listing each failed item's title next to its error
+  // message so the user doesn't have to reopen every item individually or
+  // dig through the debug log to find out why.
+  private static showBatchFailuresDialog(
+    failures: { title: string; reason: string }[],
+  ) {
+    if (failures.length === 0) return;
+    // Each row here is its own independent flex hbox (see openSizedDialog's
+    // comment above) -- there's no real <table> tying column widths
+    // together across rows, so without an explicit width every row sizes
+    // itself to its own content. A long, unbroken error message in one row
+    // was stretching that row (and the whole window, since Gecko won't
+    // shrink a flex child below its content's intrinsic width by default)
+    // far past the other rows and past `openSizedDialog`'s requested
+    // width. Fixed pixel widths on every cell in a column -- not just the
+    // data rows, the header too, so the columns still visually line up --
+    // plus wrapping instead of a single unbroken line keeps every row the
+    // same width regardless of message length.
+    const ITEM_COL_WIDTH = "200px";
+    const REASON_COL_WIDTH = "380px";
+    const colStyle = (width: string) => ({
+      width,
+      maxWidth: width,
+      boxSizing: "border-box" as const,
+      wordBreak: "break-word" as const,
+      overflowWrap: "break-word" as const,
+      display: "block" as const,
+    });
+
+    const dialog = new ztoolkit.Dialog(failures.length + 2, 2).addCell(0, 0, {
+      tag: "h1",
+      properties: { innerHTML: getString("dialog-batch-failures-title") },
+    });
+    const headers: [string, string] = [
+      getString("dialog-batch-failures-col-item"),
+      getString("dialog-batch-failures-col-reason"),
+    ];
+    const colWidths = [ITEM_COL_WIDTH, REASON_COL_WIDTH];
+    headers.forEach((h, col) =>
+      dialog.addCell(
+        1,
+        col,
+        {
+          tag: "strong",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(h) },
+          styles: colStyle(colWidths[col]),
+        },
+        false,
+      ),
+    );
+    failures.forEach((f, i) => {
+      const row = i + 2;
+      dialog.addCell(
+        row,
+        0,
+        {
+          tag: "span",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(f.title) },
+          styles: colStyle(ITEM_COL_WIDTH),
+        },
+        false,
+      );
+      dialog.addCell(
+        row,
+        1,
+        {
+          tag: "span",
+          namespace: "html",
+          properties: { innerHTML: escapeHtml(f.reason) },
+          styles: colStyle(REASON_COL_WIDTH),
+        },
+        false,
+      );
+    });
+    dialog.addButton(getString("dialog-close"), "close");
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-batch-failures-title"),
+      620,
+    );
+  }
+
+  private static async resolveTaQueueBatchContext() {
     const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
-    const collectionId = ZoteroPaneGlobal.getSelectedCollection(true);
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
     const ctx = await findProjectPaneContext(collectionId ?? null);
-    if (!ctx || ctx.role !== "screen_queue") {
-      ztoolkit.getGlobal("alert")(getString("error-not-screen-queue"));
+    if (!ctx || ctx.role !== "ta_queue") {
+      ztoolkit.getGlobal("alert")(getString("error-not-ta-queue"));
       return null;
     }
     const items = (ZoteroPaneGlobal.getSelectedItems() as Zotero.Item[]).filter(
@@ -1020,13 +2636,14 @@ export class EvidenceCommands {
   }
 
   static async batchRunAI() {
-    const resolved = await EvidenceCommands.resolveScreenQueueBatchContext();
+    const resolved = await EvidenceCommands.resolveTaQueueBatchContext();
     if (!resolved) return;
     const { ctx, items } = resolved;
 
-    const concurrency = Number(getPref("aiConcurrency")) || 3;
+    const concurrency =
+      getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
     let done = 0;
-    let failed = 0;
+    const failures: { title: string; reason: string }[] = [];
     const progressWin = new ztoolkit.ProgressWindow(
       addon.data.config.addonName,
       { closeOnClick: false, closeTime: -1 },
@@ -1044,7 +2661,10 @@ export class EvidenceCommands {
       try {
         await runAIJudgment(ctx.project.id, item);
       } catch (e: any) {
-        failed++;
+        failures.push({
+          title: item.getDisplayTitle(),
+          reason: e?.message ?? String(e),
+        });
         ztoolkit.log("Batch AI judgment failed", item.key, e);
       }
       done++;
@@ -1056,6 +2676,7 @@ export class EvidenceCommands {
       });
     });
 
+    const failed = failures.length;
     progressWin.changeLine({
       progress: 100,
       text: getString("progress-batch-done", {
@@ -1064,10 +2685,11 @@ export class EvidenceCommands {
       type: failed > 0 ? "error" : "success",
     });
     progressWin.startCloseTimer(5000);
+    EvidenceCommands.showBatchFailuresDialog(failures);
   }
 
   static async batchConfirmAI() {
-    const resolved = await EvidenceCommands.resolveScreenQueueBatchContext();
+    const resolved = await EvidenceCommands.resolveTaQueueBatchContext();
     if (!resolved) return;
     const { ctx, items } = resolved;
 
@@ -1082,7 +2704,7 @@ export class EvidenceCommands {
           ctx.collections,
           state.id,
           state.aiDecision,
-          "user",
+          currentDeciderId(),
         );
         confirmed++;
       } else {
@@ -1099,6 +2721,192 @@ export class EvidenceCommands {
         progress: 100,
       })
       .show();
+  }
+
+  private static async resolveFtQueueBatchContext() {
+    const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
+    const ctx = await findProjectPaneContext(collectionId ?? null);
+    if (!ctx || ctx.role !== "ft_queue") {
+      ztoolkit.getGlobal("alert")(getString("error-not-ft-queue"));
+      return null;
+    }
+    const items = (ZoteroPaneGlobal.getSelectedItems() as Zotero.Item[]).filter(
+      (i) => i.isRegularItem(),
+    );
+    if (items.length === 0) return null;
+    return { ctx, items };
+  }
+
+  // Distinct from batchConfirmAI (TA): this doesn't touch any AI suggestion
+  // at all -- it's a bulk cleanup for items the human never even got a PDF
+  // for. Each selected item is only moved to FT-Unavailable if it still has
+  // NO detected PDF attachment; an item that does have one is left alone
+  // entirely (no action taken) so a batch run can't accidentally overwrite
+  // a real screening decision for an item that's actually readable.
+  static async batchMarkUnavailable() {
+    const resolved = await EvidenceCommands.resolveFtQueueBatchContext();
+    if (!resolved) return;
+    const { ctx, items } = resolved;
+
+    let marked = 0;
+    let skipped = 0;
+    for (const item of items) {
+      const attachment = await resolveAttachment(item);
+      if (attachment) {
+        skipped++;
+        continue;
+      }
+      await markUnavailable(
+        ctx.project.id,
+        item,
+        ctx.collections,
+        currentDeciderId(),
+      );
+      marked++;
+    }
+
+    new ztoolkit.ProgressWindow(addon.data.config.addonName)
+      .createLine({
+        text: getString("progress-batch-unavailable-done", {
+          args: { marked, skipped },
+        }),
+        type: "success",
+        progress: 100,
+      })
+      .show();
+  }
+
+  // FT's counterpart to batchRunAI (TA): same runWithConcurrency shape,
+  // but drives runCriterionChecks (FT criterion checks against the item's
+  // full text) instead of runAIJudgment (TA title/abstract). A single item
+  // that isn't ready for FT-Screening yet (no full text available) just
+  // fails and counts toward `failed` -- same as any other per-item error --
+  // rather than being pre-filtered here, so the failure reason still
+  // surfaces via runCriterionChecks's own error message in the log.
+  static async batchRunFtAI() {
+    const resolved = await EvidenceCommands.resolveFtQueueBatchContext();
+    if (!resolved) return;
+    const { ctx, items } = resolved;
+
+    const concurrency =
+      getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
+    let done = 0;
+    const failures: { title: string; reason: string }[] = [];
+    const progressWin = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+      { closeOnClick: false, closeTime: -1 },
+    )
+      .createLine({
+        text: getString("progress-batch-ft-running", {
+          args: { done: 0, total: items.length },
+        }),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+
+    await runWithConcurrency(items, concurrency, async (item) => {
+      try {
+        await runCriterionChecks(ctx.project.id, item);
+      } catch (e: any) {
+        failures.push({
+          title: item.getDisplayTitle(),
+          reason: e?.message ?? String(e),
+        });
+        ztoolkit.log("Batch FT criterion check failed", item.key, e);
+      }
+      done++;
+      progressWin.changeLine({
+        progress: Math.round((done / items.length) * 100),
+        text: getString("progress-batch-ft-running", {
+          args: { done, total: items.length },
+        }),
+      });
+    });
+
+    const failed = failures.length;
+    progressWin.changeLine({
+      progress: 100,
+      text: getString("progress-batch-ft-done", {
+        args: { done, total: items.length, failed },
+      }),
+      type: failed > 0 ? "error" : "success",
+    });
+    progressWin.startCloseTimer(5000);
+    EvidenceCommands.showBatchFailuresDialog(failures);
+  }
+
+  private static async resolveCodingBatchContext() {
+    const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+    const collectionId = getSelectedCollectionIdCompat(ZoteroPaneGlobal);
+    const ctx = await findProjectPaneContext(collectionId ?? null);
+    if (!ctx || ctx.role !== "coding") {
+      ztoolkit.getGlobal("alert")(getString("error-not-coding"));
+      return null;
+    }
+    const items = (ZoteroPaneGlobal.getSelectedItems() as Zotero.Item[]).filter(
+      (i) => i.isRegularItem(),
+    );
+    if (items.length === 0) return null;
+    return { ctx, items };
+  }
+
+  // Coding's counterpart to batchRunAI/batchRunFtAI: drives
+  // generateSuggestions (one LLM call over the item's full text against the
+  // project's Codebook, plus a best-effort PDF quote locate per suggestion)
+  // across every selected item in the Extract Coding collection.
+  static async batchRunCodingAI() {
+    const resolved = await EvidenceCommands.resolveCodingBatchContext();
+    if (!resolved) return;
+    const { ctx, items } = resolved;
+
+    const concurrency =
+      getActiveProvider()?.concurrency ?? DEFAULT_PROVIDER_CONCURRENCY;
+    let done = 0;
+    const failures: { title: string; reason: string }[] = [];
+    const progressWin = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+      { closeOnClick: false, closeTime: -1 },
+    )
+      .createLine({
+        text: getString("progress-batch-coding-running", {
+          args: { done: 0, total: items.length },
+        }),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+
+    await runWithConcurrency(items, concurrency, async (item) => {
+      try {
+        await generateSuggestions(ctx.project.id, item);
+      } catch (e: any) {
+        failures.push({
+          title: item.getDisplayTitle(),
+          reason: e?.message ?? String(e),
+        });
+        ztoolkit.log("Batch Coding AI suggestion failed", item.key, e);
+      }
+      done++;
+      progressWin.changeLine({
+        progress: Math.round((done / items.length) * 100),
+        text: getString("progress-batch-coding-running", {
+          args: { done, total: items.length },
+        }),
+      });
+    });
+
+    const failed = failures.length;
+    progressWin.changeLine({
+      progress: 100,
+      text: getString("progress-batch-coding-done", {
+        args: { done, total: items.length, failed },
+      }),
+      type: failed > 0 ? "error" : "success",
+    });
+    progressWin.startCloseTimer(5000);
+    EvidenceCommands.showBatchFailuresDialog(failures);
   }
 
   // Matches parseCodebookCsv's expected header/columns exactly (see
@@ -1122,7 +2930,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
       filePath: "",
     };
 
@@ -1288,7 +3096,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
       name: "",
       type: "text",
       values: "",
@@ -1336,12 +3144,13 @@ export class EvidenceCommands {
         2,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "name",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1379,12 +3188,13 @@ export class EvidenceCommands {
         4,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "values",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1452,12 +3262,13 @@ export class EvidenceCommands {
         7,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "notes",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1473,12 +3284,13 @@ export class EvidenceCommands {
         8,
         1,
         {
-          tag: "input",
+          tag: "textarea",
           namespace: "html",
           attributes: {
             "data-bind": "hint",
             "data-prop": "value",
-            type: "text",
+            rows: "2",
+            cols: "40",
           },
         },
         false,
@@ -1539,7 +3351,7 @@ export class EvidenceCommands {
       return;
     }
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
     };
 
     const renderList = async (container: HTMLElement) => {
@@ -1622,176 +3434,1812 @@ export class EvidenceCommands {
     );
   }
 
-  static async codebookEditNotesDialog() {
+  // Renaming isn't offered here -- coding_records references a codebook
+  // variable by its raw `variable_name` text (see codingService.ts's
+  // resolveCanonicalVariableName), so changing a variable's name would
+  // silently orphan every existing coding record for it unless those rows
+  // were also migrated. Name stays a read-only identifier; every other
+  // field (type/values/multiple/required/notes/extraction hint) is fully
+  // editable, matching what codebookAddVariableDialog collects when a
+  // variable is first created.
+  //
+  // The variable picker is a real ztoolkit `tag: "select"` -- the exact
+  // same widget and visual styling as the project picker above it -- not
+  // a hand-built substitute. The catch: ztoolkit's Dialog builds that
+  // widget's popup ONCE from its `children` at construction time (see
+  // zotero-plugin-toolkit's replaceElement()), with no supported way to
+  // refresh it afterwards. Switching the selected VARIABLE within one
+  // project works fine as-is (that project's full, correct option list is
+  // already known before the dialog is built), but switching the PROJECT
+  // needs a different variable list -- so that case closes this dialog and
+  // has the outer loop reopen a fresh one seeded for the new project,
+  // rather than trying to mutate the popup in place.
+  static async codebookEditVariableDialog() {
     const projects = await listProjects();
     if (projects.length === 0) {
       ztoolkit.getGlobal("alert")(getString("error-no-projects"));
       return;
     }
 
-    const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
-      variableName: "",
-      notes: "",
-    };
-    let currentVariables: CodebookVariable[] = [];
+    let projectId = EvidenceCommands.defaultProjectId(projects);
 
-    const dialog = new ztoolkit.Dialog(4, 2)
-      .addCell(0, 0, {
-        tag: "h1",
-        properties: {
-          innerHTML: getString("dialog-codebook-edit-notes-title"),
-        },
-      })
-      .addCell(1, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: { innerHTML: getString("dialog-import-project-label") },
-      })
-      .addCell(
-        1,
-        1,
-        {
-          tag: "select",
+    while (true) {
+      const codebook = await getLatestCodebook(projectId);
+      const variables = codebook?.variables ?? [];
+      const first = variables[0];
+
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        variableName: first?.name ?? "",
+        type: first?.type ?? "text",
+        values: first?.values?.join("|") ?? "",
+        multiple: !!first?.multiple,
+        required: !!first?.required,
+        notes: first?.notes ?? "",
+        hint: first?.extractionHint ?? "",
+      };
+
+      const dialog = new ztoolkit.Dialog(10, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: {
+            innerHTML: getString("dialog-codebook-edit-variable-title"),
+          },
+        })
+        .addCell(1, 0, {
+          tag: "label",
           namespace: "html",
-          id: "evidence-codebook-notes-project",
-          attributes: { "data-bind": "projectId", "data-prop": "value" },
-          children: projects.map((p) => ({
-            tag: "option",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
             namespace: "html",
-            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
-          })),
-        },
-        false,
-      )
-      .addCell(2, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: {
-          innerHTML: getString("dialog-codebook-edit-notes-variable-label"),
-        },
-      })
-      .addCell(
-        2,
-        1,
-        {
-          tag: "select",
+            id: "evidence-codebook-edit-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
           namespace: "html",
-          id: "evidence-codebook-notes-variable",
-        },
-        false,
-      )
-      .addCell(3, 0, {
-        tag: "label",
-        namespace: "html",
-        properties: {
-          innerHTML: getString("dialog-codebook-edit-notes-notes-label"),
-        },
-      })
-      .addCell(
-        3,
-        1,
-        {
-          tag: "textarea",
+          properties: {
+            innerHTML: getString("dialog-codebook-edit-variable-select-label"),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-edit-variable-select",
+            attributes: { "data-bind": "variableName", "data-prop": "value" },
+            children: variables.map((v) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: v.name, innerHTML: escapeHtml(v.name) },
+            })),
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "label",
           namespace: "html",
-          id: "evidence-codebook-notes-textarea",
-          attributes: { rows: "4", cols: "40" },
-        },
-        false,
-      )
-      .addButton(getString("dialog-confirm"), "confirm")
-      .addButton(getString("dialog-cancel"), "cancel")
-      .setDialogData(dialogData);
-    EvidenceCommands.openSizedDialog(
-      dialog,
-      getString("dialog-codebook-edit-notes-title"),
-      580,
-    );
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-name-label"),
+          },
+        })
+        .addCell(
+          3,
+          1,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-codebook-edit-name",
+            properties: { innerHTML: escapeHtml(first?.name ?? "") },
+          },
+          false,
+        )
+        .addCell(4, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-type-label"),
+          },
+        })
+        .addCell(
+          4,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-edit-type",
+            attributes: { "data-bind": "type", "data-prop": "value" },
+            children: ["text", "categorical", "numeric"].map((t) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: t, innerHTML: t },
+            })),
+          },
+          false,
+        )
+        .addCell(5, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-values-label"),
+          },
+        })
+        .addCell(
+          5,
+          1,
+          {
+            tag: "textarea",
+            namespace: "html",
+            id: "evidence-codebook-edit-values",
+            attributes: {
+              "data-bind": "values",
+              "data-prop": "value",
+              rows: "2",
+              cols: "40",
+            },
+          },
+          false,
+        )
+        .addCell(
+          6,
+          0,
+          {
+            tag: "label",
+            namespace: "html",
+            properties: {
+              innerHTML: getString("dialog-codebook-variable-multiple-label"),
+            },
+          },
+          false,
+        )
+        .addCell(
+          6,
+          1,
+          {
+            tag: "input",
+            namespace: "html",
+            id: "evidence-codebook-edit-multiple",
+            attributes: {
+              "data-bind": "multiple",
+              "data-prop": "checked",
+              type: "checkbox",
+            },
+          },
+          false,
+        )
+        .addCell(
+          7,
+          0,
+          {
+            tag: "label",
+            namespace: "html",
+            properties: {
+              innerHTML: getString("dialog-codebook-variable-required-label"),
+            },
+          },
+          false,
+        )
+        .addCell(
+          7,
+          1,
+          {
+            tag: "input",
+            namespace: "html",
+            id: "evidence-codebook-edit-required",
+            attributes: {
+              "data-bind": "required",
+              "data-prop": "checked",
+              type: "checkbox",
+            },
+          },
+          false,
+        )
+        .addCell(8, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-notes-label"),
+          },
+        })
+        .addCell(
+          8,
+          1,
+          {
+            tag: "textarea",
+            namespace: "html",
+            id: "evidence-codebook-edit-notes",
+            attributes: { rows: "4", cols: "40" },
+          },
+          false,
+        )
+        .addCell(9, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-variable-hint-label"),
+          },
+        })
+        .addCell(
+          9,
+          1,
+          {
+            tag: "textarea",
+            namespace: "html",
+            id: "evidence-codebook-edit-hint",
+            attributes: {
+              "data-bind": "hint",
+              "data-prop": "value",
+              rows: "2",
+              cols: "40",
+            },
+          },
+          false,
+        )
+        .addButton(getString("dialog-confirm"), "confirm")
+        .addButton(getString("dialog-cancel"), "cancel")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-codebook-edit-variable-title"),
+        620,
+      );
 
-    await Zotero.Promise.delay(50);
-    const variableSelectEl = dialog.window?.document.getElementById(
-      "evidence-codebook-notes-variable",
-    ) as HTMLSelectElement | undefined;
-    const notesEl = dialog.window?.document.getElementById(
-      "evidence-codebook-notes-textarea",
-    ) as HTMLTextAreaElement | undefined;
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const variableSelectEl = doc?.getElementById(
+        "evidence-codebook-edit-variable-select",
+      ) as HTMLSelectElement | undefined;
+      const nameEl = doc?.getElementById("evidence-codebook-edit-name");
+      const typeEl = doc?.getElementById("evidence-codebook-edit-type") as
+        | HTMLSelectElement
+        | undefined;
+      const valuesEl = doc?.getElementById("evidence-codebook-edit-values") as
+        | HTMLTextAreaElement
+        | undefined;
+      const multipleEl = doc?.getElementById(
+        "evidence-codebook-edit-multiple",
+      ) as HTMLInputElement | undefined;
+      const requiredEl = doc?.getElementById(
+        "evidence-codebook-edit-required",
+      ) as HTMLInputElement | undefined;
+      // data-bind's own listeners only ever apply a control's INITIAL
+      // value from dialogData once, at construction, and only read it back
+      // at unload -- switching the selected variable within this project
+      // needs these sibling fields' displayed values (and dialogData
+      // itself) written by hand as it happens. notes has no data-bind at
+      // all (kept as a plain manual-sync field, like before).
+      const notesEl = doc?.getElementById("evidence-codebook-edit-notes") as
+        | HTMLTextAreaElement
+        | undefined;
+      const hintEl = doc?.getElementById("evidence-codebook-edit-hint") as
+        | HTMLTextAreaElement
+        | undefined;
 
-    const populateVariables = async () => {
-      const codebook = await getLatestCodebook(Number(dialogData.projectId));
-      currentVariables = codebook?.variables ?? [];
-      if (variableSelectEl) {
-        variableSelectEl.innerHTML = "";
-        for (const v of currentVariables) {
-          const opt = variableSelectEl.ownerDocument!.createElement("option");
-          opt.value = v.name;
-          opt.textContent = v.name;
-          variableSelectEl.appendChild(opt);
-        }
-      }
-      dialogData.variableName = currentVariables[0]?.name ?? "";
-      dialogData.notes = currentVariables[0]?.notes ?? "";
-      if (notesEl) notesEl.value = dialogData.notes;
-    };
-
-    await populateVariables();
-
-    const projectSelectEl = dialog.window?.document.getElementById(
-      "evidence-codebook-notes-project",
-    ) as HTMLSelectElement | undefined;
-    EvidenceCommands.watchSelectValue(
-      dialogData,
-      dialog.window,
-      projectSelectEl,
-      async (value) => {
-        dialogData.projectId = value;
-        await populateVariables();
-      },
-    );
-
-    EvidenceCommands.watchSelectValue(
-      dialogData,
-      dialog.window,
-      variableSelectEl,
-      (value) => {
-        dialogData.variableName = value;
-        const match = currentVariables.find(
-          (v) => v.name === dialogData.variableName,
-        );
-        dialogData.notes = match?.notes ?? "";
+      const populateFields = (v: CodebookVariable | undefined) => {
+        dialogData.variableName = v?.name ?? "";
+        dialogData.type = v?.type ?? "text";
+        dialogData.values = v?.values?.join("|") ?? "";
+        dialogData.multiple = !!v?.multiple;
+        dialogData.required = !!v?.required;
+        dialogData.notes = v?.notes ?? "";
+        dialogData.hint = v?.extractionHint ?? "";
+        if (nameEl) nameEl.textContent = dialogData.variableName;
+        if (typeEl) typeEl.value = dialogData.type;
+        if (valuesEl) valuesEl.value = dialogData.values;
+        if (multipleEl) multipleEl.checked = dialogData.multiple;
+        if (requiredEl) requiredEl.checked = dialogData.required;
         if (notesEl) notesEl.value = dialogData.notes;
-      },
-    );
+        if (hintEl) hintEl.value = dialogData.hint;
+      };
+      // notesEl has no data-bind, so its initial display needs this same
+      // manual write once up front -- everything else here is already
+      // correct from data-bind's own construction-time initialization,
+      // this is just a harmless, consistent no-op for those.
+      populateFields(first);
 
-    notesEl?.addEventListener("input", (e: Event) => {
-      dialogData.notes = (e.target as HTMLTextAreaElement).value;
-    });
+      // Switching among THIS project's own variables works through
+      // ztoolkit's real popup select (see the method-level comment above)
+      // -- watchSelectValue polls the underlying <select>'s value, which
+      // the popup writes to directly when an item is picked.
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        variableSelectEl,
+        (value) => {
+          populateFields(variables.find((v) => v.name === value));
+        },
+      );
 
-    await dialogData.unloadLock.promise;
-    if (dialogData._lastButtonId !== "confirm") return;
+      const projectSelectEl = doc?.getElementById(
+        "evidence-codebook-edit-project",
+      ) as HTMLSelectElement | undefined;
+      // Switching the PROJECT needs a different variable list, which the
+      // popup can't be refreshed with in place -- close this dialog and
+      // let the outer loop reopen a fresh one built for the new project.
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
 
-    if (currentVariables.length === 0) {
-      ztoolkit.getGlobal("alert")(getString("error-codebook-no-variables"));
+      notesEl?.addEventListener("input", (e: Event) => {
+        dialogData.notes = (e.target as HTMLTextAreaElement).value;
+      });
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      if (dialogData._lastButtonId !== "confirm") return;
+
+      if (variables.length === 0) {
+        ztoolkit.getGlobal("alert")(getString("error-codebook-no-variables"));
+        return;
+      }
+
+      const values = String(dialogData.values || "")
+        .split("|")
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const updatedVariables = variables.map((v) =>
+        v.name === dialogData.variableName
+          ? {
+              ...v,
+              type: dialogData.type as CodebookVariable["type"],
+              values: values.length > 0 ? values : undefined,
+              multiple: !!dialogData.multiple,
+              required: !!dialogData.required,
+              notes: String(dialogData.notes || "").trim() || undefined,
+              extractionHint: String(dialogData.hint || "").trim() || undefined,
+            }
+          : v,
+      );
+
+      try {
+        await saveCodebook(projectId, updatedVariables);
+        new ztoolkit.ProgressWindow(addon.data.config.addonName)
+          .createLine({
+            text: getString("progress-codebook-variable-updated"),
+            type: "success",
+            progress: 100,
+          })
+          .show();
+      } catch (e: any) {
+        ztoolkit.log("Save codebook variable failed", e);
+        ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+      }
+      return;
+    }
+  }
+
+  /**
+   * Removes one variable from the project's Codebook -- the one CRUD
+   * operation this menu was missing (Import/Add Variable = create,
+   * Edit Variable = update, View = read). Like Edit Variable, this just
+   * writes a new saveCodebook() version with the variable filtered out
+   * rather than mutating anything in place: existing coding_records for
+   * that variable are deliberately left alone (past coding work stays
+   * intact and traceable), it simply stops being offered anywhere the
+   * *current* Codebook is read from (Add/Edit pickers, new exports'
+   * column list) going forward.
+   */
+  static async codebookDeleteVariableDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
       return;
     }
 
-    const updatedVariables = currentVariables.map((v) =>
-      v.name === dialogData.variableName
-        ? { ...v, notes: String(dialogData.notes || "").trim() || undefined }
-        : v,
-    );
+    let projectId = EvidenceCommands.defaultProjectId(projects);
 
-    try {
-      await saveCodebook(Number(dialogData.projectId), updatedVariables);
-      new ztoolkit.ProgressWindow(addon.data.config.addonName)
-        .createLine({
-          text: getString("progress-codebook-notes-saved"),
-          type: "success",
-          progress: 100,
+    while (true) {
+      const codebook = await getLatestCodebook(projectId);
+      const variables = codebook?.variables ?? [];
+
+      if (variables.length === 0) {
+        ztoolkit.getGlobal("alert")(getString("error-codebook-no-variables"));
+        return;
+      }
+
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        variableName: variables[0].name,
+      };
+
+      const dialog = new ztoolkit.Dialog(4, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: {
+            innerHTML: getString("dialog-codebook-delete-variable-title"),
+          },
         })
-        .show();
-    } catch (e: any) {
-      ztoolkit.log("Save codebook notes failed", e);
-      ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-delete-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-edit-variable-select-label"),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-codebook-delete-variable-select",
+            attributes: { "data-bind": "variableName", "data-prop": "value" },
+            children: variables.map((v) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: v.name, innerHTML: escapeHtml(v.name) },
+            })),
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "p",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-delete-variable-warning"),
+          },
+          styles: { color: "var(--fill-secondary, #a33)" },
+        })
+        .addButton(getString("dialog-confirm"), "confirm")
+        .addButton(getString("dialog-cancel"), "cancel")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-codebook-delete-variable-title"),
+        520,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const projectSelectEl = doc?.getElementById(
+        "evidence-codebook-delete-project",
+      ) as HTMLSelectElement | undefined;
+      // Same reasoning as codebookEditVariableDialog: switching PROJECT
+      // needs a different variable list, which the popup select can't be
+      // refreshed with in place -- close and let the outer loop reopen a
+      // fresh dialog built for the new project. Switching the VARIABLE
+      // itself needs no such handling here (unlike Edit Variable) since
+      // there are no other fields on this dialog that need to track it.
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      if (dialogData._lastButtonId !== "confirm") return;
+
+      const variableName = String(dialogData.variableName || "");
+      const proceed = ztoolkit.getGlobal("confirm")(
+        getString("dialog-codebook-delete-variable-confirm", {
+          args: { name: variableName },
+        }),
+      );
+      if (!proceed) return;
+
+      const remainingVariables = variables.filter(
+        (v) => v.name !== variableName,
+      );
+
+      try {
+        await saveCodebook(projectId, remainingVariables);
+        new ztoolkit.ProgressWindow(addon.data.config.addonName)
+          .createLine({
+            text: getString("progress-codebook-variable-deleted"),
+            type: "success",
+            progress: 100,
+          })
+          .show();
+      } catch (e: any) {
+        ztoolkit.log("Delete codebook variable failed", e);
+        ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+      }
+      return;
+    }
+  }
+
+  // Same reopen-on-project-change loop as codebookEditVariableDialog, and
+  // for the same reason: the variable picker is a real ztoolkit `select`
+  // (so it looks/behaves exactly like every other dropdown in this dialog),
+  // and that widget's option popup can only be built once, from static
+  // `children`, at construction time -- switching project needs a
+  // different variable list, so this closes and reopens rather than trying
+  // to refresh the popup in place. Switching the VARIABLE within one
+  // project doesn't have that problem (its option list is already known),
+  // so that just rebuilds the results table in place via refreshTable().
+  static async synthesisDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    let projectId = EvidenceCommands.defaultProjectId(projects);
+
+    while (true) {
+      const codebook = await getLatestCodebook(projectId);
+      const variables = codebook?.variables ?? [];
+      const first = variables[0];
+
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+        variableName: first?.name ?? "",
+      };
+
+      const dialog = new ztoolkit.Dialog(6, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: { innerHTML: getString("dialog-synthesis-title") },
+        })
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-synthesis-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: {
+            innerHTML: getString("dialog-codebook-edit-variable-select-label"),
+          },
+        })
+        .addCell(
+          2,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-synthesis-variable",
+            attributes: { "data-bind": "variableName", "data-prop": "value" },
+            children: variables.map((v) => ({
+              tag: "option",
+              namespace: "html",
+              properties: { value: v.name, innerHTML: escapeHtml(v.name) },
+            })),
+          },
+          false,
+        )
+        .addCell(3, 0, {
+          tag: "div",
+          namespace: "html",
+          id: "evidence-synthesis-table-container",
+          styles: { maxHeight: "440px", overflow: "auto", marginTop: "6px" },
+        })
+        .addCell(
+          4,
+          0,
+          {
+            tag: "button",
+            namespace: "html",
+            id: "evidence-synthesis-run",
+            attributes: { type: "button" },
+            properties: { innerHTML: getString("synthesis-run-button") },
+          },
+          false,
+        )
+        .addCell(
+          4,
+          1,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-synthesis-status",
+          },
+          false,
+        )
+        .addButton(getString("dialog-close"), "close")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-synthesis-title"),
+        900,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const variableSelectEl = doc?.getElementById(
+        "evidence-synthesis-variable",
+      ) as HTMLSelectElement | undefined;
+      const tableContainer = doc?.getElementById(
+        "evidence-synthesis-table-container",
+      );
+      const runBtn = doc?.getElementById("evidence-synthesis-run") as
+        | HTMLButtonElement
+        | undefined;
+      const statusEl = doc?.getElementById("evidence-synthesis-status");
+
+      // History here matters -- three data points across this feature's
+      // debugging: (A) table-layout:fixed + <colgroup>/<col> + position:
+      // sticky = Zotero crashed outright on open; (B) none of the three,
+      // per-element inline styles, char-truncated text, plain auto table
+      // layout = confirmed stable; (C) dropped colgroup/sticky but brought
+      // table-layout:fixed BACK (via a shared injected <style> instead) =
+      // crashed again. table-layout:fixed is the one thing present in both
+      // crashing attempts and absent from the only stable one, so it and
+      // the shared <style>/CSS-class approach are BOTH out for good here --
+      // this is back to (B)'s exact technique (per-element cssText, no
+      // classes, no injected stylesheet, no forced layout), with only the
+      // VISUAL VALUES improved (header tint, single-line via inline
+      // white-space:nowrap) on top of that proven-safe foundation. No
+      // text-overflow:ellipsis either -- quotePreview already appends its
+      // own "…" at the string level when it truncates, so there's no need
+      // for the CSS version of the same thing.
+      const MAX_DISPLAY_ROWS = 150;
+      const renderTable = (rows: SynthesisRow[]) => {
+        if (!tableContainer) return;
+        tableContainer.innerHTML = "";
+        if (rows.length === 0) {
+          tableContainer.appendChild(
+            doc!.createElementNS(HTML_NS, "p") as HTMLElement,
+          ).textContent = getString("synthesis-no-records");
+          return;
+        }
+        const shown = rows.slice(0, MAX_DISPLAY_ROWS);
+        const table = doc!.createElementNS(
+          HTML_NS,
+          "table",
+        ) as HTMLTableElement;
+        table.style.cssText = "width:100%;border-collapse:collapse;";
+        const headRow = doc!.createElementNS(HTML_NS, "tr");
+        for (const label of [
+          getString("synthesis-col-source"),
+          getString("synthesis-col-name"),
+          getString("synthesis-col-value"),
+          getString("synthesis-col-quote"),
+          getString("synthesis-col-theme"),
+        ]) {
+          const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+          th.textContent = label;
+          th.style.cssText =
+            "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+          headRow.appendChild(th);
+        }
+        table.appendChild(headRow);
+        for (const row of shown) {
+          const tr = doc!.createElementNS(HTML_NS, "tr");
+          const cells: [string, number][] = [
+            [row.itemTitle, 40],
+            [row.variableName, 22],
+            [row.variableValue, 22],
+            [row.quote || "", 80],
+            [row.theme || "", 36],
+          ];
+          for (const [text, max] of cells) {
+            const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+            td.textContent = quotePreview(text, max);
+            if (text) td.title = text;
+            td.style.cssText =
+              "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+        tableContainer.appendChild(table);
+        if (rows.length > shown.length) {
+          const note = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          note.style.cssText = "color:#888;font-size:0.85em;margin-top:4px;";
+          note.textContent = getString("synthesis-truncated", {
+            args: { shown: shown.length, total: rows.length },
+          });
+          tableContainer.appendChild(note);
+        }
+      };
+
+      const refreshTable = async () => {
+        try {
+          if (!dialogData.variableName) {
+            renderTable([]);
+            return;
+          }
+          const rows = await getSynthesisRows(
+            Number(dialogData.projectId),
+            dialogData.variableName,
+          );
+          renderTable(rows);
+        } catch (e: any) {
+          // Surface a diagnosable message instead of leaving the table
+          // area stuck or silently empty if rendering/fetching fails.
+          ztoolkit.log("Synthesis table render failed", e);
+          if (tableContainer) {
+            tableContainer.textContent = `${getString("synthesis-error")} ${e?.message ?? e}`;
+          }
+        }
+      };
+
+      await refreshTable();
+
+      const projectSelectEl = doc?.getElementById(
+        "evidence-synthesis-project",
+      ) as HTMLSelectElement | undefined;
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        variableSelectEl,
+        async (value) => {
+          dialogData.variableName = value;
+          await refreshTable();
+        },
+      );
+
+      runBtn?.addEventListener("click", async () => {
+        if (!dialogData.variableName) return;
+        runBtn.setAttribute("disabled", "true");
+        if (statusEl) statusEl.textContent = getString("synthesis-loading");
+        try {
+          const rows = await runSynthesis(
+            Number(dialogData.projectId),
+            dialogData.variableName,
+          );
+          renderTable(rows);
+          if (statusEl) statusEl.textContent = getString("synthesis-done");
+        } catch (e: any) {
+          if (statusEl) statusEl.textContent = getString("synthesis-error");
+          ztoolkit.getGlobal("alert")(
+            `${getString("synthesis-error")}\n${e?.message ?? e}`,
+          );
+        } finally {
+          runBtn.removeAttribute("disabled");
+        }
+      });
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      return;
+    }
+  }
+
+  private static consistencyDecisionLabel(raw: string): string {
+    const keys: { [k: string]: FluentMessageId } = {
+      include: "ta-queue-decision-include",
+      exclude: "ta-queue-decision-exclude",
+      unclear: "ta-queue-decision-unclear",
+      unavailable: "ta-queue-decision-unavailable",
+    };
+    const key = keys[raw];
+    return key ? getString(key) : raw;
+  }
+
+  private static consistencyKappaLevelLabel(kappa: number): string {
+    const levels: [number, FluentMessageId][] = [
+      [0.8, "consistency-kappa-level-almost-perfect"],
+      [0.6, "consistency-kappa-level-substantial"],
+      [0.4, "consistency-kappa-level-moderate"],
+      [0.2, "consistency-kappa-level-fair"],
+      [0, "consistency-kappa-level-slight"],
+    ];
+    for (const [threshold, key] of levels) {
+      if (kappa >= threshold) return getString(key);
+    }
+    return getString("consistency-kappa-level-poor");
+  }
+
+  static async consistencyDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    let projectId = EvidenceCommands.defaultProjectId(projects);
+    const MAX_DISAGREEMENT_ROWS = 150;
+
+    while (true) {
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+      };
+
+      // Same phantom-empty-column fix as humanConsistencyDialog() below --
+      // ztoolkit.Dialog(5, 2) gives every row a real 2-column grid whether
+      // addCell() ever fills column 1 or not (an untouched cell still
+      // defaults to flex:1 and claims half the row's width). Rows 0 and 2
+      // here only ever used column 0, so column 1 needs to be explicitly
+      // collapsed to cellFlex=false for each of them.
+      const dialog = new ztoolkit.Dialog(5, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: { innerHTML: getString("dialog-consistency-title") },
+        })
+        .addCell(0, 1, { tag: "div" }, false)
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-consistency-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "div",
+          namespace: "html",
+          id: "evidence-consistency-results",
+          styles: { maxHeight: "440px", overflow: "auto", marginTop: "6px" },
+        })
+        .addCell(2, 1, { tag: "div" }, false)
+        .addCell(
+          3,
+          0,
+          {
+            tag: "button",
+            namespace: "html",
+            id: "evidence-consistency-run",
+            attributes: { type: "button" },
+            properties: { innerHTML: getString("consistency-run-button") },
+          },
+          false,
+        )
+        .addCell(
+          3,
+          1,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-consistency-status",
+          },
+          false,
+        )
+        .addButton(getString("dialog-close"), "close")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-consistency-title"),
+        720,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const resultsContainer = doc?.getElementById(
+        "evidence-consistency-results",
+      );
+      const runBtn = doc?.getElementById("evidence-consistency-run") as
+        | HTMLButtonElement
+        | undefined;
+      const statusEl = doc?.getElementById("evidence-consistency-status");
+
+      const buildTable = (
+        headers: string[],
+        rowsData: [string, number][][],
+      ) => {
+        const table = doc!.createElementNS(
+          HTML_NS,
+          "table",
+        ) as HTMLTableElement;
+        table.style.cssText =
+          "width:100%;border-collapse:collapse;margin-bottom:10px;";
+        const headRow = doc!.createElementNS(HTML_NS, "tr");
+        for (const label of headers) {
+          const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+          th.textContent = label;
+          th.style.cssText =
+            "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+          headRow.appendChild(th);
+        }
+        table.appendChild(headRow);
+        for (const cells of rowsData) {
+          const tr = doc!.createElementNS(HTML_NS, "tr");
+          for (const [text, max] of cells) {
+            const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+            td.textContent = quotePreview(text, max);
+            if (text) td.title = text;
+            td.style.cssText =
+              "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+        return table;
+      };
+
+      // Renders one stats block (summary + per-category table + a
+      // disagreements table) into `container` -- shared by the overall
+      // figures and by each per-model breakdown below them, so a heading is
+      // the only thing that varies between calls.
+      const renderStatsBlock = (
+        container: Element,
+        stats: ScreeningConsistencyStats,
+        heading?: string,
+      ) => {
+        if (heading) {
+          const h2 = doc!.createElementNS(HTML_NS, "h2") as HTMLElement;
+          h2.textContent = heading;
+          h2.style.cssText =
+            "font-size:1em;margin:10px 0 4px;border-top:1px solid #ddd;padding-top:8px;";
+          container.appendChild(h2);
+        }
+
+        const summary = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        summary.style.cssText = "margin-bottom:8px;";
+        const kappaValueText =
+          stats.kappa === null
+            ? getString("consistency-kappa-na")
+            : `${stats.kappa.toFixed(3)} (${EvidenceCommands.consistencyKappaLevelLabel(stats.kappa)})`;
+        for (const line of [
+          getString("consistency-summary-n", { args: { n: stats.n } }),
+          getString("consistency-summary-agreement", {
+            args: {
+              pct: ((stats.observedAgreement ?? 0) * 100).toFixed(1),
+            },
+          }),
+          `${getString("consistency-summary-kappa-label")}: ${kappaValueText}`,
+        ]) {
+          const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          p.style.cssText = "margin:2px 0;";
+          p.textContent = line;
+          summary.appendChild(p);
+        }
+        container.appendChild(summary);
+
+        container.appendChild(
+          buildTable(
+            [
+              getString("consistency-col-category"),
+              getString("consistency-col-agreement"),
+              getString("consistency-col-kappa"),
+            ],
+            stats.byCategory.map((c) => [
+              [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
+              [`${(c.observedAgreement * 100).toFixed(1)}%`, 12],
+              [c.kappa === null ? "—" : c.kappa.toFixed(3), 8],
+            ]),
+          ),
+        );
+
+        if (stats.disagreements.length > 0) {
+          const h3 = doc!.createElementNS(HTML_NS, "h3") as HTMLElement;
+          h3.textContent = getString("consistency-disagreements-title");
+          h3.style.cssText = "font-size:0.95em;margin:6px 0 4px;";
+          container.appendChild(h3);
+          const shown = stats.disagreements.slice(0, MAX_DISAGREEMENT_ROWS);
+          container.appendChild(
+            buildTable(
+              [
+                getString("consistency-col-title"),
+                getString("consistency-col-ai"),
+                getString("consistency-col-human"),
+              ],
+              shown.map((d) => [
+                [d.title, 50],
+                [EvidenceCommands.consistencyDecisionLabel(d.aiDecision), 16],
+                [
+                  EvidenceCommands.consistencyDecisionLabel(d.humanDecision),
+                  16,
+                ],
+              ]),
+            ),
+          );
+          if (stats.disagreements.length > shown.length) {
+            const note = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+            note.style.cssText = "color:#888;font-size:0.85em;";
+            note.textContent = getString("synthesis-truncated", {
+              args: {
+                shown: shown.length,
+                total: stats.disagreements.length,
+              },
+            });
+            container.appendChild(note);
+          }
+        }
+      };
+
+      const renderResults = (result: ScreeningConsistencyStats) => {
+        if (!resultsContainer) return;
+        resultsContainer.innerHTML = "";
+        if (result.n === 0) {
+          resultsContainer.appendChild(
+            doc!.createElementNS(HTML_NS, "p") as HTMLElement,
+          ).textContent = getString("consistency-no-records");
+          return;
+        }
+        renderStatsBlock(resultsContainer, result);
+      };
+
+      const refresh = async () => {
+        runBtn?.setAttribute("disabled", "true");
+        if (statusEl) statusEl.textContent = getString("consistency-loading");
+        try {
+          const result = await getFinalVerdictConsistency(
+            Number(dialogData.projectId),
+          );
+          renderResults(result);
+          if (statusEl) statusEl.textContent = "";
+        } catch (e: any) {
+          if (statusEl) statusEl.textContent = getString("consistency-error");
+          ztoolkit.getGlobal("alert")(
+            `${getString("consistency-error")}\n${e?.message ?? e}`,
+          );
+        } finally {
+          runBtn?.removeAttribute("disabled");
+        }
+      };
+
+      await refresh();
+
+      const projectSelectEl = doc?.getElementById(
+        "evidence-consistency-project",
+      ) as HTMLSelectElement | undefined;
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      runBtn?.addEventListener("click", () => void refresh());
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      return;
+    }
+  }
+
+  static async humanConsistencyDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    let projectId = EvidenceCommands.defaultProjectId(projects);
+
+    while (true) {
+      const dialogData: { [key: string]: any } = {
+        projectId: String(projectId),
+      };
+
+      // ztoolkit.Dialog(4, 2) allocates a real 2-column grid for ALL 4
+      // rows unconditionally (every cell defaults to <vbox flex="1">,
+      // whether addCell() ever fills it or not -- see zotero-plugin-
+      // toolkit's DialogHelper constructor). Only row 1 (project label +
+      // select) actually needs 2 columns; rows 0/2/3 each only ever call
+      // addCell for column 0, leaving column 1 an untouched, empty,
+      // STILL flex:1 cell that claims an equal half of the row's width as
+      // blank space -- this is exactly what made the content area (row 2)
+      // only ever get the left half of the window, with the project
+      // dropdown (row 1's own compact, non-flex column 1) floating alone
+      // in the far corner above a wide empty gap. Explicitly neutralizing
+      // column 1 to cellFlex=false for those three rows collapses it back
+      // to zero width instead of silently taking half the row.
+      const dialog = new ztoolkit.Dialog(4, 2)
+        .addCell(0, 0, {
+          tag: "h1",
+          properties: {
+            innerHTML: getString("dialog-human-consistency-title"),
+          },
+        })
+        .addCell(0, 1, { tag: "div" }, false)
+        .addCell(1, 0, {
+          tag: "label",
+          namespace: "html",
+          properties: { innerHTML: getString("dialog-import-project-label") },
+        })
+        .addCell(
+          1,
+          1,
+          {
+            tag: "select",
+            namespace: "html",
+            id: "evidence-human-consistency-project",
+            attributes: { "data-bind": "projectId", "data-prop": "value" },
+            children: projects.map((p) => ({
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: String(p.id),
+                innerHTML: escapeHtml(p.name),
+              },
+            })),
+          },
+          false,
+        )
+        .addCell(2, 0, {
+          tag: "div",
+          namespace: "html",
+          id: "evidence-human-consistency-content",
+          styles: { maxHeight: "460px", overflow: "auto", marginTop: "6px" },
+        })
+        .addCell(2, 1, { tag: "div" }, false)
+        .addCell(
+          3,
+          0,
+          {
+            tag: "span",
+            namespace: "html",
+            id: "evidence-human-consistency-status",
+          },
+          false,
+        )
+        .addCell(3, 1, { tag: "div" }, false)
+        .addButton(getString("dialog-close"), "close")
+        .setDialogData(dialogData);
+      EvidenceCommands.openSizedDialog(
+        dialog,
+        getString("dialog-human-consistency-title"),
+        // Same width as consistencyDialog()'s human-AI counterpart, by
+        // request -- now that both dialogs' phantom-empty-column layout
+        // bug is fixed (see the addCell(_, 1, ..., false) calls above),
+        // matching this starting width actually produces matching
+        // rendered widths instead of just matching numbers.
+        720,
+      );
+
+      await Zotero.Promise.delay(50);
+      const doc = dialog.window?.document;
+      const contentEl = doc?.getElementById(
+        "evidence-human-consistency-content",
+      );
+      const statusEl = doc?.getElementById("evidence-human-consistency-status");
+
+      // ztoolkit.Dialog opens a plain HTML document (about:blank), not
+      // XUL chrome -- its scrollbars are whatever Gecko's HTML content
+      // area default is, NOT the thin, Zotero-styled scrollbar the rest
+      // of the app uses everywhere else (e.g. collapsible-section's own
+      // .body, which sets scrollbar-width/scrollbar-color explicitly).
+      // #evidence-human-consistency-content is the one INTENTIONALLY
+      // scrollable region (bounded to 460px so the dialog's total height
+      // stays predictable); the outer window is meant to just size-to-
+      // content around it and never scroll itself, but the same styling
+      // is applied to the document root too in case this dialog's total
+      // height ever does exceed the screen on a smaller display -- so if
+      // both ever show a scrollbar at once, they're at least the same
+      // (Zotero-native) width instead of two visibly different ones.
+      if (doc) {
+        (doc.documentElement as HTMLElement).style.scrollbarWidth = "thin";
+        (doc.documentElement as HTMLElement).style.scrollbarColor =
+          "var(--color-scrollbar) var(--color-scrollbar-background)";
+      }
+      if (contentEl) {
+        (contentEl as HTMLElement).style.scrollbarWidth = "thin";
+        (contentEl as HTMLElement).style.scrollbarColor =
+          "var(--color-scrollbar) var(--color-scrollbar-background)";
+      }
+
+      const setStatus = (text: string) => {
+        if (statusEl) statusEl.textContent = text;
+      };
+      const setError = (e: any) => {
+        setStatus(
+          `${getString("human-consistency-error")}: ${e?.message ?? e}`,
+        );
+      };
+
+      const currentProjectName = () =>
+        projects.find((p) => p.id === Number(dialogData.projectId))?.name ?? "";
+
+      const chooseArchiveSavePath = async (
+        suffix: string,
+      ): Promise<string | null> => {
+        const path = await new ztoolkit.FilePicker(
+          getString("human-consistency-archive-save-title"),
+          "save",
+          [["Zip Archive (*.zip)", "*.zip"]],
+          `${currentProjectName()}-${suffix}.zip`,
+        ).open();
+        return path && typeof path === "string" ? path : null;
+      };
+
+      const renderStartForm = () => {
+        if (!contentEl) return;
+        // Always shown, regardless of any existing round's state -- a new
+        // round can be started any time (see startRound's doc comment), so
+        // this isn't gated behind "finish the current one first" anymore.
+        const wrapper = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        wrapper.style.cssText =
+          "padding-bottom:10px;border-bottom:1px solid #eee;margin-bottom:10px;";
+        contentEl.appendChild(wrapper);
+
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.textContent = getString("human-consistency-intro");
+        wrapper.appendChild(p);
+
+        const row = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        row.style.cssText = "margin:6px 0;";
+        const label = doc!.createElementNS(HTML_NS, "label") as HTMLElement;
+        label.textContent = getString("human-consistency-percent-label");
+        row.appendChild(label);
+        const percentInput = doc!.createElementNS(
+          HTML_NS,
+          "input",
+        ) as HTMLInputElement;
+        percentInput.type = "number";
+        percentInput.min = "1";
+        percentInput.max = "100";
+        percentInput.value = "20";
+        percentInput.style.cssText = "width:60px;margin-left:8px;";
+        row.appendChild(percentInput);
+        wrapper.appendChild(row);
+
+        const startBtn = doc!.createElementNS(
+          HTML_NS,
+          "button",
+        ) as HTMLButtonElement;
+        startBtn.setAttribute("type", "button");
+        startBtn.textContent = getString("human-consistency-start-button");
+        wrapper.appendChild(startBtn);
+
+        startBtn.addEventListener("click", async () => {
+          const zipPath = await chooseArchiveSavePath("sample");
+          if (!zipPath) return;
+          startBtn.setAttribute("disabled", "true");
+          setStatus(getString("consistency-loading"));
+          try {
+            await startRound(
+              Number(dialogData.projectId),
+              Number(percentInput.value) || 20,
+              zipPath,
+            );
+            setStatus("");
+            await renderState();
+          } catch (e: any) {
+            setError(e);
+          } finally {
+            startBtn.removeAttribute("disabled");
+          }
+        });
+      };
+
+      // For a round whose own bookkeeping was lost (e.g. the project was
+      // backed up/restored on a plugin version that didn't yet archive
+      // consistency_rounds -- see archiveTypes.ts's ArchiveConsistencyRound
+      // doc comment) but the sample archive and reviewers' CSVs still exist
+      // as separate files: reconstructs the round from those instead of
+      // resampling and losing the reviewers' already-completed work.
+      // Three separate, clearly-labeled steps (archive, then each reviewer's
+      // CSV) rather than chaining three OS file pickers back-to-back behind
+      // one button -- a user has no way to tell what an unlabeled second and
+      // third picker are even for once they're already staring at one. Same
+      // "one button per file, filename shown once chosen" shape as
+      // renderCollectForm's makeImportRow below, just with an extra (also
+      // optional-looking) archive row in front and a final button that
+      // actually runs the recovery once the archive is in hand.
+      const renderRecoverForm = () => {
+        if (!contentEl) return;
+        const wrapper = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        wrapper.style.cssText =
+          "padding-bottom:10px;border-bottom:1px solid #eee;margin-bottom:10px;";
+        contentEl.appendChild(wrapper);
+
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.style.cssText = "margin:2px 0 6px 0;color:#666;font-size:0.9em;";
+        p.textContent = getString("human-consistency-recover-intro");
+        wrapper.appendChild(p);
+
+        let archivePath: string | null = null;
+        let csvAPath: string | null = null;
+        let csvBPath: string | null = null;
+
+        const fileName = (path: string) => path.split(/[\\/]/).pop() || path;
+
+        const makeChooseRow = (
+          buttonLabel: string,
+          pickerTitle: string,
+          filter: [string, string],
+          onChosen: (path: string) => void,
+        ) => {
+          const row = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+          row.style.cssText = "margin:6px 0;";
+          const btn = doc!.createElementNS(
+            HTML_NS,
+            "button",
+          ) as HTMLButtonElement;
+          btn.setAttribute("type", "button");
+          btn.textContent = buttonLabel;
+          row.appendChild(btn);
+          const label = doc!.createElementNS(HTML_NS, "span") as HTMLElement;
+          label.style.cssText = "margin-left:8px;color:#666;font-size:0.85em;";
+          label.textContent = getString("human-consistency-recover-not-chosen");
+          row.appendChild(label);
+          btn.addEventListener("click", async () => {
+            const path = await new ztoolkit.FilePicker(pickerTitle, "open", [
+              filter,
+            ]).open();
+            if (!path || typeof path !== "string") return;
+            onChosen(path);
+            label.textContent = fileName(path);
+          });
+          return row;
+        };
+
+        wrapper.appendChild(
+          makeChooseRow(
+            getString("human-consistency-recover-choose-archive-button"),
+            getString("human-consistency-recover-archive-title"),
+            ["Zip Archive (*.zip)", "*.zip"],
+            (path) => {
+              archivePath = path;
+            },
+          ),
+        );
+        wrapper.appendChild(
+          makeChooseRow(
+            getString("human-consistency-recover-choose-csv-a-button"),
+            getString("human-consistency-import-csv-title"),
+            ["CSV (*.csv)", "*.csv"],
+            (path) => {
+              csvAPath = path;
+            },
+          ),
+        );
+        wrapper.appendChild(
+          makeChooseRow(
+            getString("human-consistency-recover-choose-csv-b-button"),
+            getString("human-consistency-import-csv-title"),
+            ["CSV (*.csv)", "*.csv"],
+            (path) => {
+              csvBPath = path;
+            },
+          ),
+        );
+
+        const recoverBtn = doc!.createElementNS(
+          HTML_NS,
+          "button",
+        ) as HTMLButtonElement;
+        recoverBtn.setAttribute("type", "button");
+        recoverBtn.style.cssText = "display:block;margin-top:6px;";
+        recoverBtn.textContent = getString("human-consistency-recover-button");
+        wrapper.appendChild(recoverBtn);
+
+        recoverBtn.addEventListener("click", async () => {
+          if (!archivePath) {
+            setError(
+              new Error(getString("human-consistency-recover-need-archive")),
+            );
+            return;
+          }
+          recoverBtn.setAttribute("disabled", "true");
+          setStatus(getString("consistency-loading"));
+          try {
+            const result = await recoverRoundFromArchive(
+              Number(dialogData.projectId),
+              archivePath,
+              csvAPath,
+              csvBPath,
+            );
+            setStatus("");
+            ztoolkit.getGlobal("alert")(
+              getString("human-consistency-recover-done", {
+                args: {
+                  matched: result.matchedCount,
+                  total: result.totalSampled,
+                  unmatched: result.unmatchedTitles.length,
+                },
+              }),
+            );
+            await renderState();
+          } catch (e: any) {
+            setError(e);
+          } finally {
+            recoverBtn.removeAttribute("disabled");
+          }
+        });
+      };
+
+      const renderCollectForm = (round: ConsistencyRound) => {
+        if (!contentEl) return;
+        const wrapper = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        wrapper.style.cssText =
+          "margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eee;";
+        contentEl.appendChild(wrapper);
+
+        const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        p.textContent = getString("human-consistency-waiting-note", {
+          args: { n: round.itemKeys.length },
+        });
+        wrapper.appendChild(p);
+
+        const makeImportRow = (which: "a" | "b", collected: string | null) => {
+          const row = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+          row.style.cssText = "margin:6px 0;";
+          const btn = doc!.createElementNS(
+            HTML_NS,
+            "button",
+          ) as HTMLButtonElement;
+          btn.setAttribute("type", "button");
+          btn.textContent = collected
+            ? getString(
+                which === "a"
+                  ? "human-consistency-reviewer-a-done"
+                  : "human-consistency-reviewer-b-done",
+              )
+            : getString(
+                which === "a"
+                  ? "human-consistency-import-a-button"
+                  : "human-consistency-import-b-button",
+              );
+          if (collected) btn.setAttribute("disabled", "true");
+          row.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const path = await new ztoolkit.FilePicker(
+              getString("human-consistency-import-csv-title"),
+              "open",
+              [["CSV (*.csv)", "*.csv"]],
+            ).open();
+            if (!path || typeof path !== "string") return;
+            setStatus(getString("consistency-loading"));
+            try {
+              await recordCollectedCsv(round.id, which, path);
+              setStatus("");
+              await renderState();
+            } catch (e: any) {
+              setError(e);
+            }
+          });
+          return row;
+        };
+        wrapper.appendChild(makeImportRow("a", round.reviewerACsvPath));
+        wrapper.appendChild(makeImportRow("b", round.reviewerBCsvPath));
+      };
+
+      const buildStatsTable = (
+        headers: string[],
+        rowsData: [string, number][][],
+      ) => {
+        const table = doc!.createElementNS(
+          HTML_NS,
+          "table",
+        ) as HTMLTableElement;
+        table.style.cssText =
+          "width:100%;border-collapse:collapse;margin:8px 0;";
+        const headRow = doc!.createElementNS(HTML_NS, "tr");
+        for (const label of headers) {
+          const th = doc!.createElementNS(HTML_NS, "th") as HTMLElement;
+          th.textContent = label;
+          th.style.cssText =
+            "text-align:left;white-space:nowrap;font-weight:600;font-size:0.85em;color:#666;background:#f2f2f2;border-bottom:1px solid #ccc;padding:5px 8px;";
+          headRow.appendChild(th);
+        }
+        table.appendChild(headRow);
+        for (const cells of rowsData) {
+          const tr = doc!.createElementNS(HTML_NS, "tr");
+          for (const [text, max] of cells) {
+            const td = doc!.createElementNS(HTML_NS, "td") as HTMLElement;
+            td.textContent = quotePreview(text, max);
+            if (text) td.title = text;
+            td.style.cssText =
+              "white-space:nowrap;overflow:hidden;border-bottom:1px solid #eee;padding:5px 8px;";
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+        return table;
+      };
+
+      // One round's computed consistency, shown as one entry in the
+      // (newest-first) list renderState() builds -- every collected round
+      // gets one of these, but only the single most-recently-started round
+      // still gets the "Apply Agreed Results" button (actionable) once
+      // it's imported both CSVs; older rounds are pure history. An older
+      // round that was itself never applied stays stuck at 'collected'
+      // forever once a newer round exists -- its disagreements are already
+      // sitting in TA-Screen Queue for a third reviewer regardless (see
+      // taQueuePane.ts), so nothing is lost, just this dialog's own
+      // "apply" entry point for that particular round's agreements.
+      const renderRoundResult = async (
+        round: ConsistencyRound,
+        actionable: boolean,
+      ) => {
+        if (!contentEl) return;
+        let result: HumanConsistencyResult;
+        try {
+          result = await computeRoundConsistency(round);
+        } catch (e: any) {
+          const errP = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          errP.style.cssText = "margin:10px 0;color:#a33;";
+          errP.textContent = `${getString("human-consistency-error")}: ${e?.message ?? e}`;
+          contentEl.appendChild(errP);
+          return;
+        }
+
+        const wrapper = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        wrapper.style.cssText =
+          "margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eee;";
+        contentEl.appendChild(wrapper);
+
+        const heading = doc!.createElementNS(HTML_NS, "h3") as HTMLElement;
+        heading.style.cssText =
+          "margin:0 0 4px 0;font-size:0.9em;font-weight:600;color:#666;";
+        heading.textContent = getString("human-consistency-round-heading", {
+          args: { date: new Date(round.updatedAt).toLocaleString() },
+        });
+        wrapper.appendChild(heading);
+
+        const kappaLabel = (kappa: number | null) =>
+          kappa === null
+            ? getString("consistency-kappa-na")
+            : `${kappa.toFixed(3)} (${EvidenceCommands.consistencyKappaLevelLabel(kappa)})`;
+
+        const summary = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+        const disagreementCount = result.items.filter(
+          (it) =>
+            it.aDecision !== null &&
+            it.bDecision !== null &&
+            it.aDecision !== it.bDecision,
+        ).length;
+        for (const line of [
+          `${getString("human-consistency-reviewers-label")}: ${result.reviewerA || "?"} / ${result.reviewerB || "?"}`,
+          getString("human-consistency-disagreement-count", {
+            args: { n: disagreementCount },
+          }),
+        ]) {
+          const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          p.style.cssText = "margin:2px 0;";
+          p.textContent = line;
+          summary.appendChild(p);
+        }
+        wrapper.appendChild(summary);
+
+        // One block per stage -- kappa only (n + overall kappa, then a
+        // category-by-category kappa breakdown), no observed-agreement %:
+        // that number is easy to misread as the headline result when it's
+        // actually inflated by however skewed the category split happens
+        // to be (see the app's own explanation of this to the user), so
+        // kappa is the only number shown here.
+        const renderKappaBlock = (
+          titleText: string,
+          n: number,
+          kappa: number | null,
+          byCategory: CategoryKappa[],
+        ) => {
+          const block = doc!.createElementNS(HTML_NS, "div") as HTMLElement;
+          block.style.cssText = "margin-top:8px;";
+          const h = doc!.createElementNS(HTML_NS, "h4") as HTMLElement;
+          h.style.cssText =
+            "margin:0 0 2px 0;font-size:0.85em;font-weight:600;color:#666;";
+          h.textContent = titleText;
+          block.appendChild(h);
+          const p = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+          p.style.cssText = "margin:2px 0;";
+          p.textContent = `${getString("consistency-summary-n", { args: { n } })} · ${getString("consistency-summary-kappa-label")}: ${kappaLabel(kappa)}`;
+          block.appendChild(p);
+          if (byCategory.length > 0) {
+            block.appendChild(
+              buildStatsTable(
+                [
+                  getString("consistency-col-category"),
+                  getString("consistency-col-kappa"),
+                ],
+                byCategory.map((c) => [
+                  [EvidenceCommands.consistencyDecisionLabel(c.category), 24],
+                  [c.kappa === null ? "—" : c.kappa.toFixed(3), 8],
+                ]),
+              ),
+            );
+          }
+          return block;
+        };
+
+        wrapper.appendChild(
+          renderKappaBlock(
+            getString("human-consistency-kappa-overall"),
+            result.n,
+            result.kappa,
+            result.byCategory,
+          ),
+        );
+        wrapper.appendChild(
+          renderKappaBlock(
+            getString("human-consistency-kappa-ta"),
+            result.ta.n,
+            result.ta.kappa,
+            result.ta.byCategory,
+          ),
+        );
+        wrapper.appendChild(
+          renderKappaBlock(
+            getString("human-consistency-kappa-ft"),
+            result.ft.n,
+            result.ft.kappa,
+            result.ft.byCategory,
+          ),
+        );
+
+        if (!actionable) return;
+
+        const note = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
+        note.style.cssText = "margin:10px 0;color:#666;font-size:0.9em;";
+        note.textContent = getString("human-consistency-apply-note");
+        wrapper.appendChild(note);
+
+        const applyBtn = doc!.createElementNS(
+          HTML_NS,
+          "button",
+        ) as HTMLButtonElement;
+        applyBtn.setAttribute("type", "button");
+        applyBtn.textContent = getString("human-consistency-apply-button");
+        applyBtn.style.cssText = "display:block;margin-top:6px;";
+        wrapper.appendChild(applyBtn);
+
+        applyBtn.addEventListener("click", async () => {
+          applyBtn.setAttribute("disabled", "true");
+          setStatus(getString("consistency-loading"));
+          try {
+            const applied = await applyAgreedResults(round);
+            setStatus("");
+            ztoolkit.getGlobal("alert")(
+              getString("human-consistency-apply-done", {
+                args: {
+                  applied: applied.applied,
+                  disagreed: applied.disagreed,
+                },
+              }),
+            );
+            await renderState();
+          } catch (e: any) {
+            setError(e);
+          } finally {
+            applyBtn.removeAttribute("disabled");
+          }
+        });
+      };
+
+      const renderState = async () => {
+        if (!contentEl) return;
+        contentEl.innerHTML = "";
+        setStatus("");
+        // Always available, regardless of any existing round's state --
+        // see startRound's doc comment.
+        renderStartForm();
+        renderRecoverForm();
+
+        const rounds = await getAllRounds(Number(dialogData.projectId));
+        if (rounds.length === 0) return;
+        const latestId = rounds[0].id;
+        for (const round of rounds) {
+          if (round.status === "sampled") {
+            // Only the latest round's own "waiting for CSVs" controls are
+            // shown -- an older round stuck here (its CSVs never came in
+            // before a newer round started) has no computed consistency
+            // yet, so there's nothing to list for it either.
+            if (round.id === latestId) renderCollectForm(round);
+            continue;
+          }
+          await renderRoundResult(
+            round,
+            round.id === latestId && round.status === "collected",
+          );
+        }
+      };
+
+      await renderState();
+
+      const projectSelectEl = doc?.getElementById(
+        "evidence-human-consistency-project",
+      ) as HTMLSelectElement | undefined;
+      EvidenceCommands.watchSelectValue(
+        dialogData,
+        dialog.window,
+        projectSelectEl,
+        (value) => {
+          dialogData.__reopenForProjectId = Number(value);
+          dialog.window?.close();
+        },
+      );
+
+      await dialogData.unloadLock.promise;
+
+      if (dialogData.__reopenForProjectId != null) {
+        projectId = dialogData.__reopenForProjectId;
+        continue;
+      }
+      return;
     }
   }
 
@@ -1805,7 +5253,7 @@ export class EvidenceCommands {
     }
 
     const dialogData: { [key: string]: any } = {
-      projectId: String(projects[0].id),
+      projectId: String(EvidenceCommands.defaultProjectId(projects)),
     };
     const dialog = new ztoolkit.Dialog(2, 2)
       .addCell(0, 0, {
@@ -1842,15 +5290,30 @@ export class EvidenceCommands {
     return projects.find((p) => p.id === Number(dialogData.projectId)) ?? null;
   }
 
+  private static readableTimestamp(): string {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  }
+
   private static async saveExportFile(
     suggestedName: string,
     content: string,
   ): Promise<void> {
+    // Stamp who exported this and when, right before the extension --
+    // exports get shared/emailed around, so the filename itself should say
+    // who pulled it and when without needing to open the file.
+    const dotIndex = suggestedName.lastIndexOf(".");
+    const base =
+      dotIndex === -1 ? suggestedName : suggestedName.slice(0, dotIndex);
+    const ext = dotIndex === -1 ? "" : suggestedName.slice(dotIndex);
+    const stampedName = `${base}-${currentDeciderId()}-${EvidenceCommands.readableTimestamp()}${ext}`;
+
     const path = await new ztoolkit.FilePicker(
       getString("export-choose-destination"),
       "save",
       [["CSV (*.csv)", "*.csv"]],
-      suggestedName,
+      stampedName,
     ).open();
     if (!path || typeof path !== "string") return;
 
@@ -1871,7 +5334,7 @@ export class EvidenceCommands {
     if (!project) return;
 
     const data = await computePrismaData(project.id);
-    if (data.identification.totalRecords === 0) {
+    if (isPrismaDataEmpty(data)) {
       ztoolkit.getGlobal("alert")(getString("error-export-no-data"));
       return;
     }
@@ -1913,5 +5376,44 @@ export class EvidenceCommands {
       `${project.name}-coding-data.csv`,
       csv,
     );
+  }
+
+  static async exportSynthesisDataDialog() {
+    const project = await EvidenceCommands.pickProjectForExport(
+      "dialog-export-synthesis-title",
+    );
+    if (!project) return;
+
+    const csv = await exportSynthesisData(project.id);
+    if (csv.split("\n").length <= 1) {
+      ztoolkit.getGlobal("alert")(getString("error-export-no-data"));
+      return;
+    }
+    await EvidenceCommands.saveExportFile(
+      `${project.name}-synthesis-data.csv`,
+      csv,
+    );
+  }
+
+  // Counterpart to codebookImportDialog: exports the CURRENT project's
+  // latest Codebook version (whatever's in effect now, edits included) in
+  // the exact CSV shape codebookImportDialog reads back in, so a codebook
+  // built or tweaked by hand in the Add/Edit Variable dialogs can be
+  // reused for another project, or just kept as an external record --
+  // codebookViewDialog's on-screen summary doesn't show notes/
+  // extraction_hint at all, so this is the only way to get those back out.
+  static async exportCodebookDialog() {
+    const project = await EvidenceCommands.pickProjectForExport(
+      "dialog-export-codebook-title",
+    );
+    if (!project) return;
+
+    const codebook = await getLatestCodebook(project.id);
+    const csv = formatCodebookCsv(codebook?.variables ?? []);
+    if (csv.split("\n").length <= 1) {
+      ztoolkit.getGlobal("alert")(getString("error-export-no-data"));
+      return;
+    }
+    await EvidenceCommands.saveExportFile(`${project.name}-codebook.csv`, csv);
   }
 }

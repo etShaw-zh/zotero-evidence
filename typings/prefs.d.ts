@@ -9,7 +9,6 @@ declare namespace _ZoteroTypes {
     PluginPrefsMap: {
       "aiProviders": string;
       "activeProviderId": string;
-      "aiConcurrency": string;
     };
   }
 }

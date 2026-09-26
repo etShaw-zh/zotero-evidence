@@ -1,7 +1,7 @@
 {
   "name": "zotero-evidence",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.9.1",
   "description": "AI-powered Zotero plugin that streamlines systematic reviews, from screening to evidence synthesis.",
   "config": {
     "addonName": "Zotero Evidence",
@@ -35,7 +35,7 @@
   "devDependencies": {
     "@types/chai": "^5.2.3",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.2.0",
     "@zotero-plugin/eslint-config": "^0.6.7",
     "chai": "^6.2.1",
     "eslint": "^9.39.2",
