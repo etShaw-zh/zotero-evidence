@@ -1,0 +1,72 @@
+site_name: Zotero Evidence
+site_description: User documentation for traceable, AI-assisted evidence synthesis in Zotero
+site_url: !ENV READTHEDOCS_CANONICAL_URL
+repo_url: https://github.com/etShaw-zh/zotero-evidence
+repo_name: etShaw-zh/zotero-evidence
+edit_uri: edit/main/doc/
+docs_dir: doc
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - AI provider setup: getting-started/ai-provider-setup.md
+      - Your first project: getting-started/first-project.md
+  - User guide:
+      - Project management: user-guide/project-management.md
+      - Importing and deduplication: user-guide/importing-and-deduplication.md
+      - Screening criteria: user-guide/screening-criteria.md
+      - Title and abstract screening: user-guide/title-abstract-screening.md
+      - Full-text screening: user-guide/full-text-screening.md
+      - Codebook and extraction: user-guide/codebook-and-extraction.md
+      - Consistency: user-guide/consistency.md
+      - Synthesis: user-guide/synthesis.md
+      - Exporting: user-guide/exporting.md
+      - Archive and restore: user-guide/archive-and-restore.md
+  - Reference:
+      - Supported formats: reference/supported-formats.md
+      - Project structure: reference/project-structure.md
+      - AI providers: reference/ai-providers.md
+      - Data and privacy: reference/data-and-privacy.md
+      - Limitations: reference/limitations.md
+  - Help:
+      - Troubleshooting: troubleshooting.md
+      - Frequently asked questions: faq.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+validation:
+  links:
+    anchors: warn
+    unrecognized_links: warn
