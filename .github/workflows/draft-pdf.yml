@@ -27,5 +27,5 @@ jobs:
       - name: Commit PDF to repository
         uses: EndBug/add-and-commit@61a88be553afe4206585b31aa72387c64295d08b # v9
         with:
-          message: '(auto) Paper PDF Draft'
-          add: 'paper/paper.pdf'
+          message: "(auto) Paper PDF Draft"
+          add: "paper/paper.pdf"
