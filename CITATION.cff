@@ -6,6 +6,10 @@ authors:
   - family-names: Xiao
     given-names: Jianjun
     orcid: https://orcid.org/0000-0003-0000-9630
+  - family-names: Ouyang
+    given-names: Zhongshi
+  - family-names: Xue
+    given-names: Ying
 repository-code: https://github.com/etShaw-zh/zotero-evidence
 url: https://github.com/etShaw-zh/zotero-evidence
 license: AGPL-3.0-or-later
