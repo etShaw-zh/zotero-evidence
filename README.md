@@ -1,11 +1,15 @@
 # Zotero Evidence
 
-[![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-square&logo=github)](https://github.com/windingwind/zotero-plugin-template)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](LICENSE)
-[![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence?style=flat-square)](https://github.com/etShaw-zh/zotero-evidence/releases)
-[![Documentation Status](https://readthedocs.org/projects/zotero-evidence/badge/?version=latest)](https://zotero-evidence.readthedocs.io/en/latest/)
+[![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=logo=github)](https://github.com/windingwind/zotero-plugin-template)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+</br>
+[![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence)](https://github.com/etShaw-zh/zotero-evidence/releases)
 [![Download](https://img.shields.io/github/downloads/etShaw-zh/zotero-evidence/total?logo=github&color=2E75B6)](https://github.com/etShaw-zh/zotero-evidence/releases)
+[![Issues](https://img.shields.io/github/issues/etShaw-zh/zotero-evidence)](https://github.com/etShaw-zh/zotero-evidence/issues)
+[![Pulls](https://img.shields.io/github/issues-pr/etShaw-zh/zotero-evidence)](https://github.com/etShaw-zh/zotero-evidence/pulls)
+</br>
+[![Documentation Status](https://readthedocs.org/projects/zotero-evidence/badge/?version=latest)](https://zotero-evidence.readthedocs.io/en/latest/)
 
 Zotero Evidence transforms research papers into **structured, traceable evidence datasets** with AI-assisted screening, extraction, and synthesis.
 
