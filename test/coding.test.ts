@@ -17,6 +17,7 @@ import {
   isCodingComplete,
   linkAnnotationToRecord,
   parseSuggestions,
+  reviewRecord,
   unconfirmRecord,
   updateRecord,
 } from "../src/modules/coding/codingService";
@@ -423,11 +424,33 @@ describe("Phase 4: Full-Text Coding core loop", function () {
     assert.isFalse(before.confirmed);
     assert.equal(attachment.getAnnotations().length, 0);
 
-    await confirmRecord(before.id, item, "sample_size", "156");
+    // issue #8: simulates confirming a REVIEWED suggestion -- exactly how
+    // renderSuggestionRow's real ✓ button calls this (always with the
+    // record's own current EFFECTIVE variableName/variableValue, which by
+    // now reflect the review ("156"), not the raw original ("100")).
+    await reviewRecord(before.id, "sample_size", "156");
+    const [reviewed] = await getCodingRecords(project.id, item.key);
+    assert.equal(reviewed.variableValue, "156");
+
+    await confirmRecord(
+      reviewed.id,
+      item,
+      reviewed.variableName,
+      reviewed.variableValue,
+    );
 
     assert.equal(attachment.getAnnotations().length, 1);
     const [after] = await getCodingRecords(project.id, item.key);
-    assert.equal(after.variableValue, "156");
+    assert.equal(
+      after.variableValue,
+      "156",
+      "the review stays in effect after confirming",
+    );
+    assert.equal(
+      after.originalVariableValue,
+      "100",
+      "confirming must never overwrite the true original AI/human suggestion -- only reviewRecord() may set reviewed_variable_value",
+    );
     assert.isTrue(after.confirmed);
     assert.isNotNull(after.annotationKey);
     assert.isNull(after.pendingPosition);
@@ -439,7 +462,8 @@ describe("Phase 4: Full-Text Coding core loop", function () {
     // Regression: the reader-sidebar annotation list showed a bare coded
     // value ("156") with no real quote and no indication of which variable
     // it was -- annotationText must be the actual located quote, and
-    // annotationComment must label which variable/value it maps to.
+    // annotationComment must label which variable/value it maps to (the
+    // REVIEWED one, since that's what was passed in).
     assert.equal(
       annotation.annotationText,
       "CODING TEST FIXTURE SAMPLE SIZE 156",
@@ -478,6 +502,154 @@ describe("Phase 4: Full-Text Coding core loop", function () {
     assert.equal(record.variableValue, "156");
     assert.isFalse(record.confirmed);
     assert.isNull(record.annotationKey);
+  });
+
+  // issue #8: "校对" -- normalizing a suggestion's variable name/value
+  // against the Codebook, independent of confirm status, while preserving
+  // the original AI/human suggestion for traceability.
+  describe("reviewRecord", function () {
+    it("a fresh record has no review: variableName/Value equal the original, reviewedVariableName/Value are null", async function () {
+      const project = await createProject(`Review Fresh Test ${Date.now()}`);
+      const codebook = await saveCodebook(project.id, [
+        { name: "design", type: "text" },
+      ]);
+      const item = await makeTestItem("Review Fresh Item");
+      const recordId = await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "design",
+        "RCT",
+        null,
+        null,
+      );
+
+      const [record] = await getCodingRecords(project.id, item.key);
+      assert.equal(record.id, recordId);
+      assert.equal(record.variableName, "design");
+      assert.equal(record.variableValue, "RCT");
+      assert.equal(record.originalVariableName, "design");
+      assert.equal(record.originalVariableValue, "RCT");
+      assert.isNull(record.reviewedVariableName);
+      assert.isNull(record.reviewedVariableValue);
+    });
+
+    it("after reviewRecord, variableName/Value reflect the review while originalVariableName/Value stay the untouched AI/human suggestion", async function () {
+      const project = await createProject(`Review Applies Test ${Date.now()}`);
+      const codebook = await saveCodebook(project.id, [
+        {
+          name: "study_design",
+          type: "categorical",
+          values: ["RCT", "Cohort"],
+        },
+      ]);
+      const item = await makeTestItem("Review Applies Item");
+      const recordId = await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "design", // AI's raw wording -- not the Codebook's canonical name
+        "randomized trial",
+        null,
+        null,
+      );
+
+      await reviewRecord(recordId, "study_design", "RCT");
+
+      const [record] = await getCodingRecords(project.id, item.key);
+      assert.equal(record.variableName, "study_design");
+      assert.equal(record.variableValue, "RCT");
+      assert.equal(record.originalVariableName, "design");
+      assert.equal(record.originalVariableValue, "randomized trial");
+      assert.equal(record.reviewedVariableName, "study_design");
+      assert.equal(record.reviewedVariableValue, "RCT");
+    });
+
+    it("does not touch confirmed/annotation_key -- reviewing a pending suggestion leaves it pending, reviewing a confirmed record leaves it confirmed", async function () {
+      const project = await createProject(
+        `Review Orthogonal Test ${Date.now()}`,
+      );
+      const codebook = await saveCodebook(project.id, [
+        { name: "x", type: "text" },
+      ]);
+      const item = await makeTestItem("Review Orthogonal Item");
+
+      // A confirmed (manual) record.
+      const confirmedId = await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "x",
+        "raw value",
+        null,
+        null,
+      );
+      await reviewRecord(confirmedId, "x", "reviewed value");
+      const [afterConfirmed] = await getCodingRecords(project.id, item.key);
+      assert.isTrue(afterConfirmed.confirmed);
+      assert.equal(afterConfirmed.variableValue, "reviewed value");
+
+      // A still-pending (unconfirmed) AI suggestion.
+      await databaseService.init();
+      const now = new Date().toISOString();
+      await databaseService.queryAsync(
+        `INSERT INTO coding_records
+           (project_id, codebook_id, item_key, variable_name, variable_value, is_pilot, source, confirmed, created_at, updated_at)
+         VALUES (?, ?, ?, 'x', 'ai guess', 0, 'ai', 0, ?, ?)`,
+        [project.id, codebook.id, item.key, now, now],
+      );
+      const [, pending] = await getCodingRecords(project.id, item.key);
+      await reviewRecord(pending.id, "x", "reviewed guess");
+      const [, afterPending] = await getCodingRecords(project.id, item.key);
+      assert.isFalse(afterPending.confirmed);
+      assert.isNull(afterPending.annotationKey);
+      assert.equal(afterPending.variableValue, "reviewed guess");
+    });
+
+    it("getMissingRequiredVariables/isCodingComplete honor a review -- a required variable becomes satisfied once reviewed to a non-empty value, and stays missing if reviewed to blank", async function () {
+      const project = await createProject(
+        `Review Completion Test ${Date.now()}`,
+      );
+      const codebook = await saveCodebook(project.id, [
+        { name: "required_a", type: "text", required: true },
+      ]);
+      const item = await makeTestItem("Review Completion Item");
+
+      await databaseService.init();
+      const now = new Date().toISOString();
+      await databaseService.queryAsync(
+        `INSERT INTO coding_records
+           (project_id, codebook_id, item_key, variable_name, variable_value, is_pilot, source, confirmed, created_at, updated_at)
+         VALUES (?, ?, ?, 'required_a', '', 0, 'ai', 1, ?, ?)`,
+        [project.id, codebook.id, item.key, now, now],
+      );
+      // The raw AI value is empty (e.g. it echoed nothing useful) -- still
+      // missing until reviewed.
+      assert.isFalse(
+        await isCodingComplete(project.id, item.key, codebook.variables),
+      );
+
+      const [record] = await getCodingRecords(project.id, item.key);
+      await reviewRecord(record.id, "required_a", "a real value");
+      assert.isTrue(
+        await isCodingComplete(project.id, item.key, codebook.variables),
+      );
+
+      // Reviewing it back to blank must re-open it as missing -- a
+      // confirmed-but-blank REVIEWED value is exactly as invalid as a
+      // confirmed-but-blank ORIGINAL one (hasValidCodingValue applies to
+      // the effective value either way).
+      await reviewRecord(record.id, "required_a", "   ");
+      const missing = await getMissingRequiredVariables(
+        project.id,
+        item.key,
+        codebook.variables,
+      );
+      assert.deepEqual(
+        missing.map((v) => v.name),
+        ["required_a"],
+      );
+    });
   });
 
   it("deleteRecord removes the row", async function () {

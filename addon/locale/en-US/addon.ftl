@@ -339,6 +339,13 @@ coding-ai-quote-label = AI-extracted quote:
 coding-ai-quote-none = (AI did not return a supporting quote for this suggestion)
 coding-undo-confirm = Undo (back to pending)
 coding-error-undo = Failed to undo the confirmation.
+coding-review-one = Proofread
+coding-review-original-label = Original suggestion: { $name } = { $value }
+coding-review-hint-hint = Extraction hint: { $hint }
+coding-review-hint-notes = Notes: { $notes }
+coding-review-save = Save
+coding-error-review-save = Failed to save the review.
+coding-reviewed-marker-title = Reviewed (original: { $name } = { $value })
 coding-summary-empty = No confirmed coding evidence yet.
 
 pane-render-error = Couldn't load this item's panel:

@@ -294,4 +294,23 @@ export const COLUMN_MIGRATIONS: {
   // backfilled -- a judgment run before this column existed simply has no
   // keywords to highlight, same precedent as ai_model above.
   { table: "screening_records", column: "ai_keywords", definition: "TEXT" },
+  // issue #8: "校对" -- a human normalizing a suggestion's variable name/
+  // value against the Codebook, independent of confirm status. Deliberately
+  // separate from variable_name/variable_value (never overwritten) rather
+  // than replacing them in place, so the original AI/human suggestion stays
+  // intact for traceability -- see codingService.ts's CodingRecord/
+  // reviewRecord doc comments for how the two pairs surface afterward.
+  // Nullable/not backfilled: a record from before this column existed
+  // simply has never been reviewed, which reads correctly as "fall back to
+  // the original value" with no migration needed.
+  {
+    table: "coding_records",
+    column: "reviewed_variable_name",
+    definition: "TEXT",
+  },
+  {
+    table: "coding_records",
+    column: "reviewed_variable_value",
+    definition: "TEXT",
+  },
 ];

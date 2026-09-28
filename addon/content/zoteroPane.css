@@ -370,6 +370,24 @@ item-pane-sidenav .inherit-flex {
   box-sizing: border-box;
 }
 
+/* issue #8: "校对" inline form (codingPane.ts's renderInlineReviewForm) --
+   same box shape as .zotero-evidence-coding-link-picker just above, kept as
+   its own class rather than sharing that one so each row's click handler
+   can tell "is a link-picker open" apart from "is a review-form open"
+   (both can toggle open on the same row, independently, via a plain
+   wrap.querySelector(".zotero-evidence-coding-link-picker") /
+   wrap.querySelector(".zotero-evidence-coding-review-form") each only
+   ever matching its own kind). The controls inside it reuse
+   .zotero-evidence-coding-form/.zotero-evidence-coding-missing-chips as-is. */
+.zotero-evidence-coding-review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px 10px 10px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 /* min-width:0 here is the actual fix, not the max-width alone: as a flex
    item of the column layout above, this row's default min-width is auto
    (its content's natural size) -- without overriding it, the select's wide

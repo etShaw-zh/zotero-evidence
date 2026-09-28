@@ -19,6 +19,8 @@ import {
   getMissingRequiredVariables,
   isCodingComplete,
   linkAnnotationToRecord,
+  resolveCanonicalVariableName,
+  reviewRecord,
   unconfirmRecord,
 } from "../coding/codingService";
 import { ProjectPaneContext } from "../project/projectContext";
@@ -225,6 +227,264 @@ function renderInlineLinkPicker(
   return pickerRow;
 }
 
+/**
+ * Inline "校对" form (issue #8) -- lets a human normalize a suggestion's
+ * variable name/value against the current Codebook, from EITHER the
+ * pending-suggestions card (next to Reject) or the confirmed list (next to
+ * Undo), without touching confirm status at all. Saves via reviewRecord()
+ * into reviewed_variable_name/reviewed_variable_value, never the original
+ * variable_name/variable_value -- see codingService.ts's CodingRecord doc
+ * comment for why record.variableName/variableValue used to prefill this
+ * form below already reflect any EARLIER review, not necessarily the raw
+ * original (record.originalVariableName/originalVariableValue are shown
+ * separately, unconditionally, for that).
+ */
+function renderInlineReviewForm(
+  doc: Document,
+  record: CodingRecord,
+  variables: CodebookVariable[],
+  onChanged: () => void,
+): HTMLElement {
+  const box = el(doc, "div", {
+    classList: ["zotero-evidence-coding-review-form"],
+  }) as HTMLElement;
+  // Every row this form can appear inside (pending suggestion, confirmed)
+  // has its OWN click handler for a different purpose (toggle the link
+  // picker / open the PDF at the annotation) -- stopping propagation here
+  // once, for the whole form, means interacting with the select/input/chips
+  // below (a native <select> click bubbles a "click" like any element)
+  // never accidentally triggers that unrelated row-level behavior too.
+  box.addEventListener("click", (ev) => ev.stopPropagation());
+
+  box.appendChild(
+    el(doc, "p", {
+      classList: ["zotero-evidence-coding-ai-quote"],
+      properties: {
+        innerHTML: escapeHtml(
+          getString("coding-review-original-label", {
+            args: {
+              name: record.originalVariableName,
+              value: record.originalVariableValue,
+            },
+          }),
+        ),
+      },
+    }),
+  );
+
+  // The record's own current (effective) name may not exactly match a
+  // Codebook variable -- an AI suggestion's raw wording, or a variable
+  // since renamed/removed from the Codebook. resolveCanonicalVariableName
+  // finds the real match when one exists; when it doesn't, an extra option
+  // for the current name is prepended instead of silently defaulting the
+  // select to some unrelated first variable, so choosing to fix only the
+  // VALUE doesn't accidentally also change the variable.
+  const codebookNames = variables.map((v) => v.name);
+  const canonicalName = resolveCanonicalVariableName(
+    record.variableName,
+    codebookNames,
+  );
+  const knownVariable = variables.find((v) => v.name === canonicalName);
+
+  const controlsRow = el(doc, "div", {
+    classList: ["zotero-evidence-coding-form"],
+  }) as HTMLElement;
+  box.appendChild(controlsRow);
+
+  const variableSelect = el(doc, "select", {
+    children: [
+      ...(knownVariable
+        ? []
+        : [
+            {
+              tag: "option",
+              namespace: "html",
+              properties: {
+                value: record.variableName,
+                innerHTML: escapeHtml(record.variableName),
+              },
+            },
+          ]),
+      ...variables.map((v) => ({
+        tag: "option",
+        namespace: "html",
+        properties: { value: v.name, innerHTML: escapeHtml(v.name) },
+      })),
+    ],
+  }) as HTMLSelectElement;
+  variableSelect.value = knownVariable ? canonicalName : record.variableName;
+  controlsRow.appendChild(variableSelect);
+
+  const valueInput = el(doc, "input", {
+    attributes: {
+      type: "text",
+      placeholder: getString("coding-value-placeholder"),
+      value: record.variableValue,
+    },
+  }) as HTMLInputElement;
+  controlsRow.appendChild(valueInput);
+
+  const hintBox = el(doc, "div", {}) as HTMLElement;
+  box.appendChild(hintBox);
+
+  const chipRow = el(doc, "div", {
+    classList: ["zotero-evidence-coding-missing-chips"],
+  }) as HTMLElement;
+  box.appendChild(chipRow);
+
+  // Re-run whenever the selected variable changes -- the whole point of
+  // showing this at all is that the hint/allowed-value chips must always
+  // match whichever variable is CURRENTLY chosen, not whatever it was when
+  // the form first opened.
+  const refreshHint = () => {
+    hintBox.innerHTML = "";
+    chipRow.innerHTML = "";
+    const v = variables.find((x) => x.name === variableSelect.value);
+    if (!v) return;
+    const summary = [
+      v.type,
+      v.multiple ? "multiple" : null,
+      v.required ? "required" : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    hintBox.appendChild(
+      el(doc, "p", {
+        classList: ["zotero-evidence-coding-ai-quote"],
+        properties: { innerHTML: escapeHtml(summary) },
+      }),
+    );
+    if (v.extractionHint) {
+      hintBox.appendChild(
+        el(doc, "p", {
+          classList: ["zotero-evidence-coding-ai-quote"],
+          properties: {
+            innerHTML: escapeHtml(
+              getString("coding-review-hint-hint", {
+                args: { hint: v.extractionHint },
+              }),
+            ),
+          },
+        }),
+      );
+    }
+    if (v.notes) {
+      hintBox.appendChild(
+        el(doc, "p", {
+          classList: ["zotero-evidence-coding-ai-quote"],
+          properties: {
+            innerHTML: escapeHtml(
+              getString("coding-review-hint-notes", {
+                args: { notes: v.notes },
+              }),
+            ),
+          },
+        }),
+      );
+    }
+    // Codebook-allowed values as clickable chips (categorical variables) --
+    // reuses issue #9's missing-variable chip styling verbatim: same "click
+    // to fill in a field" affordance, just filling the value input here
+    // instead of jumping to it.
+    for (const allowed of v.values ?? []) {
+      chipRow.appendChild(
+        el(doc, "button", {
+          classList: ["zotero-evidence-coding-missing-chip"],
+          attributes: { type: "button" },
+          properties: { innerHTML: escapeHtml(allowed) },
+          listeners: [
+            {
+              type: "click",
+              listener: (ev: Event) => {
+                ev.stopPropagation();
+                valueInput.value = allowed;
+              },
+            },
+          ],
+        }),
+      );
+    }
+  };
+  refreshHint();
+  variableSelect.addEventListener("change", refreshHint);
+
+  const buttonRow = el(doc, "div", {
+    classList: ["zotero-evidence-coding-form"],
+  }) as HTMLElement;
+  box.appendChild(buttonRow);
+
+  const saveBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: { innerHTML: getString("coding-review-save") },
+    listeners: [
+      {
+        type: "click",
+        listener: async (ev: Event) => {
+          ev.stopPropagation();
+          const variableName = variableSelect.value;
+          const variableValue = valueInput.value.trim();
+          if (!variableName || !variableValue) {
+            ztoolkit.getGlobal("alert")(
+              getString("coding-error-manual-incomplete"),
+            );
+            return;
+          }
+          try {
+            await reviewRecord(record.id, variableName, variableValue);
+            onChanged();
+          } catch (e: any) {
+            ztoolkit.getGlobal("alert")(
+              `${getString("coding-error-review-save")}\n${e?.message ?? e}`,
+            );
+          }
+        },
+      },
+    ],
+  });
+  buttonRow.appendChild(saveBtn);
+
+  const cancelBtn = el(doc, "button", {
+    attributes: { type: "button" },
+    properties: { innerHTML: getString("dialog-cancel") },
+    listeners: [
+      {
+        type: "click",
+        listener: (ev: Event) => {
+          ev.stopPropagation();
+          box.remove();
+        },
+      },
+    ],
+  });
+  buttonRow.appendChild(cancelBtn);
+
+  return box;
+}
+
+/** Small "✎" marker shown next to a reviewed record's row label -- its
+ * `title` tooltip is the only place the confirmed/pending row itself shows
+ * the true original AI/human suggestion once a review has replaced what's
+ * DISPLAYED (issue #8: record.variableName/variableValue are effective,
+ * i.e. already the reviewed text at this point). Returns null (nothing
+ * rendered) for a record that's never been reviewed. */
+function renderReviewedMarker(
+  doc: Document,
+  record: CodingRecord,
+): HTMLElement | null {
+  if (record.reviewedVariableName === null) return null;
+  return el(doc, "span", {
+    attributes: {
+      title: getString("coding-reviewed-marker-title", {
+        args: {
+          name: record.originalVariableName,
+          value: record.originalVariableValue,
+        },
+      }),
+    },
+    properties: { innerHTML: " ✎" },
+  }) as HTMLElement;
+}
+
 /** One row inside the pending-suggestions card. */
 function renderSuggestionRow(
   doc: Document,
@@ -232,6 +492,7 @@ function renderSuggestionRow(
   attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   record: CodingRecord,
+  variables: CodebookVariable[],
   onChanged: () => void,
 ): HTMLElement {
   const wrap = el(doc, "div", {}) as HTMLElement;
@@ -245,14 +506,15 @@ function renderSuggestionRow(
     renderBadge(doc, letter, badgeColorForVariable(record.variableName)),
   );
 
-  row.appendChild(
-    el(doc, "span", {
-      classList: ["zotero-evidence-coding-row-label"],
-      properties: {
-        innerHTML: `<strong>${escapeHtml(record.variableName)}</strong>: ${escapeHtml(quotePreview(record.variableValue, 40))}`,
-      },
-    }),
-  );
+  const label = el(doc, "span", {
+    classList: ["zotero-evidence-coding-row-label"],
+    properties: {
+      innerHTML: `<strong>${escapeHtml(record.variableName)}</strong>: ${escapeHtml(quotePreview(record.variableValue, 40))}`,
+    },
+  }) as HTMLElement;
+  const reviewedMarker = renderReviewedMarker(doc, record);
+  if (reviewedMarker) label.appendChild(reviewedMarker);
+  row.appendChild(label);
 
   let located: { pageIndex: number; rects: number[][] } | null = null;
   if (record.pendingPosition) {
@@ -316,6 +578,34 @@ function renderSuggestionRow(
     actions.appendChild(confirmBtn);
   }
 
+  // issue #8: available regardless of `located`/confirm-eligibility --
+  // proofreading a suggestion's text is orthogonal to whether/how it can be
+  // confirmed yet.
+  const reviewBtn = el(doc, "button", {
+    attributes: { type: "button", title: getString("coding-review-one") },
+    properties: { innerHTML: "✎" },
+    listeners: [
+      {
+        type: "click",
+        listener: (ev: Event) => {
+          ev.stopPropagation();
+          const existing = wrap.querySelector(
+            ".zotero-evidence-coding-review-form",
+          );
+          if (existing) {
+            existing.remove();
+            return;
+          }
+          wrap.querySelector(".zotero-evidence-coding-link-picker")?.remove();
+          wrap.appendChild(
+            renderInlineReviewForm(doc, record, variables, onChanged),
+          );
+        },
+      },
+    ],
+  });
+  actions.appendChild(reviewBtn);
+
   const rejectBtn = el(doc, "button", {
     attributes: { type: "button", title: getString("coding-reject-one") },
     properties: { innerHTML: "✕" },
@@ -355,6 +645,7 @@ function renderSuggestionRow(
       existing.remove();
       return;
     }
+    wrap.querySelector(".zotero-evidence-coding-review-form")?.remove();
     wrap.appendChild(
       renderInlineLinkPicker(
         doc,
@@ -385,6 +676,7 @@ function renderPendingSuggestionsCard(
   attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   records: CodingRecord[],
+  variables: CodebookVariable[],
   onChanged: () => void,
 ): void {
   const pending = records.filter((r) => !r.annotationKey);
@@ -407,6 +699,7 @@ function renderPendingSuggestionsCard(
   card.appendChild(
     renderRowActionsLegend(doc, [
       { symbol: "✓", label: getString("coding-confirm-one") },
+      { symbol: "✎", label: getString("coding-review-one") },
       { symbol: "✕", label: getString("coding-reject-one") },
     ]),
   );
@@ -419,6 +712,7 @@ function renderPendingSuggestionsCard(
         attachment,
         annotations,
         record,
+        variables,
         onChanged,
       ),
     );
@@ -507,6 +801,7 @@ function renderConfirmedList(
   attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   records: CodingRecord[],
+  variables: CodebookVariable[],
   onChanged?: () => void,
 ): void {
   const confirmed = records.filter((r) => r.annotationKey);
@@ -520,6 +815,7 @@ function renderConfirmedList(
   if (onChanged) {
     container.appendChild(
       renderRowActionsLegend(doc, [
+        { symbol: "✎", label: getString("coding-review-one") },
         { symbol: "↺", label: getString("coding-undo-confirm") },
       ]),
     );
@@ -537,14 +833,15 @@ function renderConfirmedList(
 
     row.appendChild(renderBadge(doc, "✓", "#2e7d32"));
 
-    row.appendChild(
-      el(doc, "span", {
-        classList: ["zotero-evidence-coding-row-label"],
-        properties: {
-          innerHTML: `<strong>${escapeHtml(record.variableName)}</strong>: ${escapeHtml(quotePreview(record.variableValue, 40))}`,
-        },
-      }),
-    );
+    const label = el(doc, "span", {
+      classList: ["zotero-evidence-coding-row-label"],
+      properties: {
+        innerHTML: `<strong>${escapeHtml(record.variableName)}</strong>: ${escapeHtml(quotePreview(record.variableValue, 40))}`,
+      },
+    }) as HTMLElement;
+    const reviewedMarker = renderReviewedMarker(doc, record);
+    if (reviewedMarker) label.appendChild(reviewedMarker);
+    row.appendChild(label);
 
     let pageLabel = "";
     const annotation = annotations.find((a) => a.key === record.annotationKey);
@@ -574,6 +871,37 @@ function renderConfirmedList(
       const actions = el(doc, "div", {
         classList: ["zotero-evidence-coding-row-actions"],
       }) as HTMLElement;
+      // issue #8: available on a confirmed record too, next to Undo --
+      // proofreading text and undoing confirmation are independent actions,
+      // neither touches the other's state.
+      const reviewBtn = el(doc, "button", {
+        attributes: { type: "button", title: getString("coding-review-one") },
+        properties: { innerHTML: "✎" },
+        listeners: [
+          {
+            type: "click",
+            listener: (ev: Event) => {
+              ev.stopPropagation();
+              const existing = wrap.querySelector(
+                ".zotero-evidence-coding-review-form",
+              );
+              if (existing) {
+                existing.remove();
+                return;
+              }
+              wrap.appendChild(
+                renderInlineReviewForm(
+                  doc,
+                  record,
+                  variables,
+                  onConfirmedChanged,
+                ),
+              );
+            },
+          },
+        ],
+      });
+      actions.appendChild(reviewBtn);
       const undoBtn = el(doc, "button", {
         attributes: { type: "button", title: getString("coding-undo-confirm") },
         properties: { innerHTML: "↺" },
@@ -1084,6 +1412,7 @@ async function renderCodingArea(
       attachment,
       annotations,
       records,
+      codebookRow.variables,
       () => void rerender(),
     );
     renderConfirmedList(
@@ -1093,6 +1422,7 @@ async function renderCodingArea(
       attachment,
       annotations,
       records,
+      codebookRow.variables,
       () => void rerender(),
     );
   }
@@ -1201,7 +1531,15 @@ async function renderCodingSummary(
   }
   const attachment = await resolveAttachment(item);
   const annotations = attachment ? attachment.getAnnotations() : [];
-  renderConfirmedList(contentArea, doc, item, attachment, annotations, records);
+  renderConfirmedList(
+    contentArea,
+    doc,
+    item,
+    attachment,
+    annotations,
+    records,
+    codebookRow?.variables ?? [],
+  );
 }
 
 export function registerCodingPane() {

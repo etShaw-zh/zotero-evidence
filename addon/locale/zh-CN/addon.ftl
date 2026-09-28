@@ -339,6 +339,13 @@ coding-ai-quote-label = AI 摘抄原文：
 coding-ai-quote-none = （AI 未提供支持这个值的原文引用）
 coding-undo-confirm = 撤销（回到待确认）
 coding-error-undo = 撤销确认失败。
+coding-review-one = 校对
+coding-review-original-label = 原始建议：{ $name } = { $value }
+coding-review-hint-hint = 提取提示：{ $hint }
+coding-review-hint-notes = 备注：{ $notes }
+coding-review-save = 保存
+coding-error-review-save = 保存校对失败。
+coding-reviewed-marker-title = 已校对（原始：{ $name } = { $value }）
 coding-summary-empty = 暂无已确认的编码证据。
 
 pane-render-error = 该条目的面板加载失败：
