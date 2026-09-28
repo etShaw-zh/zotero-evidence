@@ -5,11 +5,7 @@ import { AIProviderConfig } from "./providerConfig";
 // plain string union rather than an enum so a new feature can add its own
 // tag without touching this file.
 export type AIUsagePurpose =
-  | "ta_screening"
-  | "ft_screening"
-  | "coding"
-  | "synthesis"
-  | "connection_test";
+  "ta_screening" | "ft_screening" | "coding" | "synthesis" | "connection_test";
 
 export interface ParsedUsage {
   promptTokens: number;

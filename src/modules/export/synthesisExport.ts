@@ -51,8 +51,7 @@ export async function exportSynthesisData(projectId: number): Promise<string> {
 
   for (const r of rows || []) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, r.item_key) as
-      | Zotero.Item
-      | false;
+      Zotero.Item | false;
     const stableId = await getStableItemId(projectId, r.item_key);
     const title = item ? safeGetField(item, "title") : "";
     const doi = item ? safeGetField(item, "DOI") : "";

@@ -27,10 +27,7 @@
  */
 
 export type DeleteStage =
-  | "preparing"
-  | "erasingItems"
-  | "erasingCollections"
-  | "cleaningRecords";
+  "preparing" | "erasingItems" | "erasingCollections" | "cleaningRecords";
 
 export interface DeleteProgress {
   stage: DeleteStage;
