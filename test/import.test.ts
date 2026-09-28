@@ -23,6 +23,7 @@ import {
 import { importLiteratureFile } from "../src/modules/import/importService";
 import { databaseService } from "../src/modules/db/database";
 import { saveCodebook } from "../src/modules/coding/codebookService";
+import { ensureStableItemId } from "../src/utils/stableItemId";
 
 // Project rows and Zotero Collections live in separate id spaces
 // (evidence_projects.id is a SQLite autoincrement; Collection ids are
@@ -196,6 +197,10 @@ describe("Phase 1: project structure, import, dedup", function () {
        VALUES (?, 'ta_screening', 'pilot', 'sampled', '[]', ?, ?)`,
       [project.id, new Date().toISOString(), new Date().toISOString()],
     );
+    // Same regression class as ft_criterion_checks/consistency_rounds above:
+    // item_stable_ids also has a FOREIGN KEY into evidence_projects, and was
+    // missing from deleteProject's cleanup list until this test caught it.
+    await ensureStableItemId(project.id, item.key);
 
     await deleteProject(project.id);
 
@@ -216,6 +221,7 @@ describe("Phase 1: project structure, import, dedup", function () {
       "item_sources",
       "ft_criterion_checks",
       "consistency_rounds",
+      "item_stable_ids",
     ]) {
       const rows = await databaseService.queryAsync(
         `SELECT * FROM ${table} WHERE project_id = ?`,

@@ -152,6 +152,7 @@ export async function deleteProject(projectId: number): Promise<void> {
       "screening_records",
       "screening_criteria",
       "item_sources",
+      "item_stable_ids",
     ]) {
       await databaseService.queryAsync(
         `DELETE FROM ${table} WHERE project_id = ?`,
