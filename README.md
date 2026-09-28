@@ -5,7 +5,7 @@
 [![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 </br>
 [![Latest release](https://img.shields.io/github/v/release/etShaw-zh/zotero-evidence)](https://github.com/etShaw-zh/zotero-evidence/releases)
-[![Download](https://img.shields.io/github/downloads/etShaw-zh/zotero-evidence/total?logo=github&color=2E75B6)](https://github.com/etShaw-zh/zotero-evidence/releases)
+[![CI](https://github.com/etShaw-zh/zotero-evidence/actions/workflows/ci.yml/badge.svg)](https://github.com/etShaw-zh/zotero-evidence/actions/workflows/ci.yml)
 [![Issues](https://img.shields.io/github/issues/etShaw-zh/zotero-evidence)](https://github.com/etShaw-zh/zotero-evidence/issues)
 [![Pulls](https://img.shields.io/github/issues-pr/etShaw-zh/zotero-evidence)](https://github.com/etShaw-zh/zotero-evidence/pulls)
 </br>

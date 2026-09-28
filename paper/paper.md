@@ -1,5 +1,5 @@
 ---
-title: "Zotero Evidence: AI-assisted systematic reviews with traceable evidence"
+title: "Zotero Evidence: AI-assisted systematic literature reviews with traceable evidence"
 tags:
   - systematic literature review
   - evidence synthesis
