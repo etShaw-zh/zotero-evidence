@@ -490,4 +490,116 @@ describe("Archive & Share (export/restore round trip)", function () {
     assert.equal(dupRow.item_key, dup.key);
     assert.equal(dupRow.is_duplicate_of, restoredKept.key);
   });
+
+  // issue #11: restoreArchiveDialog drives a lock-screen/progress overlay
+  // off importProjectArchive's onProgress callback (via restoreTracker.ts's
+  // RestoreReporter) -- these two tests are the actual data-producing half
+  // of that feature; the overlay itself is covered by
+  // test/uiLock.test.ts and the exclusivity guard by
+  // test/restoreTracker.test.ts.
+  it("importProjectArchive reports preparing -> importing (with a running per-item count) -> linking via onProgress, in that order", async function () {
+    const project = await createProject(`Archive Progress Test ${Date.now()}`);
+    const collections = resolveProjectCollections(
+      getRootCollectionId(project)!,
+    );
+
+    for (const title of [
+      "Progress Item A",
+      "Progress Item B",
+      "Progress Item C",
+    ]) {
+      const item = new Zotero.Item("journalArticle");
+      item.libraryID = collections.libraryID;
+      item.setField("title", title);
+      await item.saveTx();
+      item.addToCollection(collections.taQueueId);
+      await item.saveTx();
+    }
+
+    const zipFile = Zotero.File.pathToFile(Zotero.DataDirectory.dir) as any;
+    zipFile.append(`archive-progress-${Date.now()}.zip`);
+    await exportProjectArchive(project.id, zipFile.path);
+
+    const stages: { stage: string; current?: number; total?: number }[] = [];
+    const restored = await importProjectArchive(
+      zipFile.path,
+      Zotero.Libraries.userLibraryID,
+      (stage, detail) => {
+        stages.push({ stage, ...detail });
+      },
+    );
+
+    assert.equal(stages[0].stage, "preparing");
+
+    const importingStages = stages.filter((s) => s.stage === "importing");
+    assert.deepEqual(
+      importingStages.map((s) => [s.current, s.total]),
+      [
+        [1, 3],
+        [2, 3],
+        [3, 3],
+      ],
+      "one report per restored item, with a running count against the real total",
+    );
+
+    const linkingIndices = stages
+      .map((s, i) => (s.stage === "linking" ? i : -1))
+      .filter((i) => i >= 0);
+    assert.equal(linkingIndices.length, 1, "linking is reported exactly once");
+    assert.isTrue(
+      linkingIndices[0] >
+        stages.lastIndexOf(importingStages[importingStages.length - 1]),
+      "linking is reported after every item has been imported",
+    );
+
+    // The restore behind these reports still did the real work as usual.
+    const restoredCollections = resolveProjectCollections(
+      getRootCollectionId(restored)!,
+    );
+    assert.equal(
+      (
+        Zotero.Collections.get(
+          restoredCollections.taQueueId,
+        ) as Zotero.Collection
+      ).getChildItems().length,
+      3,
+    );
+  });
+
+  it("importProjectArchive reports preparing via onProgress before rejecting a manifest-less .zip, and never reports importing/linking for it", async function () {
+    const emptyDir = Zotero.getTempDirectory() as any;
+    emptyDir.append(`archive-empty-src-${Date.now()}`);
+    await (Zotero.File as any).createDirectoryIfMissingAsync(emptyDir.path, {
+      ignoreExisting: true,
+    });
+
+    const zipFile = Zotero.File.pathToFile(Zotero.DataDirectory.dir) as any;
+    zipFile.append(`archive-no-manifest-${Date.now()}.zip`);
+    // A real, valid .zip with no entries at all -- unzips fine, but has no
+    // manifest.json, which is exactly what a user picking the wrong file
+    // (or a stray non-archive .zip) would produce.
+    await Zotero.File.zipDirectory(emptyDir.path, zipFile.path, {});
+
+    const stages: string[] = [];
+    let rejected: unknown;
+    try {
+      await importProjectArchive(
+        zipFile.path,
+        Zotero.Libraries.userLibraryID,
+        (stage) => stages.push(stage),
+      );
+    } catch (e) {
+      rejected = e;
+    }
+
+    assert.isDefined(
+      rejected,
+      "a manifest-less archive must reject, not silently create an empty project",
+    );
+    assert.deepEqual(
+      stages,
+      ["preparing"],
+      "only the reachable stage should be reported before the rejection",
+    );
+  });
 });

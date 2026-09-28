@@ -23,6 +23,11 @@ import { getAIUsageStats } from "../ai/usageService";
 import { exportProjectArchive } from "../archive/archiveExportService";
 import { importProjectArchive } from "../archive/archiveImportService";
 import {
+  isRestoreInProgress,
+  RestoreProgress,
+  runExclusiveRestore,
+} from "../archive/restoreTracker";
+import {
   CodebookVariable,
   formatCodebookCsv,
   getLatestCodebook,
@@ -55,12 +60,20 @@ import {
   escapeHtml,
   getSelectedCollectionIdCompat,
   quotePreview,
+  deleteStageLabel,
   resolveAttachment,
+  restoreStageLabel,
 } from "./paneHelpers";
+import { lockWindow } from "./uiLock";
 import {
   resolveProjectCollections,
   SOURCE_DATABASE_LABELS,
 } from "../project/collectionStructure";
+import {
+  DeleteProgress,
+  isDeleteInProgress,
+  runExclusiveDelete,
+} from "../project/deleteTracker";
 import {
   findOwningProjectIdSync,
   findProjectPaneContext,
@@ -618,6 +631,16 @@ export class EvidenceCommands {
   }
 
   static async deleteProjectDialog() {
+    // Same reasoning as restoreArchiveDialog: reject a second delete before
+    // even opening the project picker, rather than letting the user pick a
+    // project and discover only afterward that a deletion is already
+    // running. runExclusiveDelete() below is the backstop for anything that
+    // races past this check.
+    if (isDeleteInProgress()) {
+      ztoolkit.getGlobal("alert")(getString("error-delete-already-running"));
+      return;
+    }
+
     const projects = await listProjects();
     if (projects.length === 0) {
       ztoolkit.getGlobal("alert")(getString("error-no-projects"));
@@ -759,17 +782,70 @@ export class EvidenceCommands {
       return;
     }
 
-    await deleteProject(project.id);
-    await refreshProjectPaneContextCache();
-    new ztoolkit.ProgressWindow(addon.data.config.addonName)
+    const progressWindow = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+      { closeOnClick: false, closeTime: -1 },
+    )
       .createLine({
+        text: getString("progress-delete-project-running"),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+
+    // Same lock/progress treatment as restoreArchiveDialog -- deleteProject
+    // erases every item through Zotero.Item transactions the whole time, so
+    // letting the user click around mid-delete (switch collections, start
+    // another delete/import) risks racing that background work, and with no
+    // visible change to the pane otherwise, a long delete reads as a hung
+    // UI. `lastProgress` mirrors deleteTracker.ts's `active.progress` while
+    // the delete is in flight -- runExclusiveDelete() clears that entry the
+    // moment deleteProject() settles, before this function's own catch
+    // below ever runs, so on failure this is the only place left with the
+    // stage it failed at.
+    const mainWindow = Zotero.getMainWindow();
+    let lastProgress: DeleteProgress = { stage: "preparing" };
+    const lock = mainWindow
+      ? lockWindow(mainWindow, deleteStageLabel(lastProgress))
+      : null;
+
+    try {
+      await runExclusiveDelete((report) =>
+        deleteProject(project.id, (stage, detail) => {
+          lastProgress = { stage, ...detail };
+          report(stage, detail);
+          const text = deleteStageLabel(lastProgress);
+          lock?.setMessage(text);
+          progressWindow.changeLine({
+            text,
+            progress: detail
+              ? Math.round((detail.current / detail.total) * 100)
+              : undefined,
+          });
+        }),
+      );
+      await refreshProjectPaneContextCache();
+      progressWindow.changeLine({
         text: getString("progress-project-deleted", {
           args: { name: project.name },
         }),
         type: "success",
         progress: 100,
-      })
-      .show();
+      });
+      progressWindow.startCloseTimer(5000);
+    } catch (e) {
+      progressWindow.changeLine({
+        text: getString("error-delete-project-failed-at-stage", {
+          args: { stage: deleteStageLabel(lastProgress) },
+        }),
+        type: "error",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(8000);
+      throw e;
+    } finally {
+      lock?.unlock();
+    }
   }
 
   static async archiveProjectDialog() {
@@ -865,6 +941,16 @@ export class EvidenceCommands {
   }
 
   static async restoreArchiveDialog() {
+    // issue #11: reject a second restore before even opening the file
+    // picker, rather than letting the user pick a file and discover only
+    // afterward that one's already running. This is the user-facing half
+    // of restoreTracker's exclusivity guard -- runExclusiveRestore() below
+    // is the backstop for anything that races past this check.
+    if (isRestoreInProgress()) {
+      ztoolkit.getGlobal("alert")(getString("error-restore-already-running"));
+      return;
+    }
+
     // Same reasoning as newProjectDialog: an archive carries no library of
     // its own (you might restore it into a different library than it was
     // archived from), so the picker offers every *writable* library, and
@@ -991,6 +1077,7 @@ export class EvidenceCommands {
 
     const progressWindow = new ztoolkit.ProgressWindow(
       addon.data.config.addonName,
+      { closeOnClick: false, closeTime: -1 },
     )
       .createLine({
         text: getString("progress-restore-archive-running"),
@@ -998,10 +1085,41 @@ export class EvidenceCommands {
         progress: 0,
       })
       .show();
+
+    // issue #11: lock the main window for the duration -- a restore writes
+    // through Zotero.Item transactions the whole time, so letting the user
+    // switch collections, start another import, or retry the restore
+    // mid-flight risks racing that background work, and with no visible
+    // change to the pane otherwise, a long restore reads as a hung UI.
+    // `lastProgress` mirrors what restoreTracker.ts's `active.progress`
+    // holds while the restore is in flight -- runExclusiveRestore() clears
+    // that entry the moment importProjectArchive() settles (success OR
+    // failure), before this function's own catch below ever runs, so on
+    // failure this is the only place left with the stage it failed at.
+    const mainWindow = Zotero.getMainWindow();
+    let lastProgress: RestoreProgress = { stage: "preparing" };
+    const lock = mainWindow
+      ? lockWindow(mainWindow, restoreStageLabel(lastProgress))
+      : null;
+
     try {
-      const project = await importProjectArchive(
-        String(dialogData.filePath),
-        libraryID,
+      const project = await runExclusiveRestore((report) =>
+        importProjectArchive(
+          String(dialogData.filePath),
+          libraryID,
+          (stage, detail) => {
+            lastProgress = { stage, ...detail };
+            report(stage, detail);
+            const text = restoreStageLabel(lastProgress);
+            lock?.setMessage(text);
+            progressWindow.changeLine({
+              text,
+              progress: detail
+                ? Math.round((detail.current / detail.total) * 100)
+                : undefined,
+            });
+          },
+        ),
       );
       progressWindow.changeLine({
         text: getString("progress-restore-archive-done", {
@@ -1013,12 +1131,16 @@ export class EvidenceCommands {
       progressWindow.startCloseTimer(5000);
     } catch (e) {
       progressWindow.changeLine({
-        text: getString("error-restore-archive-failed"),
+        text: getString("error-restore-archive-failed-at-stage", {
+          args: { stage: restoreStageLabel(lastProgress) },
+        }),
         type: "error",
         progress: 100,
       });
       progressWindow.startCloseTimer(8000);
       throw e;
+    } finally {
+      lock?.unlock();
     }
   }
 
