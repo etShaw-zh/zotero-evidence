@@ -464,6 +464,40 @@ item-pane-sidenav .inherit-flex {
   flex: 0 0 auto;
 }
 
+/* issue #9: "未完成变量" hint box in the manual-mapping area, and its
+   clickable chips -- each jumps the manual-add form below to that
+   variable (see codingPane.ts's focusVariableRef). Amber to match
+   .zotero-evidence-coding-pending's "still needs attention" color. */
+.zotero-evidence-coding-missing-hint {
+  margin: 4px 0 10px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(163, 112, 31, 0.08);
+  color: #a3701f;
+  font-size: 0.9em;
+}
+
+.zotero-evidence-coding-missing-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.zotero-evidence-coding-missing-chip {
+  border: 1px solid #a3701f;
+  border-radius: 999px;
+  background: transparent;
+  color: #a3701f;
+  padding: 2px 10px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.zotero-evidence-coding-missing-chip:hover {
+  background: rgba(163, 112, 31, 0.15);
+}
+
 /* FT-Screening criterion checklist (ftQueuePane.ts) -- rows reuse Coding's
    compact suggestion/confirmed-row and card/badge classes directly (see
    .zotero-evidence-coding-suggestion-row etc. above) so the two AI-assisted

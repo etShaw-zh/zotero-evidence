@@ -2,6 +2,7 @@ import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
 import { getRunProgress } from "../ai/aiRunTracker";
 import { CodebookVariable, getLatestCodebook } from "../coding/codebookService";
+import { syncCodingCompleteTag } from "../coding/codingCompletionService";
 import { getNote, saveNote } from "../coding/codingNotesService";
 import {
   isKeyLiterature,
@@ -15,6 +16,8 @@ import {
   generateSuggestions,
   getCodingProgress,
   getCodingRecords,
+  getMissingRequiredVariables,
+  isCodingComplete,
   linkAnnotationToRecord,
   unconfirmRecord,
 } from "../coding/codingService";
@@ -610,6 +613,15 @@ function renderConfirmedList(
   container.appendChild(list);
 }
 
+/**
+ * `focusVariableRef.current` is replaced below with the real
+ * implementation once `variableSelect`/`valueInput` exist -- the missing-
+ * variables hint (rendered further up in renderCodingArea, before this
+ * form) builds its chips' click handlers against this same ref object, so
+ * they always call whatever implementation is current by the time a user
+ * actually clicks one, even though this function runs after that hint is
+ * already in the DOM. See renderCodingArea's own use of it.
+ */
 async function renderManualAddForm(
   container: HTMLElement,
   doc: Document,
@@ -620,6 +632,7 @@ async function renderManualAddForm(
   attachment: Zotero.Item | null,
   annotations: Zotero.Item[],
   onChanged: () => void,
+  focusVariableRef: { current: (variableName: string) => void },
 ) {
   const form = el(doc, "div", { classList: ["zotero-evidence-coding-form"] });
 
@@ -639,6 +652,12 @@ async function renderManualAddForm(
     },
   }) as HTMLInputElement;
   form.appendChild(valueInput);
+
+  focusVariableRef.current = (variableName: string) => {
+    variableSelect.value = variableName;
+    valueInput.focus();
+    valueInput.scrollIntoView({ block: "center" });
+  };
 
   const annotationSelect = el(doc, "select", {
     children: [
@@ -876,6 +895,24 @@ async function renderCodingArea(
     item.key,
     codebookRow.variables,
   );
+  // issue #9: missingRequired IS what requiredDone/requiredTotal above are
+  // derived from underneath (see getMissingRequiredVariables's own doc
+  // comment) -- fetched separately here, rather than reusing progress's
+  // counts, because the hint below needs the actual variable NAMES, not
+  // just how many.
+  const missingRequired =
+    progress.requiredTotal > 0
+      ? await getMissingRequiredVariables(
+          ctx.project.id,
+          item.key,
+          codebookRow.variables,
+        )
+      : [];
+  // Set to the real implementation inside renderManualAddForm below, once
+  // its variableSelect/valueInput exist -- see that function's own doc
+  // comment for why a forward ref is needed instead of just calling it
+  // directly here.
+  const focusVariableRef = { current: (_variableName: string) => {} };
   if (progress.requiredTotal > 0) {
     container.appendChild(
       el(doc, "p", {
@@ -885,7 +922,66 @@ async function renderCodingArea(
         },
       }),
     );
+    container.appendChild(
+      el(doc, "p", {
+        classList: [
+          missingRequired.length === 0
+            ? "zotero-evidence-coding-confirmed"
+            : "zotero-evidence-coding-pending",
+        ],
+        properties: {
+          innerHTML:
+            missingRequired.length === 0
+              ? getString("coding-status-complete")
+              : getString("coding-status-incomplete", {
+                  args: { count: missingRequired.length },
+                }),
+        },
+      }),
+    );
+    if (missingRequired.length > 0) {
+      const hintBox = el(doc, "div", {
+        classList: ["zotero-evidence-coding-missing-hint"],
+      }) as HTMLElement;
+      hintBox.appendChild(
+        el(doc, "div", {
+          properties: {
+            innerHTML: getString("coding-missing-variables-title"),
+          },
+        }),
+      );
+      const chipRow = el(doc, "div", {
+        classList: ["zotero-evidence-coding-missing-chips"],
+      }) as HTMLElement;
+      for (const v of missingRequired) {
+        chipRow.appendChild(
+          el(doc, "button", {
+            classList: ["zotero-evidence-coding-missing-chip"],
+            attributes: { type: "button" },
+            properties: { innerHTML: escapeHtml(v.name) },
+            listeners: [
+              {
+                type: "click",
+                listener: () => focusVariableRef.current(v.name),
+              },
+            ],
+          }),
+        );
+      }
+      hintBox.appendChild(chipRow);
+      container.appendChild(hintBox);
+    }
   }
+  // Mirrors this same computation into a real Zotero tag (see
+  // codingCompletionService.ts's doc comment for why a tag, and why
+  // syncing it from here is sufficient) -- requiredTotal===0 means "not
+  // applicable", passed through as null so any stale tag from a Codebook
+  // that used to have required variables gets cleared rather than left
+  // showing "complete" for a status that no longer exists.
+  await syncCodingCompleteTag(
+    item,
+    progress.requiredTotal > 0 ? missingRequired.length === 0 : null,
+  );
 
   const rerender = async () => {
     await renderCodingArea(container, doc, ctx, item);
@@ -1020,6 +1116,7 @@ async function renderCodingArea(
     attachment,
     annotations,
     () => void rerender(),
+    focusVariableRef,
   );
 
   const flagSection = el(doc, "div", {
@@ -1065,6 +1162,33 @@ async function renderCodingSummary(
   ctx: ProjectPaneContext,
   item: Zotero.Item,
 ): Promise<void> {
+  // issue #9: this read-only card is the OTHER place (besides the reader
+  // tab's renderCodingArea) an item's Coding pane actually renders, so it
+  // gets the same completion badge + tag sync -- an item a reviewer only
+  // ever browses in the library tab (never opens the PDF for) would
+  // otherwise never get its completion status computed or its tag synced.
+  const codebookRow = await getLatestCodebook(ctx.project.id);
+  const complete = codebookRow
+    ? await isCodingComplete(ctx.project.id, item.key, codebookRow.variables)
+    : null;
+  if (complete !== null) {
+    contentArea.appendChild(
+      el(doc, "p", {
+        classList: [
+          complete
+            ? "zotero-evidence-coding-confirmed"
+            : "zotero-evidence-coding-pending",
+        ],
+        properties: {
+          innerHTML: complete
+            ? getString("coding-status-complete")
+            : getString("coding-status-incomplete-summary"),
+        },
+      }),
+    );
+  }
+  await syncCodingCompleteTag(item, complete);
+
   const records = await getCodingRecords(ctx.project.id, item.key);
   const confirmedCount = records.filter((r) => r.annotationKey).length;
   if (confirmedCount === 0) {
