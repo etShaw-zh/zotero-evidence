@@ -498,30 +498,87 @@ export function resolveCanonicalVariableName(
   return recordVariableName;
 }
 
-export async function getCodingProgress(
+// issue #9: a confirmed record's value must actually mean something to
+// count -- null/undefined, "", and whitespace-only are all "no value", but
+// a legitimate value that merely LOOKS empty-ish, like the literal string
+// "0" or "false", must NOT be treated as missing. Since coding_records
+// stores variable_value as TEXT regardless of the Codebook variable's own
+// `type` (categorical/numeric/text all end up as a string here), "has
+// content once trimmed" is the one rule that correctly covers every type
+// without needing to know which type produced it.
+export function hasValidCodingValue(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Every REQUIRED Codebook variable (in Codebook order) that does NOT yet
+ * have a confirmed, non-empty value -- issue #9's "未完成变量" hint list,
+ * and what getCodingProgress's requiredDone/requiredTotal are derived from
+ * underneath (a required variable counts "done" exactly when it's absent
+ * from this list). An AI suggestion nobody has reviewed yet never counts
+ * as done, confirmed or not -- same as getCodingProgress always required.
+ */
+export async function getMissingRequiredVariables(
   projectId: number,
   itemKey: string,
   variables: CodebookVariable[],
-): Promise<CodingProgress> {
-  const requiredNames = variables.filter((v) => v.required).map((v) => v.name);
-  if (requiredNames.length === 0) {
-    return { requiredTotal: 0, requiredDone: 0 };
-  }
+): Promise<CodebookVariable[]> {
+  const required = variables.filter((v) => v.required);
+  if (required.length === 0) return [];
   const codebookNames = variables.map((v) => v.name);
   const records = await getCodingRecords(projectId, itemKey);
-  const confirmedNames = new Set(
+  const validConfirmedNames = new Set(
     records
-      .filter((r) => r.confirmed)
+      .filter((r) => r.confirmed && hasValidCodingValue(r.variableValue))
       .map((r) =>
         normalizeVariableName(
           resolveCanonicalVariableName(r.variableName, codebookNames),
         ),
       ),
   );
-  const requiredDone = requiredNames.filter((n) =>
-    confirmedNames.has(normalizeVariableName(n)),
-  ).length;
-  return { requiredTotal: requiredNames.length, requiredDone };
+  return required.filter(
+    (v) => !validConfirmedNames.has(normalizeVariableName(v.name)),
+  );
+}
+
+export async function getCodingProgress(
+  projectId: number,
+  itemKey: string,
+  variables: CodebookVariable[],
+): Promise<CodingProgress> {
+  const requiredTotal = variables.filter((v) => v.required).length;
+  if (requiredTotal === 0) {
+    return { requiredTotal: 0, requiredDone: 0 };
+  }
+  const missing = await getMissingRequiredVariables(
+    projectId,
+    itemKey,
+    variables,
+  );
+  return { requiredTotal, requiredDone: requiredTotal - missing.length };
+}
+
+/**
+ * True once every REQUIRED Codebook variable has a confirmed, non-empty
+ * value (issue #9). A Codebook with no required variables at all is
+ * vacuously "not applicable" (null) rather than true or false -- there's
+ * nothing meaningful to call complete/incomplete, matching
+ * getCodingProgress's own requiredTotal=0 convention. Callers that only
+ * care about a strict yes/no (e.g. deciding whether to show a badge at
+ * all) should treat null the same as "don't show anything", not as false.
+ */
+export async function isCodingComplete(
+  projectId: number,
+  itemKey: string,
+  variables: CodebookVariable[],
+): Promise<boolean | null> {
+  if (variables.filter((v) => v.required).length === 0) return null;
+  const missing = await getMissingRequiredVariables(
+    projectId,
+    itemKey,
+    variables,
+  );
+  return missing.length === 0;
 }
 
 export interface CodingStats {

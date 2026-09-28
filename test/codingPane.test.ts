@@ -17,6 +17,7 @@
 import { assert } from "chai";
 import { config } from "../package.json";
 import { saveCodebook } from "../src/modules/coding/codebookService";
+import { isCodingCompleteTag } from "../src/modules/coding/codingCompletionService";
 import { addManualRecord } from "../src/modules/coding/codingService";
 import { resolveProjectCollections } from "../src/modules/project/collectionStructure";
 import { getRootCollectionId } from "../src/modules/project/projectContext";
@@ -429,6 +430,132 @@ describe("Coding item-pane section", function () {
         assert.isNull(
           container!.querySelector(".zotero-evidence-coding-row-actions"),
           "the library-tab summary must not show the Undo/modify button",
+        );
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
+    });
+
+    // issue #9: renderCodingSummary is the other real render path (besides
+    // the reader tab's renderCodingArea, which per this file's own doc
+    // comment above isn't reliably drivable in this harness) that computes
+    // and syncs the completion status/tag, so this is where that gets
+    // exercised end-to-end -- through the actual selection pipeline, not a
+    // direct function call.
+    it("shows an incomplete-coding status and does not tag the item when a required variable has no confirmed value", async function () {
+      const project = await createProject(
+        `Coding Incomplete Summary Test ${Date.now()}`,
+      );
+      const collections = resolveProjectCollections(
+        getRootCollectionId(project)!,
+      );
+      await saveCodebook(project.id, [
+        { name: "required_var", type: "text", required: true },
+      ]);
+
+      await (Zotero as any)[
+        config.addonInstance
+      ].api.refreshProjectPaneContextCache();
+
+      const item = new Zotero.Item("journalArticle");
+      item.libraryID = Zotero.Libraries.userLibraryID;
+      item.setField("title", "Coding Incomplete Summary Item");
+      await item.saveTx();
+      item.addToCollection(collections.codingId);
+      await item.saveTx();
+
+      const win = Zotero.getMainWindow();
+      const doc = win.document;
+      const ZoteroPaneGlobal = (win as any).ZoteroPane;
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.codingId,
+        );
+        await waitUntil(
+          () =>
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
+            collections.codingId,
+        );
+        await ZoteroPaneGlobal.selectItem(item.id);
+        const statusEl = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          return c.querySelector(".zotero-evidence-coding-pending");
+        });
+
+        assert.include(
+          statusEl!.textContent,
+          await pluginString("coding-status-incomplete-summary"),
+        );
+        assert.isFalse(
+          isCodingCompleteTag(item),
+          "an item with a missing required variable must not carry the completion tag",
+        );
+      } catch (e: any) {
+        assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);
+      }
+    });
+
+    it("shows a complete-coding status and tags the item once every required variable has a confirmed value", async function () {
+      const project = await createProject(
+        `Coding Complete Summary Test ${Date.now()}`,
+      );
+      const collections = resolveProjectCollections(
+        getRootCollectionId(project)!,
+      );
+      const codebook = await saveCodebook(project.id, [
+        { name: "required_var", type: "text", required: true },
+      ]);
+
+      await (Zotero as any)[
+        config.addonInstance
+      ].api.refreshProjectPaneContextCache();
+
+      const item = new Zotero.Item("journalArticle");
+      item.libraryID = Zotero.Libraries.userLibraryID;
+      item.setField("title", "Coding Complete Summary Item");
+      await item.saveTx();
+      item.addToCollection(collections.codingId);
+      await item.saveTx();
+
+      await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "required_var",
+        "a real value",
+        null,
+        null,
+      );
+
+      const win = Zotero.getMainWindow();
+      const doc = win.document;
+      const ZoteroPaneGlobal = (win as any).ZoteroPane;
+      try {
+        await ZoteroPaneGlobal.collectionsView.selectCollection(
+          collections.codingId,
+        );
+        await waitUntil(
+          () =>
+            getSelectedCollectionIdCompat(ZoteroPaneGlobal) ===
+            collections.codingId,
+        );
+        await ZoteroPaneGlobal.selectItem(item.id);
+        const statusEl = await waitForValue(() => {
+          const c = doc.getElementById("zotero-view-item");
+          if (!c?.classList.contains("zotero-evidence-hide-native"))
+            return null;
+          return c.querySelector(".zotero-evidence-coding-confirmed");
+        });
+
+        assert.include(
+          statusEl!.textContent,
+          await pluginString("coding-status-complete"),
+        );
+        assert.isTrue(
+          isCodingCompleteTag(item),
+          "an item with every required variable confirmed must carry the completion tag",
         );
       } catch (e: any) {
         assert.fail(`${e?.message ?? e} || ${dumpPaneDiagnostics(win, doc)}`);

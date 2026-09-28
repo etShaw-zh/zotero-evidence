@@ -12,6 +12,9 @@ import {
   generateSuggestions,
   getCodingProgress,
   getCodingRecords,
+  getMissingRequiredVariables,
+  hasValidCodingValue,
+  isCodingComplete,
   linkAnnotationToRecord,
   parseSuggestions,
   unconfirmRecord,
@@ -541,6 +544,184 @@ describe("Phase 4: Full-Text Coding core loop", function () {
       codebook.variables,
     );
     assert.deepEqual(progress, { requiredTotal: 2, requiredDone: 1 });
+  });
+
+  // issue #9
+  describe("hasValidCodingValue (pure)", function () {
+    it("treats null/undefined/empty/whitespace-only as no value", function () {
+      assert.isFalse(hasValidCodingValue(null));
+      assert.isFalse(hasValidCodingValue(undefined));
+      assert.isFalse(hasValidCodingValue(""));
+      assert.isFalse(hasValidCodingValue("   "));
+      assert.isFalse(hasValidCodingValue("\t\n"));
+    });
+
+    it("treats a legitimate '0'/'false'-looking string as a real value", function () {
+      assert.isTrue(hasValidCodingValue("0"));
+      assert.isTrue(hasValidCodingValue("false"));
+      assert.isTrue(hasValidCodingValue("  0  "));
+    });
+  });
+
+  // issue #9: getMissingRequiredVariables is what getCodingProgress's own
+  // requiredDone/requiredTotal are derived from underneath -- these tests
+  // exercise the part the test above doesn't: a CONFIRMED record whose
+  // value is empty/whitespace-only must still count as missing (the actual
+  // bug getCodingProgress had before hasValidCodingValue existed, since it
+  // only ever checked `confirmed`, never the value itself).
+  describe("getMissingRequiredVariables / isCodingComplete", function () {
+    it("returns every required variable, in Codebook order, when nothing is coded yet", async function () {
+      const project = await createProject(`Missing Vars Test ${Date.now()}`);
+      const codebook = await saveCodebook(project.id, [
+        { name: "required_a", type: "text", required: true },
+        { name: "optional_b", type: "text", required: false },
+        { name: "required_c", type: "text", required: true },
+      ]);
+      const item = await makeTestItem("Missing Vars Item");
+
+      const missing = await getMissingRequiredVariables(
+        project.id,
+        item.key,
+        codebook.variables,
+      );
+      assert.deepEqual(
+        missing.map((v) => v.name),
+        ["required_a", "required_c"],
+      );
+      assert.isFalse(
+        await isCodingComplete(project.id, item.key, codebook.variables),
+      );
+    });
+
+    it("a confirmed record with an empty/whitespace-only value does NOT satisfy a required variable", async function () {
+      const project = await createProject(
+        `Missing Vars Empty Test ${Date.now()}`,
+      );
+      const codebook = await saveCodebook(project.id, [
+        { name: "required_a", type: "text", required: true },
+      ]);
+      const item = await makeTestItem("Missing Vars Empty Item");
+
+      const recordId = await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "required_a",
+        "placeholder",
+        null,
+        null,
+      );
+      // updateRecord doesn't touch `confirmed` -- addManualRecord already
+      // confirmed this record, so this simulates a human clearing the
+      // value back out without unconfirming it.
+      await updateRecord(recordId, "required_a", "   ");
+
+      const missing = await getMissingRequiredVariables(
+        project.id,
+        item.key,
+        codebook.variables,
+      );
+      assert.deepEqual(
+        missing.map((v) => v.name),
+        ["required_a"],
+        "a confirmed-but-blank value must still count as missing",
+      );
+      assert.isFalse(
+        await isCodingComplete(project.id, item.key, codebook.variables),
+      );
+    });
+
+    it("an UNconfirmed record (AI suggestion nobody reviewed) does not satisfy a required variable", async function () {
+      const project = await createProject(
+        `Missing Vars Unconfirmed Test ${Date.now()}`,
+      );
+      const codebook = await saveCodebook(project.id, [
+        { name: "required_a", type: "text", required: true },
+      ]);
+      const item = await makeTestItem("Missing Vars Unconfirmed Item");
+
+      await databaseService.queryAsync(
+        `INSERT INTO coding_records
+           (project_id, codebook_id, item_key, variable_name, variable_value, is_pilot, source, confirmed, created_at, updated_at)
+         VALUES (?, ?, ?, 'required_a', 'AI guess', 0, 'ai', 0, ?, ?)`,
+        [
+          project.id,
+          codebook.id,
+          item.key,
+          new Date().toISOString(),
+          new Date().toISOString(),
+        ],
+      );
+
+      const missing = await getMissingRequiredVariables(
+        project.id,
+        item.key,
+        codebook.variables,
+      );
+      assert.deepEqual(
+        missing.map((v) => v.name),
+        ["required_a"],
+      );
+    });
+
+    it("isCodingComplete flips true once the last missing required variable is confirmed with a real value", async function () {
+      const project = await createProject(
+        `Coding Complete Flip Test ${Date.now()}`,
+      );
+      const codebook = await saveCodebook(project.id, [
+        { name: "required_a", type: "text", required: true },
+        { name: "required_b", type: "text", required: true },
+      ]);
+      const item = await makeTestItem("Coding Complete Flip Item");
+
+      await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "required_a",
+        "value a",
+        null,
+        null,
+      );
+      assert.isFalse(
+        await isCodingComplete(project.id, item.key, codebook.variables),
+      );
+
+      await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "required_b",
+        "value b",
+        null,
+        null,
+      );
+      assert.isTrue(
+        await isCodingComplete(project.id, item.key, codebook.variables),
+      );
+    });
+
+    it("returns null (not applicable) for a Codebook with no required variables at all", async function () {
+      const project = await createProject(
+        `Coding Complete NA Test ${Date.now()}`,
+      );
+      const codebook = await saveCodebook(project.id, [
+        { name: "optional_only", type: "text", required: false },
+      ]);
+      const item = await makeTestItem("Coding Complete NA Item");
+
+      assert.isNull(
+        await isCodingComplete(project.id, item.key, codebook.variables),
+      );
+      assert.deepEqual(
+        await getMissingRequiredVariables(
+          project.id,
+          item.key,
+          codebook.variables,
+        ),
+        [],
+      );
+    });
   });
 
   it("computeCodingStats counts items in the Coding collection vs. how many have confirmed evidence", async function () {
