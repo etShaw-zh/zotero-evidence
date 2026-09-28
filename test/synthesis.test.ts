@@ -7,7 +7,10 @@ import {
   getLatestCodebook,
   saveCodebook,
 } from "../src/modules/coding/codebookService";
-import { addManualRecord } from "../src/modules/coding/codingService";
+import {
+  addManualRecord,
+  reviewRecord,
+} from "../src/modules/coding/codingService";
 import {
   getSynthesisRows,
   parseThemes,
@@ -115,6 +118,31 @@ describe("Phase 7: Synthesis", function () {
       "Study B",
     ]);
     assert.isTrue(rows.every((r) => r.theme === null));
+  });
+
+  it("getSynthesisRows matches and reports a reviewed (issue #8) name/value, not the original AI/human suggestion", async function () {
+    const project = await createProject(
+      `Synthesis Reviewed Rows Test ${Date.now()}`,
+    );
+    await saveCodebook(project.id, [{ name: "Population", type: "text" }]);
+    const codebook = await getLatestCodebook(project.id);
+    const item = await makeTestItem("Reviewed Study");
+
+    const recordId = await addManualRecord(
+      project.id,
+      item,
+      codebook!.id,
+      "pop", // raw AI wording -- would NOT resolve to "Population" as-is
+      "grown-ups",
+      null,
+      "grown-ups only",
+    );
+    await reviewRecord(recordId, "Population", "Adults");
+
+    const rows = await getSynthesisRows(project.id, "Population");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].variableName, "Population");
+    assert.equal(rows[0].variableValue, "Adults");
   });
 
   it("runSynthesis refuses to run without a configured provider", async function () {

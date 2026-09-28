@@ -1,6 +1,9 @@
 import { assert } from "chai";
 import { saveCodebook } from "../src/modules/coding/codebookService";
-import { addManualRecord } from "../src/modules/coding/codingService";
+import {
+  addManualRecord,
+  reviewRecord,
+} from "../src/modules/coding/codingService";
 import {
   exportCodingData,
   expandRecordsToRows,
@@ -183,6 +186,49 @@ describe("Phase 6: codingExport", function () {
       );
       const csv = await exportCodingData(project.id);
       assert.equal(csv.split("\n").length, 1); // header only
+    });
+
+    it("exports a reviewed (issue #8) value/variable instead of the original AI suggestion", async function () {
+      const project = await createProject(
+        `Coding Export Review Test ${Date.now()}`,
+      );
+      const codebook = await saveCodebook(project.id, [
+        {
+          name: "study_design",
+          type: "categorical",
+          values: ["RCT", "Cohort"],
+        },
+      ]);
+
+      const item = new Zotero.Item("journalArticle");
+      item.libraryID = Zotero.Libraries.userLibraryID;
+      item.setField("title", "Review Export Paper");
+      item.setField("date", "2024");
+      await item.saveTx();
+
+      const recordId = await addManualRecord(
+        project.id,
+        item,
+        codebook.id,
+        "design", // AI's raw wording, not the Codebook's canonical name
+        "randomized trial",
+        null,
+        null,
+      );
+      await reviewRecord(recordId, "study_design", "RCT");
+
+      const csv = await exportCodingData(project.id);
+      const lines = csv.split("\n");
+      assert.equal(
+        lines[0],
+        "item_key,project_item_id,authors,year,title,doi,study_design",
+      );
+      assert.equal(lines.length, 2);
+      assert.equal(
+        lines[1],
+        `${item.key},,,2024,Review Export Paper,,RCT`,
+        "the export must reflect the reviewed name/value, not the original AI suggestion",
+      );
     });
 
     it("matches a record's variable_name to the Codebook column case/whitespace-insensitively", async function () {

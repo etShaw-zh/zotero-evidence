@@ -49,7 +49,8 @@ export async function getSynthesisRows(
   const project = await getProjectById(projectId);
   const libraryID = project?.libraryID ?? Zotero.Libraries.userLibraryID;
   const rows = (await databaseService.queryAsync(
-    `SELECT cr.id, cr.item_key, cr.variable_name, cr.variable_value, cr.quote, st.theme
+    `SELECT cr.id, cr.item_key, cr.variable_name, cr.variable_value,
+            cr.reviewed_variable_name, cr.reviewed_variable_value, cr.quote, st.theme
      FROM coding_records cr
      LEFT JOIN synthesis_themes st ON st.coding_record_id = cr.id
      WHERE cr.project_id = ? AND cr.confirmed = 1 AND cr.is_pilot = 0
@@ -61,6 +62,8 @@ export async function getSynthesisRows(
         item_key: string;
         variable_name: string;
         variable_value: string;
+        reviewed_variable_name: string | null;
+        reviewed_variable_value: string | null;
         quote: string | null;
         theme: string | null;
       }[]
@@ -70,22 +73,25 @@ export async function getSynthesisRows(
   const codebookNames = codebook?.variables.map((v) => v.name) ?? [];
   const targetNormalized = normalizeVariableName(variableName);
 
+  // issue #8: matched and synthesized by the EFFECTIVE (reviewed, if any)
+  // name/value, same as everywhere else a coding_records row surfaces --
+  // see codingService.ts's CodingRecord doc comment.
   return (rows || [])
-    .filter(
-      (r) =>
-        normalizeVariableName(
-          resolveCanonicalVariableName(r.variable_name, codebookNames),
-        ) === targetNormalized,
-    )
     .map((r) => ({
       id: r.id,
       itemKey: r.item_key,
-      itemTitle: resolveItemTitle(libraryID, r.item_key),
-      variableName: r.variable_name,
-      variableValue: r.variable_value,
+      variableName: r.reviewed_variable_name ?? r.variable_name,
+      variableValue: r.reviewed_variable_value ?? r.variable_value,
       quote: r.quote,
       theme: r.theme,
-    }));
+    }))
+    .filter(
+      (r) =>
+        normalizeVariableName(
+          resolveCanonicalVariableName(r.variableName, codebookNames),
+        ) === targetNormalized,
+    )
+    .map((r) => ({ ...r, itemTitle: resolveItemTitle(libraryID, r.itemKey) }));
 }
 
 // Same cap used in codingService.ts/ftScreeningService.ts for the same

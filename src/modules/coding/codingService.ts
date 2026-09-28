@@ -52,8 +52,30 @@ async function colorizeCodingAnnotation(
 
 export interface CodingRecord {
   id: number;
+  /**
+   * EFFECTIVE variable name/value (issue #8): `reviewedVariableName`/
+   * `reviewedVariableValue` if this record has been through codebook
+   * review, otherwise the original AI/human suggestion unchanged. Row
+   * display, exports (codingExport.ts), Synthesis (synthesisService.ts),
+   * and completion tracking (getMissingRequiredVariables/getCodingProgress
+   * below) all read THESE fields -- never originalVariableName/Value
+   * directly -- so a review is honored everywhere automatically, with no
+   * per-consumer fallback logic to remember. See rowToRecord.
+   */
   variableName: string;
   variableValue: string;
+  /** The untouched AI/human suggestion, exactly as first written --
+   * reviewRecord() never modifies these, precisely so they stay available
+   * for traceability regardless of how many times a record gets reviewed. */
+  originalVariableName: string;
+  originalVariableValue: string;
+  /** Null until reviewRecord() has been called at least once for this
+   * record. Exposed mainly so the review UI can tell "never reviewed" (show
+   * the codebook-select prefilled from the original) apart from "reviewed
+   * to a value that happens to equal the original" -- most code should read
+   * variableName/variableValue above instead. */
+  reviewedVariableName: string | null;
+  reviewedVariableValue: string | null;
   quote: string | null;
   annotationKey: string | null;
   /** JSON `LocatedQuote` from a successful auto-locate that hasn't been
@@ -248,10 +270,18 @@ export async function generateSuggestions(
 }
 
 function rowToRecord(row: any): CodingRecord {
+  const reviewedVariableName: string | null =
+    row.reviewed_variable_name ?? null;
+  const reviewedVariableValue: string | null =
+    row.reviewed_variable_value ?? null;
   return {
     id: row.id,
-    variableName: row.variable_name,
-    variableValue: row.variable_value,
+    variableName: reviewedVariableName ?? row.variable_name,
+    variableValue: reviewedVariableValue ?? row.variable_value,
+    originalVariableName: row.variable_name,
+    originalVariableValue: row.variable_value,
+    reviewedVariableName,
+    reviewedVariableValue,
     quote: row.quote,
     annotationKey: row.annotation_key,
     pendingPosition: row.pending_position,
@@ -266,13 +296,40 @@ export async function getCodingRecords(
 ): Promise<CodingRecord[]> {
   await databaseService.init();
   const rows = (await databaseService.queryAsync(
-    `SELECT id, variable_name, variable_value, quote, annotation_key, pending_position, source, confirmed
+    `SELECT id, variable_name, variable_value, reviewed_variable_name, reviewed_variable_value,
+            quote, annotation_key, pending_position, source, confirmed
      FROM coding_records
      WHERE project_id = ? AND item_key = ? AND is_pilot = 0
      ORDER BY id ASC`,
     [projectId, itemKey],
   )) as any[] | undefined;
   return (rows || []).map(rowToRecord);
+}
+
+/**
+ * "校对" (issue #8): normalizes a suggestion's variable name/value against
+ * the Codebook, independent of confirm status -- callable on both a
+ * pending suggestion (next to Reject) and an already-confirmed record
+ * (next to Undo), and deliberately touches NOTHING else on the row
+ * (confirmed/annotation_key/pending_position are untouched, so this never
+ * interferes with the existing reject/confirm/undo flows). Writes into
+ * reviewed_variable_name/reviewed_variable_value; variable_name/
+ * variable_value (the original AI/human suggestion) are never modified --
+ * see CodingRecord's own doc comment for how the two pairs surface
+ * afterward. Safe to call repeatedly -- each call simply replaces whatever
+ * the previous review said, the same way updateRecord always has for the
+ * original fields.
+ */
+export async function reviewRecord(
+  recordId: number,
+  variableName: string,
+  variableValue: string,
+): Promise<void> {
+  await databaseService.init();
+  await databaseService.queryAsync(
+    `UPDATE coding_records SET reviewed_variable_name = ?, reviewed_variable_value = ?, updated_at = ? WHERE id = ?`,
+    [variableName, variableValue, new Date().toISOString(), recordId],
+  );
 }
 
 /**
@@ -381,6 +438,18 @@ export async function updateRecord(
  * updateRecord: the value is saved but confirmed is NOT forced to 1 -- the
  * record still needs the manual "choose a highlight, link" path to be
  * confirmed, same as today.
+ *
+ * `variableName`/`variableValue` here are ordinarily whatever
+ * record.variableName/variableValue already were (every real caller reads
+ * them straight off the CodingRecord being confirmed, never edits them) --
+ * since issue #8, that's the EFFECTIVE value (a review, if one exists), so
+ * the materialized annotation's own comment/highlighted text below
+ * correctly shows the reviewed text. The coding_records row's own
+ * variable_name/variable_value are deliberately left out of the UPDATE
+ * below, though, so confirming never overwrites the original AI/human
+ * suggestion those columns hold -- reviewRecord() is the only thing allowed
+ * to touch reviewed_variable_name/value, and this function has no business
+ * touching either pair.
  */
 export async function confirmRecord(
   recordId: number,
@@ -418,16 +487,10 @@ export async function confirmRecord(
         );
         await databaseService.queryAsync(
           `UPDATE coding_records
-           SET annotation_key = ?, pending_position = NULL, variable_name = ?, variable_value = ?,
+           SET annotation_key = ?, pending_position = NULL,
                confirmed = 1, source = 'human', updated_at = ?
            WHERE id = ?`,
-          [
-            annotationKey,
-            variableName,
-            variableValue,
-            new Date().toISOString(),
-            recordId,
-          ],
+          [annotationKey, new Date().toISOString(), recordId],
         );
         return;
       }
