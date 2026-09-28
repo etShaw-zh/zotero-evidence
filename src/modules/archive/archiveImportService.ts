@@ -14,6 +14,7 @@ import {
 import { databaseService } from "../db/database";
 import { recordStableItemId } from "../../utils/stableItemId";
 import { ArchiveManifest, MANIFEST_FILENAME } from "./archiveTypes";
+import { RestoreReporter } from "./restoreTracker";
 import { unzipToDirectory } from "./zipUtil";
 
 function collectionIdForRole(
@@ -90,12 +91,25 @@ function sanitizeItemJson(
  * own, since a project can be archived from one library and restored into
  * a different one entirely (that's the whole point of letting the caller
  * choose here rather than baking the original library into the manifest).
+ *
+ * `onProgress`, when given, is called synchronously at each of the three
+ * real phases below (see restoreTracker.ts's RestoreStage) so a caller can
+ * drive a UI lock/progress indicator (issue #11): "preparing" once while
+ * the archive is unpacked and the project/collections are created,
+ * "importing" once per item as it and its attachments/annotations are
+ * recreated (the one phase with a real, countable total), and "linking"
+ * once while the screening/coding/consistency rows that reference those
+ * items are re-inserted. There is no "done"/"failed" stage reported here --
+ * that's just this function resolving or rejecting, which the caller (via
+ * runExclusiveRestore) already observes directly.
  */
 export async function importProjectArchive(
   zipPath: string,
   libraryID: number = Zotero.Libraries.userLibraryID,
+  onProgress?: RestoreReporter,
 ): Promise<EvidenceProject> {
   await databaseService.init();
+  onProgress?.("preparing");
 
   const stagingDir = Zotero.getTempDirectory() as any;
   stagingDir.append(`evidence-restore-${Date.now()}`);
@@ -130,7 +144,11 @@ export async function importProjectArchive(
     const itemKeyMap = new Map<string, string>(); // old item key -> new
     const annotationKeyMap = new Map<string, string>(); // old -> new
 
-    for (const archiveItem of manifest.items) {
+    for (const [index, archiveItem] of manifest.items.entries()) {
+      onProgress?.("importing", {
+        current: index + 1,
+        total: manifest.items.length,
+      });
       const json = sanitizeItemJson(archiveItem.json);
       const newItem = new (Zotero.Item as any)(json.itemType) as Zotero.Item;
       newItem.libraryID = collections.libraryID;
@@ -183,6 +201,7 @@ export async function importProjectArchive(
       }
     }
 
+    onProgress?.("linking");
     const criteriaIdByStageVersion = new Map<string, number>();
     for (const c of manifest.screeningCriteria) {
       await databaseService.queryAsync(

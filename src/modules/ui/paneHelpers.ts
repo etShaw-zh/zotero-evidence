@@ -1,6 +1,7 @@
 import { getString } from "../../utils/locale";
 import { safeGetField } from "../../utils/zoteroItem";
 import { AIRunProgress } from "../ai/aiRunTracker";
+import { RestoreProgress } from "../archive/restoreTracker";
 import {
   findProjectPaneContextSync,
   ProjectPaneContext,
@@ -335,6 +336,26 @@ export function stageLabel(progress: AIRunProgress): string {
     });
   }
   return getString(`ai-run-stage-${progress.stage}`);
+}
+
+/**
+ * Status text for restoreArchiveDialog's progress window/lock overlay
+ * (issue #11), covering importProjectArchive's three real phases (see
+ * restoreTracker.ts's RestoreStage doc comment): "preparing" while the
+ * archive is unpacked and the project/collections are created, "importing"
+ * once per item -- the one phase with a real, countable total -- and
+ * "linking" while the screening/coding/consistency rows that reference
+ * those items go in. "done"/"failed" aren't RestoreStage values -- they're
+ * the caller's own promise resolving/rejecting, so the caller passes those
+ * through directly rather than routing them through here.
+ */
+export function restoreStageLabel(progress: RestoreProgress): string {
+  if (progress.stage === "importing" && progress.current && progress.total) {
+    return getString("progress-restore-archive-stage-importing", {
+      args: { current: progress.current, total: progress.total },
+    });
+  }
+  return getString(`progress-restore-archive-stage-${progress.stage}`);
 }
 
 /**
