@@ -363,7 +363,8 @@ describe("Project Overview item-pane section", function () {
       const taSection = Array.from(
         card.querySelectorAll(".zotero-evidence-section"),
       ).find((s) => s.querySelector("h3")?.textContent === taTitle) as
-        HTMLElement | undefined;
+        | HTMLElement
+        | undefined;
       assert.isDefined(taSection, "TA-Screening stage row should render");
 
       const enterBtn = Array.from(
@@ -371,7 +372,8 @@ describe("Project Overview item-pane section", function () {
       )
         .filter(visible)
         .find((b) => b.textContent === enterLabel) as
-        HTMLButtonElement | undefined;
+        | HTMLButtonElement
+        | undefined;
       assert.isDefined(
         enterBtn,
         "TA-Screening row's enter button should render",

@@ -72,7 +72,8 @@ export async function exportCodingData(projectId: number): Promise<string> {
 
   for (const { item_key: itemKey } of itemRows || []) {
     const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey) as
-      Zotero.Item | false;
+      | Zotero.Item
+      | false;
     if (!item) continue;
     const stableId = await getStableItemId(projectId, itemKey);
 

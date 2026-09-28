@@ -85,7 +85,8 @@ function applyNativeSectionsHidden(root: ParentNode, hidden: boolean) {
   //    that while leaving copy/paste for citing the title elsewhere intact.
   //    Matched by tag name (not the duplicated id) within the scoped root.
   const header = root.querySelector("item-pane-header") as
-    (HTMLElement & { editable: boolean }) | null;
+    | (HTMLElement & { editable: boolean })
+    | null;
   if (header) header.editable = !hidden;
 }
 
