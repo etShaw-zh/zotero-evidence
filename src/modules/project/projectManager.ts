@@ -1,4 +1,5 @@
 import { databaseService } from "../db/database";
+import { DeleteReporter } from "./deleteTracker";
 import { createProjectCollectionStructure } from "./collectionStructure";
 
 export interface EvidenceProject {
@@ -115,9 +116,23 @@ export async function getProjectById(
  * tree to walk; deletes DB rows in child-before-parent order to respect the
  * FK relationships in schema.ts (real Zotero's SQLite enforces them even
  * though the test harness doesn't).
+ *
+ * `onProgress`, when given, is called synchronously at each real phase (see
+ * deleteTracker.ts's DeleteStage) so a caller can drive a UI lock/progress
+ * indicator: "preparing" once up front, "erasingItems" once per item as it's
+ * erased (the one phase with a real, countable total), "erasingCollections"
+ * once for the root Collection's own eraseTx() (skipped entirely if the
+ * root Collection is already gone), and "cleaningRecords" once for this
+ * plugin's own DB cleanup. There is no "done"/"failed" stage reported here
+ * -- that's just this function resolving or rejecting, which the caller
+ * (via runExclusiveDelete) already observes directly.
  */
-export async function deleteProject(projectId: number): Promise<void> {
+export async function deleteProject(
+  projectId: number,
+  onProgress?: DeleteReporter,
+): Promise<void> {
   await databaseService.init();
+  onProgress?.("preparing");
   const project = await getProjectById(projectId);
   if (!project) {
     throw new Error(`No evidence project found with id ${projectId}`);
@@ -129,13 +144,19 @@ export async function deleteProject(projectId: number): Promise<void> {
   ) as Zotero.Collection | false;
   if (root) {
     const itemIds = root.getDescendents(false, "item", true).map((d) => d.id);
-    for (const itemId of itemIds) {
+    for (const [index, itemId] of itemIds.entries()) {
+      onProgress?.("erasingItems", {
+        current: index + 1,
+        total: itemIds.length,
+      });
       const item = Zotero.Items.get(itemId);
       if (item) await item.eraseTx();
     }
+    onProgress?.("erasingCollections");
     await root.eraseTx();
   }
 
+  onProgress?.("cleaningRecords");
   await databaseService.executeTransaction(async () => {
     await databaseService.queryAsync(
       `DELETE FROM synthesis_themes WHERE coding_record_id IN

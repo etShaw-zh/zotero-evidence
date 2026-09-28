@@ -202,7 +202,27 @@ describe("Phase 1: project structure, import, dedup", function () {
     // missing from deleteProject's cleanup list until this test caught it.
     await ensureStableItemId(project.id, item.key);
 
-    await deleteProject(project.id);
+    // deleteProjectDialog drives a lock-screen/progress overlay off this
+    // same onProgress callback (via deleteTracker.ts's DeleteReporter,
+    // mirroring restoreTracker.ts's treatment of importProjectArchive) --
+    // asserting the stage sequence here is the actual data-producing half
+    // of that; the overlay itself is covered by test/uiLock.test.ts and the
+    // exclusivity guard by test/deleteTracker.test.ts.
+    const stages: { stage: string; current?: number; total?: number }[] = [];
+    await deleteProject(project.id, (stage, detail) => {
+      stages.push({ stage, ...detail });
+    });
+
+    assert.deepEqual(
+      stages.map((s) => s.stage),
+      ["preparing", "erasingItems", "erasingCollections", "cleaningRecords"],
+      "one item in this project -- exactly one erasingItems report, bracketed by the other three stages in order",
+    );
+    assert.deepEqual(
+      [stages[1].current, stages[1].total],
+      [1, 1],
+      "erasingItems reports a running count against the real total",
+    );
 
     assert.isFalse(
       !!Zotero.Collections.get(collections.rootId),
@@ -240,6 +260,21 @@ describe("Phase 1: project structure, import, dedup", function () {
       themeRows,
       "synthesis_themes should have no rows for the deleted project",
     );
+  });
+
+  it("deleteProject reports erasingCollections/cleaningRecords but never erasingItems for an empty project", async function () {
+    const project = await createProject(
+      `Evidence Empty Delete Test ${Date.now()}`,
+    );
+
+    const stages: string[] = [];
+    await deleteProject(project.id, (stage) => stages.push(stage));
+
+    assert.deepEqual(stages, [
+      "preparing",
+      "erasingCollections",
+      "cleaningRecords",
+    ]);
   });
 
   it("names a new project's top-level Collections with pipeline-order number prefixes", async function () {

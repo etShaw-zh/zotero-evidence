@@ -1,10 +1,11 @@
-// Integration test for the restore-time UI lock (issue #11:
-// src/modules/ui/restoreLock.ts), run against the real main window rather
-// than a mock DOM -- the whole point of this helper is that a click or
-// keypress on the real Zotero window during a restore must never reach
+// Integration test for the shared long-operation UI lock
+// (src/modules/ui/uiLock.ts, used by both restoreArchiveDialog and
+// deleteProjectDialog), run against the real main window rather than a mock
+// DOM -- the whole point of this helper is that a click or keypress on the
+// real Zotero window during one of those operations must never reach
 // whatever's underneath, which a fake `document` couldn't demonstrate.
 import { assert } from "chai";
-import { lockWindowForRestore } from "../src/modules/ui/restoreLock";
+import { lockWindow } from "../src/modules/ui/uiLock";
 
 // A window-level keydown probe used to prove/disprove OUR listener's
 // effect, not the window's overall state -- this suite runs in the same
@@ -25,18 +26,14 @@ function dispatchProbeKeydown(win: Window): boolean {
   return ev.defaultPrevented;
 }
 
-describe("restoreLock (integration)", function () {
+describe("uiLock (integration)", function () {
   it("shows a message overlay and lets it be updated while locked", function () {
     const win = Zotero.getMainWindow();
-    const lock = lockWindowForRestore(win, "Preparing restore…");
+    const lock = lockWindow(win, "Preparing restore…");
     try {
-      const overlay = win.document.getElementById(
-        "evidence-restore-lock-overlay",
-      );
+      const overlay = win.document.getElementById("evidence-ui-lock-overlay");
       assert.isNotNull(overlay, "overlay should be attached to the document");
-      const message = win.document.getElementById(
-        "evidence-restore-lock-message",
-      );
+      const message = win.document.getElementById("evidence-ui-lock-message");
       assert.equal(message?.textContent, "Preparing restore…");
 
       lock.setMessage("Restoring items (3 / 10)…");
@@ -51,11 +48,9 @@ describe("restoreLock (integration)", function () {
 
     const beforeLock = dispatchProbeKeydown(win);
 
-    const lock = lockWindowForRestore(win, "Restoring…");
+    const lock = lockWindow(win, "Restoring…");
     try {
-      const overlay = win.document.getElementById(
-        "evidence-restore-lock-overlay",
-      )!;
+      const overlay = win.document.getElementById("evidence-ui-lock-overlay")!;
       const click = new win.MouseEvent("click", {
         bubbles: true,
         cancelable: true,
@@ -75,7 +70,7 @@ describe("restoreLock (integration)", function () {
     }
 
     assert.isNull(
-      win.document.getElementById("evidence-restore-lock-overlay"),
+      win.document.getElementById("evidence-ui-lock-overlay"),
       "overlay must be removed on unlock",
     );
     assert.equal(
@@ -90,16 +85,15 @@ describe("restoreLock (integration)", function () {
 
   it("is idempotent: locking twice replaces the overlay instead of stacking it", function () {
     const win = Zotero.getMainWindow();
-    const first = lockWindowForRestore(win, "First");
-    const second = lockWindowForRestore(win, "Second");
+    const first = lockWindow(win, "First");
+    const second = lockWindow(win, "Second");
     try {
       const overlays = win.document.querySelectorAll(
-        "#evidence-restore-lock-overlay",
+        "#evidence-ui-lock-overlay",
       );
       assert.equal(overlays.length, 1);
       assert.equal(
-        win.document.getElementById("evidence-restore-lock-message")
-          ?.textContent,
+        win.document.getElementById("evidence-ui-lock-message")?.textContent,
         "Second",
       );
     } finally {

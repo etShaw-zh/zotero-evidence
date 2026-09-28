@@ -2,6 +2,7 @@ import { getString } from "../../utils/locale";
 import { safeGetField } from "../../utils/zoteroItem";
 import { AIRunProgress } from "../ai/aiRunTracker";
 import { RestoreProgress } from "../archive/restoreTracker";
+import { DeleteProgress } from "../project/deleteTracker";
 import {
   findProjectPaneContextSync,
   ProjectPaneContext,
@@ -356,6 +357,34 @@ export function restoreStageLabel(progress: RestoreProgress): string {
     });
   }
   return getString(`progress-restore-archive-stage-${progress.stage}`);
+}
+
+/**
+ * Status text for deleteProjectDialog's progress window/lock overlay,
+ * covering deleteProject's four real phases (see deleteTracker.ts's
+ * DeleteStage doc comment): "preparing" up front, "erasingItems" once per
+ * item -- the one phase with a real, countable total -- "erasingCollections"
+ * for the root Collection's own eraseTx(), and "cleaningRecords" for this
+ * plugin's own DB cleanup. Explicit switch rather than string-interpolating
+ * the stage into a Fluent id (like restoreStageLabel does) because these
+ * stage names are camelCase, not single words, and Fluent ids are kebab-case.
+ */
+export function deleteStageLabel(progress: DeleteProgress): string {
+  if (progress.stage === "erasingItems" && progress.current && progress.total) {
+    return getString("progress-delete-project-stage-erasing-items", {
+      args: { current: progress.current, total: progress.total },
+    });
+  }
+  switch (progress.stage) {
+    case "preparing":
+      return getString("progress-delete-project-stage-preparing");
+    case "erasingItems":
+      return getString("progress-delete-project-stage-erasing-items");
+    case "erasingCollections":
+      return getString("progress-delete-project-stage-erasing-collections");
+    case "cleaningRecords":
+      return getString("progress-delete-project-stage-cleaning-records");
+  }
 }
 
 /**

@@ -60,14 +60,20 @@ import {
   escapeHtml,
   getSelectedCollectionIdCompat,
   quotePreview,
+  deleteStageLabel,
   resolveAttachment,
   restoreStageLabel,
 } from "./paneHelpers";
-import { lockWindowForRestore } from "./restoreLock";
+import { lockWindow } from "./uiLock";
 import {
   resolveProjectCollections,
   SOURCE_DATABASE_LABELS,
 } from "../project/collectionStructure";
+import {
+  DeleteProgress,
+  isDeleteInProgress,
+  runExclusiveDelete,
+} from "../project/deleteTracker";
 import {
   findOwningProjectIdSync,
   findProjectPaneContext,
@@ -625,6 +631,16 @@ export class EvidenceCommands {
   }
 
   static async deleteProjectDialog() {
+    // Same reasoning as restoreArchiveDialog: reject a second delete before
+    // even opening the project picker, rather than letting the user pick a
+    // project and discover only afterward that a deletion is already
+    // running. runExclusiveDelete() below is the backstop for anything that
+    // races past this check.
+    if (isDeleteInProgress()) {
+      ztoolkit.getGlobal("alert")(getString("error-delete-already-running"));
+      return;
+    }
+
     const projects = await listProjects();
     if (projects.length === 0) {
       ztoolkit.getGlobal("alert")(getString("error-no-projects"));
@@ -766,17 +782,70 @@ export class EvidenceCommands {
       return;
     }
 
-    await deleteProject(project.id);
-    await refreshProjectPaneContextCache();
-    new ztoolkit.ProgressWindow(addon.data.config.addonName)
+    const progressWindow = new ztoolkit.ProgressWindow(
+      addon.data.config.addonName,
+      { closeOnClick: false, closeTime: -1 },
+    )
       .createLine({
+        text: getString("progress-delete-project-running"),
+        type: "default",
+        progress: 0,
+      })
+      .show();
+
+    // Same lock/progress treatment as restoreArchiveDialog -- deleteProject
+    // erases every item through Zotero.Item transactions the whole time, so
+    // letting the user click around mid-delete (switch collections, start
+    // another delete/import) risks racing that background work, and with no
+    // visible change to the pane otherwise, a long delete reads as a hung
+    // UI. `lastProgress` mirrors deleteTracker.ts's `active.progress` while
+    // the delete is in flight -- runExclusiveDelete() clears that entry the
+    // moment deleteProject() settles, before this function's own catch
+    // below ever runs, so on failure this is the only place left with the
+    // stage it failed at.
+    const mainWindow = Zotero.getMainWindow();
+    let lastProgress: DeleteProgress = { stage: "preparing" };
+    const lock = mainWindow
+      ? lockWindow(mainWindow, deleteStageLabel(lastProgress))
+      : null;
+
+    try {
+      await runExclusiveDelete((report) =>
+        deleteProject(project.id, (stage, detail) => {
+          lastProgress = { stage, ...detail };
+          report(stage, detail);
+          const text = deleteStageLabel(lastProgress);
+          lock?.setMessage(text);
+          progressWindow.changeLine({
+            text,
+            progress: detail
+              ? Math.round((detail.current / detail.total) * 100)
+              : undefined,
+          });
+        }),
+      );
+      await refreshProjectPaneContextCache();
+      progressWindow.changeLine({
         text: getString("progress-project-deleted", {
           args: { name: project.name },
         }),
         type: "success",
         progress: 100,
-      })
-      .show();
+      });
+      progressWindow.startCloseTimer(5000);
+    } catch (e) {
+      progressWindow.changeLine({
+        text: getString("error-delete-project-failed-at-stage", {
+          args: { stage: deleteStageLabel(lastProgress) },
+        }),
+        type: "error",
+        progress: 100,
+      });
+      progressWindow.startCloseTimer(8000);
+      throw e;
+    } finally {
+      lock?.unlock();
+    }
   }
 
   static async archiveProjectDialog() {
@@ -1030,7 +1099,7 @@ export class EvidenceCommands {
     const mainWindow = Zotero.getMainWindow();
     let lastProgress: RestoreProgress = { stage: "preparing" };
     const lock = mainWindow
-      ? lockWindowForRestore(mainWindow, restoreStageLabel(lastProgress))
+      ? lockWindow(mainWindow, restoreStageLabel(lastProgress))
       : null;
 
     try {

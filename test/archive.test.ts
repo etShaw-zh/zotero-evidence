@@ -495,7 +495,7 @@ describe("Archive & Share (export/restore round trip)", function () {
   // off importProjectArchive's onProgress callback (via restoreTracker.ts's
   // RestoreReporter) -- these two tests are the actual data-producing half
   // of that feature; the overlay itself is covered by
-  // test/restoreLock.test.ts and the exclusivity guard by
+  // test/uiLock.test.ts and the exclusivity guard by
   // test/restoreTracker.test.ts.
   it("importProjectArchive reports preparing -> importing (with a running per-item count) -> linking via onProgress, in that order", async function () {
     const project = await createProject(`Archive Progress Test ${Date.now()}`);

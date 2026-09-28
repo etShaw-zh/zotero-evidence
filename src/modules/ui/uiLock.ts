@@ -1,14 +1,17 @@
 /**
- * Full-window "busy" overlay for restoreArchiveDialog (issue #11): a backup
- * restore recreates every item/attachment/annotation and re-links every
- * screening/coding/consistency row one at a time, which can run long enough
- * that a user watching an unchanged Zotero pane could reasonably conclude
- * it's hung and start clicking around -- switching the selected
- * collection, starting another import, retrying the restore. None of that
- * is safe mid-restore (importProjectArchive is writing through Zotero.Item
- * transactions the whole time), so this pins the user out of the main
- * window entirely for the duration, on top of restoreTracker.ts's
- * server-side exclusivity guard.
+ * Full-window "busy" overlay for long, unsafe-to-interrupt operations --
+ * originally built for restoreArchiveDialog (issue #11: a backup restore
+ * recreates every item/attachment/annotation and re-links every
+ * screening/coding/consistency row one at a time), and reused as-is by
+ * deleteProjectDialog (which erases the same kind of tree, just in the
+ * other direction). Either can run long enough that a user watching an
+ * unchanged Zotero pane could reasonably conclude it's hung and start
+ * clicking around -- switching the selected collection, starting another
+ * import, retrying the same operation. None of that is safe mid-operation
+ * (both write through Zotero.Item transactions the whole time), so this
+ * pins the user out of the main window entirely for the duration, on top of
+ * each caller's own server-side exclusivity guard (restoreTracker.ts,
+ * deleteTracker.ts).
  *
  * A translucent, message-bearing div swallows pointer input (both visually,
  * via its own size/position, and functionally, via capturing listeners so a
@@ -17,23 +20,20 @@
  * focus can remain on a background element the overlay never covers.
  */
 
-const OVERLAY_ID = "evidence-restore-lock-overlay";
-const MESSAGE_ID = "evidence-restore-lock-message";
+const OVERLAY_ID = "evidence-ui-lock-overlay";
+const MESSAGE_ID = "evidence-ui-lock-message";
 
-export interface RestoreLockHandle {
+export interface UiLockHandle {
   setMessage(text: string): void;
   unlock(): void;
 }
 
-export function lockWindowForRestore(
-  win: Window,
-  message: string,
-): RestoreLockHandle {
+export function lockWindow(win: Window, message: string): UiLockHandle {
   const doc = win.document;
 
-  // Idempotent rather than stacking: shouldn't happen given
-  // restoreTracker's exclusivity, but a leftover overlay from a prior
-  // run that somehow didn't get unlocked must never compound.
+  // Idempotent rather than stacking: shouldn't happen given each caller's
+  // own exclusivity guard, but a leftover overlay from a prior run that
+  // somehow didn't get unlocked must never compound.
   doc.getElementById(OVERLAY_ID)?.remove();
 
   const overlay = doc.createElement("div");
@@ -85,7 +85,7 @@ export function lockWindowForRestore(
 
   const root = doc.documentElement;
   if (!root) {
-    throw new Error("lockWindowForRestore: window has no documentElement");
+    throw new Error("lockWindow: window has no documentElement");
   }
   root.appendChild(overlay);
 
