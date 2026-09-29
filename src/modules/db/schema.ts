@@ -227,6 +227,32 @@ export const SCHEMA_STATEMENTS: string[] = [
     UNIQUE(project_id, item_key),
     FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
   )`,
+  // One row per JEV pre-evaluation call for one item (jevPreEvalService.ts,
+  // issue #12). Purely a reference layer shown alongside TA-Screening --
+  // never read by confirmDecision/runAIJudgment and never written into
+  // screening_records.decision/ai_decision, so it can't ever silently
+  // override a human's (or the configured chat-completion provider's own
+  // ai_decision) TA call. Append-only, same precedent as
+  // screening_criteria/ft_criterion_checks: a re-run inserts a new row
+  // rather than overwriting, so results stay traceable to when and which
+  // model version produced them ("支持重复执行、查看最新结果...以便追
+  // 溯"); "the latest result" for an item is just its newest row here.
+  // Both a successful call (decision/confidence/probabilities) and a
+  // failed one (error_message) get a row, so a partially-failed batch run
+  // is fully visible rather than silently missing entries.
+  `CREATE TABLE IF NOT EXISTS jev_evaluations (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    model TEXT NOT NULL,
+    status TEXT NOT NULL,
+    decision TEXT,
+    confidence REAL,
+    probabilities TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES evidence_projects(id)
+  )`,
 ];
 
 // Tables from removed features. Dropped unconditionally (idempotent) on

@@ -9,6 +9,7 @@ declare namespace _ZoteroTypes {
     PluginPrefsMap: {
       "aiProviders": string;
       "activeProviderId": string;
+      "jevConfig": string;
     };
   }
 }

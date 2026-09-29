@@ -4,6 +4,7 @@ import { getConsistencyItemResult } from "../consistency/consistencyItemResultsS
 import { refreshProjectPaneContextCache } from "../project/projectContext";
 import { ProjectPaneContext } from "../project/projectContext";
 import { getLatestCriteria } from "../screening/criteriaService";
+import { getLatestJevEvaluation } from "../screening/jevPreEvalService";
 import {
   confirmDecision,
   getScreeningState,
@@ -189,6 +190,63 @@ async function renderJudgmentContent(
             namespace: "html" as const,
             properties: { innerHTML: line },
           })),
+        ],
+      }),
+    );
+  }
+
+  // JEV pre-evaluation (issue #12) -- a SEPARATE reference-only card from
+  // the "AI suggestion" one below (that one is the configured chat-
+  // completion provider's own TA judgment, written to
+  // screening_records.ai_decision by runAIJudgment). This is purely
+  // informational: it's never read by confirmDecision and never written
+  // into screening_records, so it can never end up silently standing in
+  // for a human decision -- see jevPreEvalService.ts's doc comments.
+  const jevEvaluation = await getLatestJevEvaluation(ctx.project.id, item.key);
+  if (jevEvaluation) {
+    const fmtPct = (v: number | null) =>
+      typeof v === "number" ? `${Math.round(v * 100)}%` : "—";
+    const detailLine =
+      jevEvaluation.status === "ok" && jevEvaluation.decision
+        ? escapeHtml(
+            `${decisionLabel(jevEvaluation.decision)} · ` +
+              getString("ta-jev-card-confidence", {
+                args: { confidence: fmtPct(jevEvaluation.confidence) },
+              }),
+          )
+        : escapeHtml(
+            getString("ta-jev-card-error", {
+              args: { reason: jevEvaluation.errorMessage || "" },
+            }),
+          );
+    container.appendChild(
+      el(doc, "div", {
+        classList: ["zotero-evidence-judgment"],
+        children: [
+          {
+            tag: "strong",
+            namespace: "html",
+            properties: { innerHTML: getString("ta-jev-card-title") },
+          },
+          {
+            tag: "p",
+            namespace: "html",
+            properties: { innerHTML: detailLine },
+          },
+          {
+            tag: "p",
+            namespace: "html",
+            properties: {
+              innerHTML: escapeHtml(
+                getString("ta-jev-card-model", {
+                  args: {
+                    model: jevEvaluation.model,
+                    time: new Date(jevEvaluation.createdAt).toLocaleString(),
+                  },
+                }),
+              ),
+            },
+          },
         ],
       }),
     );
