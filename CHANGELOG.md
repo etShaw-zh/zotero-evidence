@@ -8,6 +8,32 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- JEV pre-evaluation: an optional, reference-only AI pass (the JEV model,
+  via aihubmix) over `TA-Screen Queue` before you screen — per-paper
+  include/exclude/unclear probabilities and confidence, filterable by
+  confidence and decision, with single or bulk full-text retrieval (via
+  Zotero's own "Find Available PDF") for flagged items. Results show as a
+  clearly labeled reference card during Title/Abstract screening and never
+  override your own Include/Exclude/Unclear call. Reachable from **File →
+  Screening Criteria → JEV Pre-evaluation…**.
+
+## [0.10.0] - 2026-09-28
+
+### Added
+
+- Codebook-based proofreading (✎ 校对) for coding suggestions — correct a
+  wrong variable name or value in place, without leaving the review flow.
+- Missing-required-variable hints and a per-item coding-completion
+  badge/tag in Extract Coding.
+- Exclusive restore/delete tracking with a full-window UI lock and staged
+  progress, preventing a concurrent archive restore or project deletion.
+
+### Fixed
+
+- Project deletion left orphaned `item_stable_ids` rows behind.
+
 ## [0.9.1] - 2026-09-20
 
 ### Added

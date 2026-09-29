@@ -14,6 +14,24 @@ import {
 } from "../ai/providerConfig";
 import { callChatCompletion } from "../ai/aiClient";
 import { fetchAvailableModels } from "../ai/modelDiscovery";
+import { callJev } from "../ai/jevClient";
+import {
+  getJevConfig,
+  isJevConfigured,
+  JevConfig,
+  setJevConfig,
+} from "../ai/jevConfig";
+import {
+  getJevRunProgress,
+  isJevBatchCancelled,
+  isJevBatchRunning,
+  requestJevBatchCancel,
+} from "../ai/jevRunTracker";
+import {
+  getLatestJevEvaluations,
+  JevEvaluation,
+  runJevBatch,
+} from "../screening/jevPreEvalService";
 import {
   AI_PROVIDER_PRESETS,
   CUSTOM_PRESET_ID,
@@ -57,6 +75,7 @@ import {
 } from "../import/importService";
 import {
   currentDeciderId,
+  decisionLabel,
   escapeHtml,
   getSelectedCollectionIdCompat,
   quotePreview,
@@ -191,6 +210,13 @@ export class EvidenceCommands {
           id: "zotero-evidence-criteria",
           label: getString("menu-criteria"),
           commandListener: () => addon.hooks.onDialogEvents("evidenceCriteria"),
+        },
+        {
+          tag: "menuitem",
+          id: "zotero-evidence-jev-preeval",
+          label: getString("menu-jev-preeval"),
+          commandListener: () =>
+            addon.hooks.onDialogEvents("evidenceJevPreEval"),
         },
       ],
     });
@@ -1820,6 +1846,955 @@ export class EvidenceCommands {
         progress: 100,
       })
       .show();
+  }
+
+  private static readonly JEV_DLG = {
+    project: "evidence-jev-project",
+    endpoint: "evidence-jev-endpoint",
+    apiKey: "evidence-jev-apikey",
+    model: "evidence-jev-model",
+    saveBtn: "evidence-jev-save-btn",
+    saveStatus: "evidence-jev-save-status",
+    testBtn: "evidence-jev-test-btn",
+    testStatus: "evidence-jev-test-status",
+    runBtn: "evidence-jev-run-btn",
+    cancelBtn: "evidence-jev-cancel-btn",
+    forceCheckbox: "evidence-jev-force-checkbox",
+    runStatus: "evidence-jev-run-status",
+    minConfidence: "evidence-jev-min-confidence",
+    filterInclude: "evidence-jev-filter-include",
+    filterExclude: "evidence-jev-filter-exclude",
+    filterUnclear: "evidence-jev-filter-unclear",
+    batchFetchBtn: "evidence-jev-batch-fetch-btn",
+    batchFetchStatus: "evidence-jev-batch-fetch-status",
+    results: "evidence-jev-results",
+  } as const;
+
+  /** TA-Screen Queue items for `project` -- the item set a JEV batch run
+   * and this dialog's results table both operate over. */
+  private static getTaQueueItems(project: EvidenceProject): Zotero.Item[] {
+    const rootId = getRootCollectionId(project);
+    if (rootId === null) return [];
+    let collections;
+    try {
+      collections = resolveProjectCollections(rootId);
+    } catch {
+      return [];
+    }
+    const collection = Zotero.Collections.get(collections.taQueueId) as
+      Zotero.Collection | false;
+    if (!collection) return [];
+    return collection
+      .getChildItems()
+      .filter((i: Zotero.Item) => i.isRegularItem());
+  }
+
+  private static readJevFilter(
+    doc: Document,
+    ID: typeof EvidenceCommands.JEV_DLG,
+  ): { minConfidence: number; decisions: Set<string> } {
+    const minConfidence =
+      Number(
+        (doc.getElementById(ID.minConfidence) as HTMLInputElement | null)
+          ?.value,
+      ) || 0;
+    const decisions = new Set<string>();
+    for (const [id, decision] of [
+      [ID.filterInclude, "include"],
+      [ID.filterExclude, "exclude"],
+      [ID.filterUnclear, "unclear"],
+    ] as const) {
+      if ((doc.getElementById(id) as HTMLInputElement | null)?.checked) {
+        decisions.add(decision);
+      }
+    }
+    return { minConfidence, decisions };
+  }
+
+  /** No filter set (default: 0% minimum, all three decisions checked) shows
+   * every TA-Screen Queue item, including ones never run yet -- filtering
+   * only kicks in once the user actually narrows something, at which point
+   * an unevaluated or non-matching item drops out of the list. */
+  private static passesJevFilter(
+    evaluation: JevEvaluation | undefined,
+    filter: { minConfidence: number; decisions: Set<string> },
+  ): boolean {
+    const active = filter.minConfidence > 0 || filter.decisions.size < 3;
+    if (!active) return true;
+    if (!evaluation || evaluation.status !== "ok" || !evaluation.decision) {
+      return false;
+    }
+    if (!filter.decisions.has(evaluation.decision)) return false;
+    if ((evaluation.confidence ?? 0) < filter.minConfidence) return false;
+    return true;
+  }
+
+  /**
+   * Reflects jevRunTracker's actual state for `projectId` onto the run/
+   * cancel buttons and status text -- the single source of truth both the
+   * click handlers and the dialog's poll interval call into, so "is a
+   * batch running for this project" is never read from stale local state
+   * the dialog itself tracked. See jevPreEvalDialog's call sites for why
+   * this needs to run on open, on project switch, and on a timer.
+   */
+  private static syncJevRunUI(
+    doc: Document,
+    ID: typeof EvidenceCommands.JEV_DLG,
+    projectId: number,
+  ): void {
+    const running = isJevBatchRunning(projectId);
+    const runBtn = doc.getElementById(ID.runBtn) as HTMLButtonElement | null;
+    const cancelBtn = doc.getElementById(
+      ID.cancelBtn,
+    ) as HTMLButtonElement | null;
+    const forceCheckbox = doc.getElementById(
+      ID.forceCheckbox,
+    ) as HTMLInputElement | null;
+    const statusEl = doc.getElementById(ID.runStatus);
+
+    if (running) {
+      runBtn?.setAttribute("disabled", "true");
+      forceCheckbox?.setAttribute("disabled", "true");
+      cancelBtn?.removeAttribute("disabled");
+      const progress = getJevRunProgress(projectId);
+      if (statusEl && progress) {
+        const text = getString("dialog-jev-run-progress", {
+          args: { done: progress.done, total: progress.total },
+        });
+        statusEl.textContent = isJevBatchCancelled(projectId)
+          ? `${getString("dialog-jev-run-cancelling")} ${text}`
+          : text;
+      }
+    } else {
+      runBtn?.removeAttribute("disabled");
+      forceCheckbox?.removeAttribute("disabled");
+      cancelBtn?.setAttribute("disabled", "true");
+    }
+  }
+
+  private static async renderJevResults(
+    container: HTMLElement,
+    doc: Document,
+    items: Zotero.Item[],
+    evaluations: Map<string, JevEvaluation>,
+    ID: typeof EvidenceCommands.JEV_DLG,
+  ): Promise<void> {
+    const filter = EvidenceCommands.readJevFilter(doc, ID);
+    const rows = items.filter((item) =>
+      EvidenceCommands.passesJevFilter(evaluations.get(item.key), filter),
+    );
+
+    container.innerHTML = "";
+    if (rows.length === 0) {
+      container.textContent = getString("dialog-jev-empty");
+      return;
+    }
+
+    const fmtPct = (v: number | null | undefined) =>
+      typeof v === "number" ? `${Math.round(v * 100)}%` : "—";
+
+    const table = doc.createElement("table");
+    table.style.width = "100%";
+    table.style.borderCollapse = "collapse";
+    table.style.fontSize = "0.85em";
+
+    const thead = doc.createElement("thead");
+    const headRow = doc.createElement("tr");
+    for (const h of [
+      getString("dialog-jev-col-title"),
+      getString("dialog-jev-col-include"),
+      getString("dialog-jev-col-exclude"),
+      getString("dialog-jev-col-unclear"),
+      getString("dialog-jev-col-confidence"),
+      getString("dialog-jev-col-status"),
+      getString("dialog-jev-col-fulltext"),
+      getString("dialog-jev-col-actions"),
+    ]) {
+      const th = doc.createElement("th");
+      th.textContent = h;
+      th.style.textAlign = "left";
+      th.style.padding = "4px 6px";
+      th.style.borderBottom = "1px solid rgba(0,0,0,0.15)";
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = doc.createElement("tbody");
+    table.appendChild(tbody);
+    container.appendChild(table);
+
+    for (const item of rows) {
+      const evaluation = evaluations.get(item.key);
+      const tr = doc.createElement("tr");
+      tr.style.borderBottom = "1px solid rgba(0,0,0,0.08)";
+
+      const titleTd = doc.createElement("td");
+      titleTd.textContent = item.getDisplayTitle();
+      titleTd.title = item.getDisplayTitle();
+      titleTd.style.padding = "4px 6px";
+      titleTd.style.maxWidth = "240px";
+      titleTd.style.overflow = "hidden";
+      titleTd.style.textOverflow = "ellipsis";
+      titleTd.style.whiteSpace = "nowrap";
+      tr.appendChild(titleTd);
+
+      const probs = evaluation?.probabilities ?? {};
+      for (const key of ["include", "exclude", "unclear"]) {
+        const td = doc.createElement("td");
+        td.textContent = fmtPct(probs[key]);
+        td.style.padding = "4px 6px";
+        tr.appendChild(td);
+      }
+
+      const confTd = doc.createElement("td");
+      confTd.textContent = fmtPct(evaluation?.confidence);
+      confTd.style.padding = "4px 6px";
+      tr.appendChild(confTd);
+
+      const statusTd = doc.createElement("td");
+      statusTd.style.padding = "4px 6px";
+      if (!evaluation) {
+        statusTd.textContent = getString("dialog-jev-status-not-run");
+        statusTd.style.color = "#888";
+      } else if (evaluation.status === "ok") {
+        statusTd.textContent = `${getString("dialog-jev-status-ok")} · ${decisionLabel(evaluation.decision as string)}`;
+        statusTd.style.color = "#2e7d32";
+      } else {
+        statusTd.textContent = getString("dialog-jev-status-error");
+        statusTd.style.color = "#a33";
+        statusTd.title = evaluation.errorMessage ?? "";
+      }
+      tr.appendChild(statusTd);
+
+      const fulltextTd = doc.createElement("td");
+      fulltextTd.style.padding = "4px 6px";
+      fulltextTd.textContent = "…";
+      tr.appendChild(fulltextTd);
+      resolveAttachment(item).then((attachment) => {
+        fulltextTd.textContent = attachment
+          ? getString("dialog-jev-fulltext-yes")
+          : getString("dialog-jev-fulltext-no");
+      });
+
+      const actionsTd = doc.createElement("td");
+      actionsTd.style.padding = "4px 6px";
+      actionsTd.style.whiteSpace = "nowrap";
+
+      const fetchBtn = doc.createElement("button");
+      fetchBtn.type = "button";
+      fetchBtn.textContent = getString("dialog-jev-fetch-fulltext-button");
+      fetchBtn.style.marginRight = "4px";
+      fetchBtn.addEventListener("click", async () => {
+        fetchBtn.setAttribute("disabled", "true");
+        try {
+          const added = await Zotero.Attachments.addAvailableFile(item);
+          fulltextTd.textContent = added
+            ? getString("dialog-jev-fulltext-yes")
+            : getString("dialog-jev-fulltext-no");
+          fulltextTd.title = added
+            ? ""
+            : getString("dialog-jev-fetch-fulltext-failed");
+        } catch (e: any) {
+          fulltextTd.textContent = getString("dialog-jev-fulltext-no");
+          fulltextTd.title = e?.message ?? String(e);
+        } finally {
+          fetchBtn.removeAttribute("disabled");
+        }
+      });
+      actionsTd.appendChild(fetchBtn);
+
+      const locateBtn = doc.createElement("button");
+      locateBtn.type = "button";
+      locateBtn.textContent = getString("dialog-jev-locate-button");
+      locateBtn.addEventListener("click", () => {
+        const ZoteroPaneGlobal = ztoolkit.getGlobal("ZoteroPane");
+        ZoteroPaneGlobal.selectItem(item.id, true);
+        Zotero.getMainWindow()?.focus();
+      });
+      actionsTd.appendChild(locateBtn);
+
+      tr.appendChild(actionsTd);
+      tbody.appendChild(tr);
+    }
+
+    const note = doc.createElement("div");
+    note.textContent = getString("dialog-jev-reference-note");
+    note.style.fontSize = "0.8em";
+    note.style.color = "#888";
+    note.style.marginTop = "6px";
+    container.appendChild(note);
+  }
+
+  /**
+   * JEV pre-evaluation window (issue #12): runs the JEV model
+   * (jevClient.ts / jevPreEvalService.ts) over a project's TA-Screen
+   * Queue, shows per-item include/exclude/unclear probabilities +
+   * confidence, filters by confidence/decision, and fetches full text
+   * (single item or in bulk over the current filter) via Zotero's own
+   * built-in full-text retrieval (Zotero.Attachments.addAvailableFile).
+   * Purely a reference layer -- see jevPreEvalService.ts / schema.ts's
+   * jev_evaluations comment: nothing here is ever written into
+   * screening_records or otherwise gates/overrides a human TA decision.
+   */
+  static async jevPreEvalDialog() {
+    const projects = await listProjects();
+    if (projects.length === 0) {
+      ztoolkit.getGlobal("alert")(getString("error-no-projects"));
+      return;
+    }
+    const defaultProjectId = EvidenceCommands.defaultProjectId(projects);
+    const config = getJevConfig();
+    const ID = EvidenceCommands.JEV_DLG;
+    const dialogData: { [key: string]: any } = {};
+
+    const dialog = new ztoolkit.Dialog(6, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: getString("dialog-jev-title") },
+      })
+      .addCell(1, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-import-project-label") },
+      })
+      .addCell(
+        1,
+        1,
+        {
+          tag: "select",
+          namespace: "html",
+          id: ID.project,
+          children: projects.map((p) => ({
+            tag: "option",
+            namespace: "html",
+            properties: { value: String(p.id), innerHTML: escapeHtml(p.name) },
+          })),
+        },
+        false,
+      )
+      .addCell(2, 0, {
+        tag: "label",
+        namespace: "html",
+        properties: { innerHTML: getString("dialog-jev-settings-label") },
+      })
+      .addCell(
+        2,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "6px",
+            alignItems: "center",
+          },
+          children: [
+            {
+              tag: "input",
+              namespace: "html",
+              id: ID.endpoint,
+              attributes: {
+                type: "text",
+                value: config.endpoint,
+                placeholder: getString(
+                  "dialog-jev-settings-endpoint-placeholder",
+                ),
+              },
+              styles: { width: "220px" },
+            },
+            {
+              tag: "input",
+              namespace: "html",
+              id: ID.apiKey,
+              attributes: {
+                type: "password",
+                value: config.apiKey,
+                placeholder: getString(
+                  "dialog-jev-settings-apikey-placeholder",
+                ),
+              },
+              styles: { width: "140px" },
+            },
+            {
+              tag: "input",
+              namespace: "html",
+              id: ID.model,
+              attributes: {
+                type: "text",
+                value: config.model,
+                placeholder: getString("dialog-jev-settings-model-placeholder"),
+              },
+              styles: { width: "100px" },
+            },
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.saveBtn,
+              attributes: { type: "button" },
+              properties: { innerHTML: getString("dialog-jev-settings-save") },
+            },
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.testBtn,
+              attributes: { type: "button" },
+              properties: {
+                innerHTML: getString("dialog-ai-provider-test-connection"),
+              },
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              id: ID.testStatus,
+              styles: { fontSize: "0.85em" },
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              id: ID.saveStatus,
+              styles: { fontSize: "0.85em", color: "#888" },
+              properties: {
+                innerHTML: isJevConfigured(config)
+                  ? ""
+                  : getString("dialog-jev-settings-not-configured"),
+              },
+            },
+          ],
+        },
+        false,
+      )
+      .addCell(3, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        3,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: { display: "flex", gap: "8px", alignItems: "center" },
+          children: [
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.runBtn,
+              attributes: { type: "button" },
+              properties: { innerHTML: getString("dialog-jev-run-button") },
+            },
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.cancelBtn,
+              attributes: { type: "button", disabled: "true" },
+              properties: { innerHTML: getString("dialog-jev-cancel-button") },
+            },
+            {
+              tag: "label",
+              namespace: "html",
+              styles: {
+                fontSize: "0.85em",
+                display: "flex",
+                gap: "4px",
+                alignItems: "center",
+              },
+              children: [
+                {
+                  tag: "input",
+                  namespace: "html",
+                  id: ID.forceCheckbox,
+                  attributes: { type: "checkbox" },
+                },
+                {
+                  tag: "span",
+                  namespace: "html",
+                  properties: {
+                    innerHTML: getString("dialog-jev-run-force-label"),
+                  },
+                },
+              ],
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              id: ID.runStatus,
+              styles: { fontSize: "0.85em", color: "#888" },
+            },
+          ],
+        },
+        false,
+      )
+      .addCell(4, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        4,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          styles: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "10px",
+            alignItems: "center",
+          },
+          children: [
+            {
+              tag: "label",
+              namespace: "html",
+              styles: {
+                fontSize: "0.85em",
+                display: "flex",
+                gap: "4px",
+                alignItems: "center",
+              },
+              children: [
+                {
+                  tag: "span",
+                  namespace: "html",
+                  properties: {
+                    innerHTML: getString(
+                      "dialog-jev-filter-min-confidence-label",
+                    ),
+                  },
+                },
+                {
+                  tag: "input",
+                  namespace: "html",
+                  id: ID.minConfidence,
+                  attributes: {
+                    type: "number",
+                    min: "0",
+                    max: "1",
+                    step: "0.05",
+                    value: "0",
+                  },
+                  styles: { width: "60px" },
+                },
+              ],
+            },
+            {
+              tag: "label",
+              namespace: "html",
+              styles: { fontSize: "0.85em" },
+              children: [
+                {
+                  tag: "input",
+                  namespace: "html",
+                  id: ID.filterInclude,
+                  attributes: { type: "checkbox", checked: "true" },
+                },
+                {
+                  tag: "span",
+                  namespace: "html",
+                  properties: {
+                    innerHTML: ` ${getString("ta-queue-decision-include")}`,
+                  },
+                },
+              ],
+            },
+            {
+              tag: "label",
+              namespace: "html",
+              styles: { fontSize: "0.85em" },
+              children: [
+                {
+                  tag: "input",
+                  namespace: "html",
+                  id: ID.filterExclude,
+                  attributes: { type: "checkbox", checked: "true" },
+                },
+                {
+                  tag: "span",
+                  namespace: "html",
+                  properties: {
+                    innerHTML: ` ${getString("ta-queue-decision-exclude")}`,
+                  },
+                },
+              ],
+            },
+            {
+              tag: "label",
+              namespace: "html",
+              styles: { fontSize: "0.85em" },
+              children: [
+                {
+                  tag: "input",
+                  namespace: "html",
+                  id: ID.filterUnclear,
+                  attributes: { type: "checkbox", checked: "true" },
+                },
+                {
+                  tag: "span",
+                  namespace: "html",
+                  properties: {
+                    innerHTML: ` ${getString("ta-queue-decision-unclear")}`,
+                  },
+                },
+              ],
+            },
+            {
+              tag: "button",
+              namespace: "html",
+              id: ID.batchFetchBtn,
+              attributes: { type: "button" },
+              properties: {
+                innerHTML: getString("dialog-jev-batch-fetch-button"),
+              },
+            },
+            {
+              tag: "span",
+              namespace: "html",
+              id: ID.batchFetchStatus,
+              styles: { fontSize: "0.85em", color: "#888" },
+            },
+          ],
+        },
+        false,
+      )
+      .addCell(5, 0, {
+        tag: "span",
+        namespace: "html",
+        properties: { innerHTML: "" },
+      })
+      .addCell(
+        5,
+        1,
+        {
+          tag: "div",
+          namespace: "html",
+          id: ID.results,
+          styles: {
+            maxHeight: "360px",
+            overflowY: "auto",
+            border: "1px solid rgba(0,0,0,0.15)",
+            borderRadius: "4px",
+            padding: "4px",
+          },
+        },
+        false,
+      )
+      .addButton(getString("dialog-close"), "close")
+      .setDialogData(dialogData);
+
+    EvidenceCommands.openSizedDialog(
+      dialog,
+      getString("dialog-jev-title"),
+      880,
+      640,
+    );
+
+    await Zotero.Promise.delay(50);
+    const win = dialog.window;
+    if (!win) return;
+    const doc = win.document;
+
+    const projectSelect = doc.getElementById(ID.project) as
+      HTMLSelectElement | undefined;
+    if (projectSelect) projectSelect.value = String(defaultProjectId);
+
+    const state = { projectId: defaultProjectId };
+    const currentProject = () =>
+      projects.find((p) => p.id === state.projectId)!;
+
+    const refresh = async () => {
+      const container = doc.getElementById(ID.results);
+      if (!container) return;
+      const project = currentProject();
+      const items = EvidenceCommands.getTaQueueItems(project);
+      const evaluations = await getLatestJevEvaluations(project.id);
+      await EvidenceCommands.renderJevResults(
+        container as HTMLElement,
+        doc,
+        items,
+        evaluations,
+        ID,
+      );
+    };
+    await refresh();
+
+    EvidenceCommands.watchSelectValue(
+      dialogData,
+      win,
+      projectSelect,
+      async (value) => {
+        state.projectId = Number(value);
+        EvidenceCommands.syncJevRunUI(doc, ID, state.projectId);
+        await refresh();
+      },
+    );
+
+    // Reads straight from the input fields, falling back to whatever was
+    // last saved/loaded -- used both by the explicit "保存设置" button and
+    // by "运行", so clicking Run alone (without a separate Save click
+    // first) still uses whatever the user just typed rather than a stale
+    // config object captured when the dialog opened.
+    const readConfigFields = (): JevConfig => ({
+      endpoint:
+        (
+          doc.getElementById(ID.endpoint) as HTMLInputElement | null
+        )?.value.trim() || config.endpoint,
+      apiKey:
+        (
+          doc.getElementById(ID.apiKey) as HTMLInputElement | null
+        )?.value.trim() ?? "",
+      model:
+        (
+          doc.getElementById(ID.model) as HTMLInputElement | null
+        )?.value.trim() || config.model,
+    });
+
+    doc.getElementById(ID.saveBtn)?.addEventListener("click", () => {
+      const next = readConfigFields();
+      setJevConfig(next);
+      config.endpoint = next.endpoint;
+      config.apiKey = next.apiKey;
+      config.model = next.model;
+      const statusEl = doc.getElementById(ID.saveStatus);
+      if (statusEl)
+        statusEl.textContent = getString("dialog-jev-settings-saved");
+    });
+
+    // A single round-trip against the CURRENT field values (not requiring
+    // a prior "保存设置" click), independent of any project's TA queue or
+    // criteria -- lets the user isolate "does a request to this endpoint
+    // even get a response at all" from the rest of the batch-run pipeline,
+    // which is exactly the question that mattered when a full run reported
+    // "failed" with no visible reason reaching aihubmix's own side at all.
+    doc.getElementById(ID.testBtn)?.addEventListener("click", async () => {
+      const btn = doc.getElementById(ID.testBtn) as HTMLButtonElement | null;
+      const statusEl = doc.getElementById(ID.testStatus) as HTMLElement | null;
+      const liveConfig = readConfigFields();
+      if (!isJevConfigured(liveConfig)) {
+        if (statusEl) {
+          statusEl.style.color = "#a33";
+          statusEl.textContent = getString(
+            "dialog-jev-settings-not-configured",
+          );
+        }
+        return;
+      }
+      btn?.setAttribute("disabled", "true");
+      if (statusEl) {
+        statusEl.style.color = "#888";
+        statusEl.textContent = getString("dialog-ai-provider-testing");
+      }
+      try {
+        await callJev(
+          liveConfig,
+          "Title: Connection test.\n\nAbstract: This is only a connection test, not a real screening item.",
+        );
+        if (statusEl) {
+          statusEl.style.color = "#2e7d32";
+          statusEl.textContent = getString("dialog-ai-provider-test-success");
+        }
+      } catch (e: any) {
+        if (statusEl) {
+          statusEl.style.color = "#a33";
+          statusEl.textContent = `${getString("dialog-ai-provider-test-failed")} ${e?.message ?? e}`;
+        }
+      } finally {
+        btn?.removeAttribute("disabled");
+      }
+    });
+
+    // Reflects the CURRENT (possibly cross-project, possibly started by an
+    // earlier open of this same dialog) run state onto the run/cancel
+    // buttons and status text -- called on open, after every project
+    // switch, and from the poller below. Without this, reopening the
+    // dialog while a batch kept running in the background (a plain
+    // promise in jevRunTracker.ts, not tied to any dialog's lifecycle)
+    // used to always redraw the idle "运行" button as if nothing were
+    // happening, with no way to see progress or stop it.
+    let wasRunning = false;
+    const syncNow = () =>
+      EvidenceCommands.syncJevRunUI(doc, ID, state.projectId);
+    syncNow();
+    wasRunning = isJevBatchRunning(state.projectId);
+
+    const pollHandle = win.setInterval(() => {
+      const running = isJevBatchRunning(state.projectId);
+      syncNow();
+      if (wasRunning && !running) {
+        // The batch that was running for the currently-selected project
+        // just finished (from this dialog's own click, another open of
+        // this dialog, or it simply ran to completion in the background)
+        // -- reload the results table so it reflects the new rows.
+        void refresh();
+      }
+      wasRunning = running;
+    }, 500);
+    dialogData.unloadLock.promise.then(() => win.clearInterval(pollHandle));
+
+    doc.getElementById(ID.cancelBtn)?.addEventListener("click", () => {
+      const project = currentProject();
+      const cancelled = requestJevBatchCancel(project.id);
+      const statusEl = doc.getElementById(ID.runStatus);
+      if (cancelled && statusEl) {
+        statusEl.textContent = getString("dialog-jev-run-cancelling");
+      }
+    });
+
+    doc.getElementById(ID.runBtn)?.addEventListener("click", async () => {
+      const project = currentProject();
+      const statusEl = doc.getElementById(ID.runStatus);
+      if (isJevBatchRunning(project.id)) {
+        if (statusEl) {
+          statusEl.textContent = getString("dialog-jev-run-already-running");
+        }
+        return;
+      }
+      const liveConfig = readConfigFields();
+      if (!isJevConfigured(liveConfig)) {
+        ztoolkit.getGlobal("alert")(
+          getString("dialog-jev-settings-not-configured"),
+        );
+        return;
+      }
+      // Persist whatever's currently in the fields -- see readConfigFields'
+      // doc comment; "运行" shouldn't require a separate "保存设置" click
+      // first.
+      setJevConfig(liveConfig);
+      config.endpoint = liveConfig.endpoint;
+      config.apiKey = liveConfig.apiKey;
+      config.model = liveConfig.model;
+
+      const criteriaRow = await getLatestCriteria(project.id, "ta");
+      if (!criteriaRow) {
+        ztoolkit.getGlobal("alert")(getString("dialog-jev-run-no-criteria"));
+        return;
+      }
+      const forceRerun =
+        (doc.getElementById(ID.forceCheckbox) as HTMLInputElement | null)
+          ?.checked ?? false;
+      // Disabled eagerly, synchronously, right here -- runJevBatch itself
+      // only registers with jevRunTracker (making isJevBatchRunning true)
+      // after its own first `await` inside, so syncNow() alone would leave
+      // a brief window where the button looks clickable again. The 500ms
+      // poller (which also flips on the cancel button once the tracker
+      // entry actually exists) converges the rest of the UI shortly after.
+      (doc.getElementById(ID.runBtn) as HTMLButtonElement | null)?.setAttribute(
+        "disabled",
+        "true",
+      );
+      const items = EvidenceCommands.getTaQueueItems(project);
+      try {
+        const result = await runJevBatch(project.id, liveConfig, items, {
+          forceRerun,
+          onProgress: (done, total) => {
+            if (statusEl) {
+              statusEl.textContent = getString("dialog-jev-run-progress", {
+                args: { done, total },
+              });
+            }
+          },
+        });
+        if (statusEl) {
+          const summary = getString("dialog-jev-run-done", {
+            args: {
+              succeeded: result.succeeded,
+              failed: result.failed,
+              skipped: result.skipped,
+            },
+          });
+          // The exact failure reason (e.g. a timeout, a TLS/connection
+          // error, an HTTP error body) shown right in the status line, not
+          // only in the separate failures dialog below -- that dialog is
+          // its own OS window and is easy to miss or lose behind this one.
+          const firstReason = result.failures[0]?.reason;
+          statusEl.textContent = firstReason
+            ? `${summary} — ${firstReason}`
+            : summary;
+        }
+        EvidenceCommands.showBatchFailuresDialog(result.failures);
+        await refresh();
+      } catch (e: any) {
+        if (statusEl) statusEl.textContent = e?.message ?? String(e);
+      } finally {
+        syncNow();
+      }
+    });
+
+    const applyFilter = () => void refresh();
+    for (const id of [
+      ID.minConfidence,
+      ID.filterInclude,
+      ID.filterExclude,
+      ID.filterUnclear,
+    ]) {
+      doc.getElementById(id)?.addEventListener("input", applyFilter);
+      doc.getElementById(id)?.addEventListener("change", applyFilter);
+    }
+
+    doc
+      .getElementById(ID.batchFetchBtn)
+      ?.addEventListener("click", async () => {
+        const project = currentProject();
+        const items = EvidenceCommands.getTaQueueItems(project);
+        const evaluations = await getLatestJevEvaluations(project.id);
+        const filter = EvidenceCommands.readJevFilter(doc, ID);
+        const targets: Zotero.Item[] = [];
+        for (const item of items) {
+          if (
+            !EvidenceCommands.passesJevFilter(evaluations.get(item.key), filter)
+          ) {
+            continue;
+          }
+          const attachment = await resolveAttachment(item);
+          if (!attachment) targets.push(item);
+        }
+        const statusEl = doc.getElementById(ID.batchFetchStatus);
+        if (targets.length === 0) {
+          if (statusEl) {
+            statusEl.textContent = getString("dialog-jev-batch-fetch-done", {
+              args: { succeeded: 0, failed: 0 },
+            });
+          }
+          return;
+        }
+        let done = 0;
+        let succeeded = 0;
+        const failures: { title: string; reason: string }[] = [];
+        for (const item of targets) {
+          try {
+            const added = await Zotero.Attachments.addAvailableFile(item);
+            if (added) succeeded++;
+            else {
+              failures.push({
+                title: item.getDisplayTitle(),
+                reason: getString("dialog-jev-fetch-fulltext-failed"),
+              });
+            }
+          } catch (e: any) {
+            failures.push({
+              title: item.getDisplayTitle(),
+              reason: e?.message ?? String(e),
+            });
+          }
+          done++;
+          if (statusEl) {
+            statusEl.textContent = getString(
+              "dialog-jev-batch-fetch-progress",
+              {
+                args: { done, total: targets.length },
+              },
+            );
+          }
+        }
+        if (statusEl) {
+          statusEl.textContent = getString("dialog-jev-batch-fetch-done", {
+            args: { succeeded, failed: failures.length },
+          });
+        }
+        EvidenceCommands.showBatchFailuresDialog(failures);
+        await refresh();
+      });
   }
 
   /**

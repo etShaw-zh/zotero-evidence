@@ -197,6 +197,9 @@ function onDialogEvents(type: string) {
     case "evidenceCriteria":
       EvidenceCommands.criteriaDialog();
       break;
+    case "evidenceJevPreEval":
+      EvidenceCommands.jevPreEvalDialog();
+      break;
     case "evidenceAIProvider":
       EvidenceCommands.aiProviderDialog();
       break;
