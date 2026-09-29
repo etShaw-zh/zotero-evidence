@@ -22,10 +22,13 @@ Define a **Codebook**, and Zotero Evidence extracts evidence from your literatur
 
 Each value remains traceable to its supporting evidence in the original paper.
 
+> **New:** JEV model support — a faster, lighter model pre-screens with confidence scores before you review. See [JEV pre-evaluation](#jev-pre-evaluation).
+
 ## Features
 
 - **Import & dedup** — import RIS/BibTeX/MEDLINE/PubMed XML; duplicates removed automatically.
 - **Title/Abstract screening** — AI suggests Include/Exclude/Unclear for each paper with reasoning; you confirm.
+- **JEV pre-evaluation** _(optional)_ — a faster model gives a quick, confidence-scored pass before you screen.
 - **Full-text screening** — AI checks each paper against every criterion with highlighted evidence; you confirm.
 - **Extract coding** — AI extracts data into your Codebook, backed by highlighted quotes; you confirm.
 - **Synthesis** — AI groups confirmed evidence into themes with one click.
@@ -56,6 +59,15 @@ For a second opinion instead of just AI-vs-human:
 
 Repeat steps 1–4 as many times as you like, and every round's own agreement/ϰ stays listed in the dialog.
 
+### JEV pre-evaluation
+
+An optional AI pre-screening pass over `TA-Screen Queue`, ahead of (or alongside) your own screening — useful for spotting likely-relevant items early and getting their PDFs ready in advance.
+
+1. **File → Screening Criteria → JEV Pre-evaluation…** — set the JEV endpoint (defaults to aihubmix's `/v1/systemone`) and API key, and use **Test Connection** to confirm it's reachable before running a full batch.
+2. Click **Run JEV Pre-evaluation**. Each item gets include/exclude/unclear probabilities and a confidence score; re-running only evaluates items that don't already have a result, unless you check "re-evaluate already-completed items." A running batch can be cancelled at any time, and reopening the dialog mid-run picks its progress back up.
+3. Filter by minimum confidence and/or decision to focus on the items that matter most, then fetch full text for them — one at a time, or in bulk for everything currently in view — via Zotero's own full-text retrieval.
+4. During Title/Abstract screening, each item's JEV result appears as a clearly labeled reference card. It's informational only: your Include/Exclude/Unclear call is the one that counts.
+
 ## Development
 
 Built with [zotero-plugin-scaffold](https://github.com/northword/zotero-plugin-scaffold) and [zotero-plugin-toolkit](https://github.com/windingwind/zotero-plugin-toolkit).
@@ -80,12 +92,12 @@ src/
 |   |-- project/      # project + Collection structure
 |   |-- import/       # Zotero.Translate.Import wrapper
 |   |-- dedup/        # DOI-first / title+author+year dedup
-|   |-- screening/    # TA judgment, FT per-criterion checklist, criteria, decisions
+|   |-- screening/    # TA judgment, FT per-criterion checklist, criteria, decisions, JEV pre-evaluation
 |   |-- consistency/  # Human-AI & human-human screening consistency (Cohen's ϰ)
 |   |-- coding/       # Codebook + Extract Coding services
 |   |-- synthesis/    # theme mining over confirmed coding evidence
 |   |-- pdf/          # text extraction, quote location, highlights
-|   |-- ai/           # AI provider config, chat completions, usage tracking
+|   |-- ai/           # AI provider config, chat completions, usage tracking, JEV client
 |   |-- export/       # PRISMA / screening log / coding export
 |   |-- archive/      # project archive export/restore (.zip)
 |   |-- db/           # SQLite schema and migrations
