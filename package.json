@@ -39,7 +39,7 @@
     "@types/node": "^26.6.2",
     "@zotero-plugin/eslint-config": "^0.6.10",
     "chai": "^6.2.2",
-    "eslint": "^9.39.2",
+    "eslint": "^10.11.0",
     "mocha": "^11.7.5",
     "prettier": "^3.9.9",
     "typescript": "^6.0.3",
