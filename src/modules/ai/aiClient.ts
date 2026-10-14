@@ -1,3 +1,4 @@
+import { getPref } from "../../utils/prefs";
 import { AIProviderConfig } from "./providerConfig";
 import {
   AIUsagePurpose,
@@ -30,7 +31,8 @@ export function extractProviderErrorMessage(body: unknown): string | null {
 /**
  * A sentence to append to a screening prompt's system message so its
  * free-text `reasoning` comes back in whatever language Zotero's own UI is
- * currently set to (Zotero.locale, e.g. "zh-CN"), rather than whatever the
+ * currently set to by default, with an independent reasoningLanguage override,
+ * rather than whatever the
  * model defaults to (usually English, or an inconsistent mix that follows
  * the source text). `Zotero.Locale.availableLocales` is the exact same
  * locale-code -> native-name table Zotero's own language picker uses, so
@@ -39,10 +41,17 @@ export function extractProviderErrorMessage(body: unknown): string | null {
  * copies of the source text, never translated.
  */
 export function reasoningLanguageInstruction(): string {
-  const name = Zotero.Locale.availableLocales?.[Zotero.locale];
+  const preferred = getPref(
+    "reasoningLanguage",
+  ) as keyof typeof Zotero.Locale.availableLocales;
+  const locale =
+    preferred && Zotero.Locale.availableLocales?.[preferred]
+      ? preferred
+      : Zotero.locale;
+  const name = Zotero.Locale.availableLocales?.[locale];
   if (!name) return "";
   return (
-    ` Write the "reasoning" field in ${name} (${Zotero.locale}), regardless ` +
+    ` Write the "reasoning" field in ${name} (${locale}), regardless ` +
     "of what language the source text is in."
   );
 }

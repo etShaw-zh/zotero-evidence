@@ -1,3 +1,4 @@
+import { localizeError } from "../../utils/localizedError";
 import { getString } from "../../utils/locale";
 import { safeGetField } from "../../utils/zoteroItem";
 import { AIRunProgress } from "../ai/aiRunTracker";
@@ -555,7 +556,7 @@ export function renderPaneError(
   container: HTMLElement,
   error: unknown,
 ) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = localizeError(error);
   container.appendChild(
     el(doc, "p", {
       classList: ["zotero-evidence-pane-error"],

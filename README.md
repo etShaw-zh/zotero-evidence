@@ -1,5 +1,7 @@
 # Zotero Evidence
 
+[繁體中文（台灣）安裝與語系說明](README.zh-TW.md) · [Localization review](LOCALIZATION-REVIEW.md)
+
 [![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=logo=github)](https://github.com/windingwind/zotero-plugin-template)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![zotero target version](https://img.shields.io/badge/Zotero-7|8|9|10-green?style=&logo=zotero&logoColor=CC2936)](https://www.zotero.org)

@@ -84,6 +84,33 @@ function renderStatus(): boolean {
   const api = getApi();
   if (!statusEl || !api) return false;
   statusEl.textContent = api.getActiveProviderSummary();
+  const select = document.getElementById(
+    "zotero-evidence-reasoning-language",
+  ) as HTMLSelectElement | null;
+  if (select && !select.dataset.initialized) {
+    for (const [locale, name] of Object.entries(
+      Zotero.Locale.availableLocales,
+    )) {
+      const option = document.createElementNS(
+        "http://www.w3.org/1999/xhtml",
+        "option",
+      ) as HTMLOptionElement;
+      option.value = locale;
+      option.textContent = name;
+      select.appendChild(option);
+    }
+    select.value = String(
+      Zotero.Prefs.get(`${config.prefsPrefix}.reasoningLanguage`, true) || "",
+    );
+    select.addEventListener("change", () => {
+      Zotero.Prefs.set(
+        `${config.prefsPrefix}.reasoningLanguage`,
+        select.value,
+        true,
+      );
+    });
+    select.dataset.initialized = "true";
+  }
   return true;
 }
 
