@@ -1,3 +1,4 @@
+import { localizeError } from "../../utils/localizedError";
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
 import { getConsistencyItemResult } from "../consistency/consistencyItemResultsService";
@@ -118,7 +119,7 @@ async function renderJudgmentContent(
       );
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
-        `${getString("ta-queue-error-run-ai")}\n${e?.message ?? e}`,
+        `${getString("ta-queue-error-run-ai")}\n${localizeError(e)}`,
       );
       runBtn.removeAttribute("disabled");
       runBtn.textContent = getString("ta-queue-run-ai");
@@ -216,7 +217,7 @@ async function renderJudgmentContent(
           )
         : escapeHtml(
             getString("ta-jev-card-error", {
-              args: { reason: jevEvaluation.errorMessage || "" },
+              args: { reason: localizeError(jevEvaluation.errorMessage || "") },
             }),
           );
     container.appendChild(
@@ -300,7 +301,7 @@ async function renderJudgmentContent(
         .show();
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
-        `${getString("ta-queue-error-confirm")}\n${e?.message ?? e}`,
+        `${getString("ta-queue-error-confirm")}\n${localizeError(e)}`,
       );
     }
   };
@@ -426,7 +427,7 @@ async function renderHistoryArea(
                 .show();
             } catch (e: any) {
               ztoolkit.getGlobal("alert")(
-                `${getString("ta-queue-error-undo")}\n${e?.message ?? e}`,
+                `${getString("ta-queue-error-undo")}\n${localizeError(e)}`,
               );
             }
           },

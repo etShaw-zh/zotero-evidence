@@ -1,3 +1,4 @@
+import { localizeError } from "../../utils/localizedError";
 import { FluentMessageId } from "../../../typings/i10n";
 import { config } from "../../../package.json";
 import { getString } from "../../utils/locale";
@@ -929,7 +930,7 @@ export class EvidenceCommands {
     const outputPath = await new ztoolkit.FilePicker(
       getString("dialog-archive-project-title"),
       "save",
-      [["Zip Archive (*.zip)", "*.zip"]],
+      [[getString("file-filter-zip"), "*.zip"]],
       `${project.name}.zip`,
     ).open();
     if (!outputPath || typeof outputPath !== "string") return;
@@ -1068,7 +1069,7 @@ export class EvidenceCommands {
                 const path = await new ztoolkit.FilePicker(
                   getString("dialog-import-file-button"),
                   "open",
-                  [["Zip Archive (*.zip)", "*.zip"]],
+                  [[getString("file-filter-zip"), "*.zip"]],
                 ).open();
                 if (path && typeof path === "string") {
                   dialogData.filePath = path;
@@ -1353,7 +1354,7 @@ export class EvidenceCommands {
                       "RIS/BibTeX/MEDLINE/XML (*.ris;*.bib;*.txt;*.xml;*.nbib)",
                       "*.ris;*.bib;*.txt;*.xml;*.nbib",
                     ],
-                    ["Any", "*.*"],
+                    [getString("file-filter-all"), "*.*"],
                   ],
                 ).open();
                 if (path && typeof path === "string") {
@@ -1461,7 +1462,7 @@ export class EvidenceCommands {
           } catch (e: any) {
             ztoolkit.log("Import failed", e);
             if (statusEl) {
-              statusEl.textContent = `${getString("error-import-failed")} ${e?.message ?? e}`;
+              statusEl.textContent = `${getString("error-import-failed")} ${localizeError(e)}`;
             }
             if (confirmBtn) confirmBtn.disabled = false;
             if (cancelBtn) cancelBtn.disabled = false;
@@ -1595,7 +1596,7 @@ export class EvidenceCommands {
                       "RIS/BibTeX/MEDLINE/XML (*.ris;*.bib;*.txt;*.xml;*.nbib)",
                       "*.ris;*.bib;*.txt;*.xml;*.nbib",
                     ],
-                    ["Any", "*.*"],
+                    [getString("file-filter-all"), "*.*"],
                   ],
                 ).open();
                 if (path && typeof path === "string") {
@@ -1657,7 +1658,7 @@ export class EvidenceCommands {
     } catch (e: any) {
       ztoolkit.log("Import Extract Literature failed", e);
       ztoolkit.getGlobal("alert")(
-        `${getString("error-import-failed")}\n${e?.message ?? e}`,
+        `${getString("error-import-failed")}\n${localizeError(e)}`,
       );
     }
   }
@@ -2063,7 +2064,7 @@ export class EvidenceCommands {
       } else {
         statusTd.textContent = getString("dialog-jev-status-error");
         statusTd.style.color = "#a33";
-        statusTd.title = evaluation.errorMessage ?? "";
+        statusTd.title = localizeError(evaluation.errorMessage ?? "");
       }
       tr.appendChild(statusTd);
 
@@ -2097,7 +2098,7 @@ export class EvidenceCommands {
             : getString("dialog-jev-fetch-fulltext-failed");
         } catch (e: any) {
           fulltextTd.textContent = getString("dialog-jev-fulltext-no");
-          fulltextTd.title = e?.message ?? String(e);
+          fulltextTd.title = localizeError(e);
         } finally {
           fetchBtn.removeAttribute("disabled");
         }
@@ -2597,7 +2598,7 @@ export class EvidenceCommands {
       } catch (e: any) {
         if (statusEl) {
           statusEl.style.color = "#a33";
-          statusEl.textContent = `${getString("dialog-ai-provider-test-failed")} ${e?.message ?? e}`;
+          statusEl.textContent = `${getString("dialog-ai-provider-test-failed")} ${localizeError(e)}`;
         }
       } finally {
         btn?.removeAttribute("disabled");
@@ -2709,13 +2710,13 @@ export class EvidenceCommands {
           // its own OS window and is easy to miss or lose behind this one.
           const firstReason = result.failures[0]?.reason;
           statusEl.textContent = firstReason
-            ? `${summary} — ${firstReason}`
+            ? `${summary} — ${localizeError(firstReason)}`
             : summary;
         }
         EvidenceCommands.showBatchFailuresDialog(result.failures);
         await refresh();
       } catch (e: any) {
-        if (statusEl) statusEl.textContent = e?.message ?? String(e);
+        if (statusEl) statusEl.textContent = localizeError(e);
       } finally {
         syncNow();
       }
@@ -2774,7 +2775,7 @@ export class EvidenceCommands {
           } catch (e: any) {
             failures.push({
               title: item.getDisplayTitle(),
-              reason: e?.message ?? String(e),
+              reason: localizeError(e),
             });
           }
           done++;
@@ -3221,7 +3222,7 @@ export class EvidenceCommands {
                       else resultsEl.setAttribute("hidden", "true");
                     } catch (e: any) {
                       ztoolkit.getGlobal("alert")(
-                        `${getString("dialog-ai-provider-fetch-models-error")}\n${e?.message ?? e}`,
+                        `${getString("dialog-ai-provider-fetch-models-error")}\n${localizeError(e)}`,
                       );
                     } finally {
                       btn.removeAttribute("disabled");
@@ -3342,7 +3343,7 @@ export class EvidenceCommands {
                       );
                     } catch (e: any) {
                       statusEl.style.color = "#a33";
-                      statusEl.textContent = `${getString("dialog-ai-provider-test-failed")} ${e?.message ?? e}`;
+                      statusEl.textContent = `${getString("dialog-ai-provider-test-failed")} ${localizeError(e)}`;
                     } finally {
                       btn.removeAttribute("disabled");
                     }
@@ -3758,7 +3759,7 @@ export class EvidenceCommands {
       } catch (e: any) {
         failures.push({
           title: item.getDisplayTitle(),
-          reason: e?.message ?? String(e),
+          reason: localizeError(e),
         });
         ztoolkit.log("Batch AI judgment failed", item.key, e);
       }
@@ -3907,7 +3908,7 @@ export class EvidenceCommands {
       } catch (e: any) {
         failures.push({
           title: item.getDisplayTitle(),
-          reason: e?.message ?? String(e),
+          reason: localizeError(e),
         });
         ztoolkit.log("Batch FT criterion check failed", item.key, e);
       }
@@ -3979,7 +3980,7 @@ export class EvidenceCommands {
       } catch (e: any) {
         failures.push({
           title: item.getDisplayTitle(),
-          reason: e?.message ?? String(e),
+          reason: localizeError(e),
         });
         ztoolkit.log("Batch Coding AI suggestion failed", item.key, e);
       }
@@ -4264,10 +4265,13 @@ export class EvidenceCommands {
           tag: "select",
           namespace: "html",
           attributes: { "data-bind": "type", "data-prop": "value" },
-          children: ["text", "categorical", "numeric"].map((t) => ({
+          children: (["text", "categorical", "numeric"] as const).map((t) => ({
             tag: "option",
             namespace: "html",
-            properties: { value: t, innerHTML: t },
+            properties: {
+              value: t,
+              innerHTML: getString(`codebook-type-${t}`),
+            },
           })),
         },
         false,
@@ -4464,7 +4468,7 @@ export class EvidenceCommands {
           .filter(Boolean)
           .join(", ");
         const valuesText = v.values?.length ? ` [${v.values.join(", ")}]` : "";
-        return `${v.name} (${v.type}${flags ? ", " + flags : ""})${valuesText}`;
+        return `${v.name} (${getString(`codebook-type-${v.type}`)}${flags ? ", " + flags : ""})${valuesText}`;
       });
       container.textContent = lines.join("\n");
     };
@@ -4661,11 +4665,16 @@ export class EvidenceCommands {
             namespace: "html",
             id: "evidence-codebook-edit-type",
             attributes: { "data-bind": "type", "data-prop": "value" },
-            children: ["text", "categorical", "numeric"].map((t) => ({
-              tag: "option",
-              namespace: "html",
-              properties: { value: t, innerHTML: t },
-            })),
+            children: (["text", "categorical", "numeric"] as const).map(
+              (t) => ({
+                tag: "option",
+                namespace: "html",
+                properties: {
+                  value: t,
+                  innerHTML: getString(`codebook-type-${t}`),
+                },
+              }),
+            ),
           },
           false,
         )
@@ -4920,7 +4929,7 @@ export class EvidenceCommands {
           .show();
       } catch (e: any) {
         ztoolkit.log("Save codebook variable failed", e);
-        ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+        ztoolkit.getGlobal("alert")(localizeError(e));
       }
       return;
     }
@@ -5083,7 +5092,7 @@ export class EvidenceCommands {
           .show();
       } catch (e: any) {
         ztoolkit.log("Delete codebook variable failed", e);
-        ztoolkit.getGlobal("alert")(e?.message ?? String(e));
+        ztoolkit.getGlobal("alert")(localizeError(e));
       }
       return;
     }
@@ -5311,7 +5320,7 @@ export class EvidenceCommands {
           // area stuck or silently empty if rendering/fetching fails.
           ztoolkit.log("Synthesis table render failed", e);
           if (tableContainer) {
-            tableContainer.textContent = `${getString("synthesis-error")} ${e?.message ?? e}`;
+            tableContainer.textContent = `${getString("synthesis-error")} ${localizeError(e)}`;
           }
         }
       };
@@ -5355,7 +5364,7 @@ export class EvidenceCommands {
         } catch (e: any) {
           if (statusEl) statusEl.textContent = getString("synthesis-error");
           ztoolkit.getGlobal("alert")(
-            `${getString("synthesis-error")}\n${e?.message ?? e}`,
+            `${getString("synthesis-error")}\n${localizeError(e)}`,
           );
         } finally {
           runBtn.removeAttribute("disabled");
@@ -5644,7 +5653,7 @@ export class EvidenceCommands {
         } catch (e: any) {
           if (statusEl) statusEl.textContent = getString("consistency-error");
           ztoolkit.getGlobal("alert")(
-            `${getString("consistency-error")}\n${e?.message ?? e}`,
+            `${getString("consistency-error")}\n${localizeError(e)}`,
           );
         } finally {
           runBtn?.removeAttribute("disabled");
@@ -5805,7 +5814,7 @@ export class EvidenceCommands {
       };
       const setError = (e: any) => {
         setStatus(
-          `${getString("human-consistency-error")}: ${e?.message ?? e}`,
+          `${getString("human-consistency-error")}: ${localizeError(e)}`,
         );
       };
 
@@ -5818,7 +5827,7 @@ export class EvidenceCommands {
         const path = await new ztoolkit.FilePicker(
           getString("human-consistency-archive-save-title"),
           "save",
-          [["Zip Archive (*.zip)", "*.zip"]],
+          [[getString("file-filter-zip"), "*.zip"]],
           `${currentProjectName()}-${suffix}.zip`,
         ).open();
         return path && typeof path === "string" ? path : null;
@@ -5950,7 +5959,7 @@ export class EvidenceCommands {
           makeChooseRow(
             getString("human-consistency-recover-choose-archive-button"),
             getString("human-consistency-recover-archive-title"),
-            ["Zip Archive (*.zip)", "*.zip"],
+            [getString("file-filter-zip"), "*.zip"],
             (path) => {
               archivePath = path;
             },
@@ -6132,7 +6141,7 @@ export class EvidenceCommands {
         } catch (e: any) {
           const errP = doc!.createElementNS(HTML_NS, "p") as HTMLElement;
           errP.style.cssText = "margin:10px 0;color:#a33;";
-          errP.textContent = `${getString("human-consistency-error")}: ${e?.message ?? e}`;
+          errP.textContent = `${getString("human-consistency-error")}: ${localizeError(e)}`;
           contentEl.appendChild(errP);
           return;
         }

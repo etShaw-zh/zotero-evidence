@@ -1,3 +1,4 @@
+import { localizeError } from "../../utils/localizedError";
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
 import { getRunProgress } from "../ai/aiRunTracker";
@@ -215,7 +216,7 @@ function renderInlineLinkPicker(
             onChanged();
           } catch (e: any) {
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-link")}\n${e?.message ?? e}`,
+              `${getString("coding-error-link")}\n${localizeError(e)}`,
             );
           }
         },
@@ -342,9 +343,9 @@ function renderInlineReviewForm(
     const v = variables.find((x) => x.name === variableSelect.value);
     if (!v) return;
     const summary = [
-      v.type,
-      v.multiple ? "multiple" : null,
-      v.required ? "required" : null,
+      getString(`codebook-type-${v.type}`),
+      v.multiple ? getString("codebook-view-multiple") : null,
+      v.required ? getString("codebook-view-required") : null,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -434,7 +435,7 @@ function renderInlineReviewForm(
             onChanged();
           } catch (e: any) {
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-review-save")}\n${e?.message ?? e}`,
+              `${getString("coding-error-review-save")}\n${localizeError(e)}`,
             );
           }
         },
@@ -568,7 +569,7 @@ function renderSuggestionRow(
               onChanged();
             } catch (e: any) {
               ztoolkit.getGlobal("alert")(
-                `${getString("coding-error-confirm")}\n${e?.message ?? e}`,
+                `${getString("coding-error-confirm")}\n${localizeError(e)}`,
               );
             }
           },
@@ -619,7 +620,7 @@ function renderSuggestionRow(
             onChanged();
           } catch (e: any) {
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-reject")}\n${e?.message ?? e}`,
+              `${getString("coding-error-reject")}\n${localizeError(e)}`,
             );
           }
         },
@@ -915,7 +916,7 @@ function renderConfirmedList(
                 onConfirmedChanged();
               } catch (e: any) {
                 ztoolkit.getGlobal("alert")(
-                  `${getString("coding-error-undo")}\n${e?.message ?? e}`,
+                  `${getString("coding-error-undo")}\n${localizeError(e)}`,
                 );
               }
             },
@@ -1061,7 +1062,7 @@ async function renderManualAddForm(
             onChanged();
           } catch (e: any) {
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-manual-add")}\n${e?.message ?? e}`,
+              `${getString("coding-error-manual-add")}\n${localizeError(e)}`,
             );
           }
         },
@@ -1104,7 +1105,7 @@ function renderKeyLiteratureToggle(
             onChanged();
           } catch (e: any) {
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-flag")}\n${e?.message ?? e}`,
+              `${getString("coding-error-flag")}\n${localizeError(e)}`,
             );
           }
         },
@@ -1173,7 +1174,7 @@ async function renderNotesSection(
               .show();
           } catch (e: any) {
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-note-save")}\n${e?.message ?? e}`,
+              `${getString("coding-error-note-save")}\n${localizeError(e)}`,
             );
           }
         },
@@ -1372,7 +1373,7 @@ async function renderCodingArea(
           } catch (e: any) {
             ztoolkit.log("Coding generateSuggestions failed", item.key, e);
             ztoolkit.getGlobal("alert")(
-              `${getString("coding-error-generate")}\n${e?.message ?? e}`,
+              `${getString("coding-error-generate")}\n${localizeError(e)}`,
             );
             generateBtn.removeAttribute("disabled");
             generateBtn.textContent = generateLabel;

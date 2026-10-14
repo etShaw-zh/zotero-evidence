@@ -7,14 +7,14 @@ export default defineConfig({
   name: pkg.config.addonName,
   id: pkg.config.addonID,
   namespace: pkg.config.addonRef,
-  updateURL: `https://github.com/{{owner}}/{{repo}}/releases/download/release/${
+  updateURL: `https://github.com/jackke123/zotero-evidence/releases/download/release/${
     pkg.version.includes("-") ? "update-beta.json" : "update.json"
   }`,
   xpiDownloadLink:
-    "https://github.com/{{owner}}/{{repo}}/releases/download/v{{version}}/{{xpiName}}.xpi",
+    "https://github.com/jackke123/zotero-evidence/releases/download/v{{version}}/{{xpiName}}.xpi",
 
   build: {
-    assets: ["addon/**/*.*"],
+    assets: ["addon/**/*.*", "addon/LICENSE", "addon/NOTICE"],
     define: {
       ...pkg.config,
       author: pkg.author,

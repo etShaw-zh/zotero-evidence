@@ -520,3 +520,44 @@ ta-jev-card-title = JEV 预评估（参考，非最终判断）
 ta-jev-card-model = 模型：{ $model } · { $time }
 ta-jev-card-confidence = 置信度 { $confidence }
 ta-jev-card-error = 上次运行失败：{ $reason }
+
+codebook-type-categorical = 类别
+codebook-type-numeric = 数值
+codebook-type-text = 文本
+prefs-reasoning-language-label = AI 筛选理由语言
+prefs-reasoning-language-auto = 跟随 Zotero 语言（原有默认值）
+prefs-reasoning-language-hint = 仅控制筛选理由。原文证据及编码值不翻译；其他 AI 输出沿用现有提示词。
+
+error-detail-no-provider = No AI provider configured.
+error-detail-no-criteria = No screening criteria configured for this project.
+error-detail-no-ta-criteria = No TA screening criteria configured for this project.
+error-detail-fulltext-not-ready = Full text has not been confirmed ready for this item yet.
+error-detail-pdf-read = Could not read full text from the PDF attachment.
+error-detail-no-codebook = No Codebook configured for this project.
+error-detail-no-records = No confirmed coding records for this variable yet.
+error-detail-project-missing = Project not found.
+error-detail-collection-missing = Project collection not found.
+error-detail-sample-empty = No items in the queue to sample from.
+error-detail-screening-csv = This file doesn't look like a Zotero Evidence screening log CSV.
+error-detail-reviewers-required = Both reviewers' CSVs must be collected first.
+error-detail-archive-invalid = This file doesn't look like a Zotero Evidence archive (manifest.json missing).
+error-detail-new-root-missing = Failed to resolve the newly created project's root collection.
+error-detail-import-unavailable = Zotero.Translate.Import is not available in this Zotero build.
+error-detail-models-url = Could not derive a /models URL from this base URL (expected it to end with /chat/completions).
+error-detail-models-response = Unexpected response shape from /models (no data[] array).
+error-detail-ai-response = AI provider response did not contain choices[0].message.content
+error-detail-jev-response = JEV response did not contain a valid answers.decision.choice
+error-detail-worker-unavailable = Worker constructor not available on the main window.
+error-detail-pdf-structure = Failed to create structured text
+error-detail-pdf-open = Failed to open document
+error-detail-db-not-ready = DatabaseService not initialized. Call init() first.
+
+error-detail-project-id = No evidence project found with id { $detail }
+error-detail-root = Root collection not found for project "{ $detail }"
+error-detail-structure = Project collection structure is incomplete for collection { $detail }
+error-detail-created = Failed to read back newly created project for collection { $detail }
+error-detail-translator = No Zotero import translator recognized this file: { $detail }
+error-detail-pdf-page = Failed to load page { $detail }
+
+file-filter-zip = ZIP 压缩文件 (*.zip)
+file-filter-all = 所有文件

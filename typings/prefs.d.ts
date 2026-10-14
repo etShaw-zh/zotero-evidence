@@ -10,6 +10,7 @@ declare namespace _ZoteroTypes {
       "aiProviders": string;
       "activeProviderId": string;
       "jevConfig": string;
+      "reasoningLanguage": string;
     };
   }
 }

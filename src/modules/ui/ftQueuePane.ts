@@ -1,3 +1,4 @@
+import { localizeError } from "../../utils/localizedError";
 import { config } from "../../../package.json";
 import { getLocaleID, getString } from "../../utils/locale";
 import { getRunProgress } from "../ai/aiRunTracker";
@@ -250,7 +251,7 @@ function renderFtLinkPicker(
               onChanged();
             } catch (e: any) {
               ztoolkit.getGlobal("alert")(
-                `${getString("ft-queue-error-link-annotation")}\n${e?.message ?? e}`,
+                `${getString("ft-queue-error-link-annotation")}\n${localizeError(e)}`,
               );
             }
           },
@@ -460,7 +461,7 @@ function renderFtCheckRow(
                   onChanged();
                 } catch (e: any) {
                   ztoolkit.getGlobal("alert")(
-                    `${getString("ft-queue-checks-error")}\n${e?.message ?? e}`,
+                    `${getString("ft-queue-checks-error")}\n${localizeError(e)}`,
                   );
                 }
               },
@@ -861,7 +862,7 @@ function renderFtManualCheckForm(
               onAdded();
             } catch (e: any) {
               ztoolkit.getGlobal("alert")(
-                `${getString("coding-error-manual-add")}\n${e?.message ?? e}`,
+                `${getString("coding-error-manual-add")}\n${localizeError(e)}`,
               );
             }
           },
@@ -997,7 +998,7 @@ async function renderFtPreScreenArea(
                   .show();
               } catch (e: any) {
                 ztoolkit.getGlobal("alert")(
-                  `${getString("ft-queue-error-unavailable")}\n${e?.message ?? e}`,
+                  `${getString("ft-queue-error-unavailable")}\n${localizeError(e)}`,
                 );
               }
             },
@@ -1114,7 +1115,7 @@ async function renderFtChecklistArea(
       await rerender();
     } catch (e: any) {
       ztoolkit.getGlobal("alert")(
-        `${getString("ft-queue-checks-error")}\n${e?.message ?? e}`,
+        `${getString("ft-queue-checks-error")}\n${localizeError(e)}`,
       );
       runBtn.removeAttribute("disabled");
       runBtn.textContent = idleRunLabel;
@@ -1276,7 +1277,7 @@ async function renderFtChecklistArea(
                   .show();
               } catch (e: any) {
                 ztoolkit.getGlobal("alert")(
-                  `${getString("ft-queue-error-confirm")}\n${e?.message ?? e}`,
+                  `${getString("ft-queue-error-confirm")}\n${localizeError(e)}`,
                 );
               }
             },
@@ -1383,7 +1384,7 @@ async function renderFtHistoryArea(
                 .show();
             } catch (e: any) {
               ztoolkit.getGlobal("alert")(
-                `${getString("ft-queue-error-undo")}\n${e?.message ?? e}`,
+                `${getString("ft-queue-error-undo")}\n${localizeError(e)}`,
               );
             }
           },
